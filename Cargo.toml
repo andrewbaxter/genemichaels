@@ -1,0 +1,15 @@
+[package]
+name = "formatty"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.66"
+clap = { version = "4.0.29", features = ["derive"] }
+proc-macro2 = { version = "1.0.47", features = ["span-locations"] }
+pulldown-cmark = "0.9.2"
+quote = "1.0.21"
+structre = "0.0.1"
+syn = { version = "1.0.105", features = ["full"] }
