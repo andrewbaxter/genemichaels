@@ -90,10 +90,12 @@ pub(crate) fn append_path<'a>(
 ) {
     let indent = base_indent.clone();
     for (i, seg) in pairs.enumerate() {
-        if i > 0 {
+        if i > 0 || prefix {
             node.seg(out, "::");
         }
-        node.split(out, indent.clone());
+        if i > 0 {
+            node.split(out, indent.clone());
+        }
         node.seg(out, &seg.value().ident.to_string());
         match &seg.value().arguments {
             syn::PathArguments::None => {}
@@ -454,7 +456,7 @@ impl Formattable for &Type {
                 node.build()
             }
             Type::Infer(_) => new_sg_lit(out, "_"),
-            Type::Macro(x) => new_sg_macro(out, base_indent, &x.mac),
+            Type::Macro(x) => new_sg_macro(out, base_indent, &x.mac, false),
             Type::Never(_) => new_sg_lit(out, "!"),
             Type::Paren(x) => {
                 let mut node = new_sg();
@@ -562,8 +564,30 @@ impl Formattable for FnArg {
         base_indent: &Alignment,
     ) -> Rc<RefCell<SplitGroup>> {
         match self {
-            FnArg::Receiver(x) => todo!(),
-            FnArg::Typed(x) => todo!(),
+            FnArg::Receiver(x) => new_sg_attrs(
+                out,
+                base_indent,
+                &x.attrs,
+                |out: &mut MakeSegsState, _base_indent: &Alignment| {
+                    let mut prefix = String::new();
+                    if x.reference.is_some() {
+                        prefix.write_str("&").unwrap();
+                    }
+                    if x.mutability.is_some() {
+                        prefix.write_str("mut ").unwrap();
+                    }
+                    prefix.write_str("self").unwrap();
+                    new_sg_lit(out, prefix)
+                },
+            ),
+            FnArg::Typed(x) => new_sg_attrs(
+                out,
+                base_indent,
+                &x.attrs,
+                |out: &mut MakeSegsState, base_indent: &Alignment| {
+                    new_sg_binary(out, base_indent, x.pat.as_ref(), ":", x.ty.as_ref())
+                },
+            ),
         }
     }
 }

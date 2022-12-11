@@ -71,7 +71,7 @@ impl Formattable for &Pat {
                 base_indent,
                 &x.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    new_sg_macro(out, base_indent, &x.mac)
+                    new_sg_macro(out, base_indent, &x.mac, false)
                 },
             ),
             Pat::Or(x) => new_sg_attrs(
