@@ -9,6 +9,21 @@ use crate::{
     SplitGroupBuilder,
 };
 
+pub(crate) fn build_rev_pair(
+    out: &mut MakeSegsState,
+    base_indent: &Alignment,
+    base: impl Formattable,
+    right: impl Formattable,
+) -> Rc<RefCell<SplitGroup>> {
+    let mut node = new_sg();
+    node.child(base.make_segs(out, base_indent));
+    node.seg(out, " ");
+    node.child(right.make_segs(out, base_indent));
+    let out = node.build();
+    out.borrow_mut().children.reverse();
+    out
+}
+
 pub(crate) fn append_binary(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
@@ -244,131 +259,145 @@ pub(crate) fn new_sg_macro(
 pub(crate) fn append_macro_body(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
-    node: &mut SplitGroupBuilder,
+    sg: &mut SplitGroupBuilder,
     tokens: TokenStream,
 ) {
     if let Ok(exprs) = syn::parse2::<ExprCall>(quote! { f(#tokens) }) {
-        append_inline_list(out, base_indent, node, ",", true, &exprs.args);
+        append_inline_list(out, base_indent, sg, ",", true, &exprs.args);
     } else if let Ok(block) = syn::parse2::<Block>(quote! { { #tokens } }) {
-        append_statement_list(out, base_indent, node, &block.stmts);
+        append_statement_list(out, base_indent, sg, &block.stmts);
     } else {
-        fn recurse_tokens(
-            out: &mut MakeSegsState,
-            base_indent: &Alignment,
-            sg: &mut SplitGroupBuilder,
-            tokens: TokenStream,
-        ) {
-            #[derive(PartialEq)]
-            enum ConsecMode {
-                StartJoin(bool), // Start, joining punct (.)
-                IdentLit,        // Idents, literals
-                Punct,           // Other punctuation
-            }
-            let mut mode = ConsecMode::StartJoin(false);
-            if !tokens.is_empty() {
-                sg.split(out, base_indent.clone());
-            }
-            for t in tokens {
-                if let ConsecMode::StartJoin(nl) = mode {
-                    if nl {
-                        sg.split(out, base_indent.clone());
-                        sg.seg_unsplit(out, " ");
-                    }
-                }
-                match t {
-                    proc_macro2::TokenTree::Group(g) => {
-                        sg.child({
-                            let mut sg = new_sg();
-                            let indent = base_indent.indent();
-                            match g.delimiter() {
-                                proc_macro2::Delimiter::Parenthesis => {
-                                    sg.seg(out, "(");
-                                    recurse_tokens(out, &indent, &mut sg, g.stream());
-                                    sg.split(out, base_indent.clone());
-                                    sg.seg(out, ")");
-                                }
-                                proc_macro2::Delimiter::Brace => {
-                                    match mode {
-                                        ConsecMode::StartJoin(_) => {}
-                                        _ => {
-                                            sg.seg(out, " ");
-                                        }
-                                    }
-                                    sg.seg(out, "{");
-                                    recurse_tokens(out, &indent, &mut sg, g.stream());
-                                    sg.split(out, base_indent.clone());
-                                    sg.seg(out, "}");
-                                }
-                                proc_macro2::Delimiter::Bracket => {
-                                    sg.seg(out, "[");
-                                    recurse_tokens(out, &indent, &mut sg, g.stream());
-                                    sg.split(out, base_indent.clone());
-                                    sg.seg(out, "]");
-                                }
-                                proc_macro2::Delimiter::None => {
-                                    // TODO needs verification
-                                    recurse_tokens(out, &indent, &mut sg, g.stream());
-                                }
-                            }
-                            sg.build()
-                        });
+        #[derive(PartialEq)]
+        enum ConsecMode {
+            StartJoin, // Start, joining punct (.)
+            IdentLit,  // Idents, literals
+            Punct,     // Other punctuation
+        }
+        let mut mode = ConsecMode::StartJoin;
 
-                        mode = ConsecMode::IdentLit;
-                    }
-                    proc_macro2::TokenTree::Ident(i) => {
-                        match mode {
-                            ConsecMode::StartJoin(_) => {}
-                            ConsecMode::IdentLit | ConsecMode::Punct => {
-                                sg.seg(out, " ");
-                            }
+        let mut substreams = vec![];
+        let mut top = vec![];
+        for t in tokens {
+            match t {
+                proc_macro2::TokenTree::Punct(p)
+                    if match p.as_char() {
+                        ';' | ',' => true,
+                        _ => false,
+                    } =>
+                {
+                    substreams.push((top.split_off(0), Some(p)));
+                }
+                _ => {
+                    top.push(t);
+                }
+            }
+        }
+        if !top.is_empty() {
+            substreams.push((top, None));
+        }
+
+        let substreams_len = substreams.len();
+        for (i, sub) in substreams.into_iter().enumerate() {
+            sg.split(out, base_indent.clone());
+            let tokens = TokenStream::from_iter(sub.0);
+            if let Ok(exprs) = syn::parse2::<ExprCall>(quote! { f(#tokens) }) {
+                append_inline_list(out, base_indent, sg, ",", true, &exprs.args);
+            } else if let Ok(block) = syn::parse2::<Block>(quote! { { #tokens } }) {
+                append_statement_list(out, base_indent, sg, &block.stmts);
+            } else {
+                for t in tokens {
+                    match t {
+                        proc_macro2::TokenTree::Group(g) => {
+                            sg.child({
+                                let mut sg = new_sg();
+                                let indent = base_indent.indent();
+                                match g.delimiter() {
+                                    proc_macro2::Delimiter::Parenthesis => {
+                                        sg.seg(out, "(");
+                                        append_macro_body(out, &indent, &mut sg, g.stream());
+                                        sg.split(out, base_indent.clone());
+                                        sg.seg(out, ")");
+                                    }
+                                    proc_macro2::Delimiter::Brace => {
+                                        match mode {
+                                            ConsecMode::StartJoin => {}
+                                            _ => {
+                                                sg.seg(out, " ");
+                                            }
+                                        }
+                                        sg.seg(out, "{");
+                                        append_macro_body(out, &indent, &mut sg, g.stream());
+                                        sg.split(out, base_indent.clone());
+                                        sg.seg(out, "}");
+                                    }
+                                    proc_macro2::Delimiter::Bracket => {
+                                        sg.seg(out, "[");
+                                        append_macro_body(out, &indent, &mut sg, g.stream());
+                                        sg.split(out, base_indent.clone());
+                                        sg.seg(out, "]");
+                                    }
+                                    proc_macro2::Delimiter::None => {
+                                        // TODO needs verification
+                                        append_macro_body(out, &indent, &mut sg, g.stream());
+                                    }
+                                }
+                                sg.build()
+                            });
+
+                            mode = ConsecMode::IdentLit;
                         }
-                        sg.seg(out, &i.to_string());
-                        mode = ConsecMode::IdentLit;
-                    }
-                    proc_macro2::TokenTree::Punct(p) => match p.as_char() {
-                        ';' | ',' => {
-                            sg.seg(out, &p.to_string());
-                            mode = ConsecMode::StartJoin(true);
-                        }
-                        '.' | ':' => {
-                            sg.seg(out, &p.to_string());
-                            mode = ConsecMode::StartJoin(false);
-                        }
-                        '\'' => {
+                        proc_macro2::TokenTree::Ident(i) => {
                             match mode {
-                                ConsecMode::StartJoin(_) => {}
+                                ConsecMode::StartJoin => {}
                                 ConsecMode::IdentLit | ConsecMode::Punct => {
                                     sg.seg(out, " ");
                                 }
                             }
-                            sg.seg(out, &p.to_string());
-                            mode = ConsecMode::StartJoin(false);
+                            sg.seg(out, &i.to_string());
+                            mode = ConsecMode::IdentLit;
                         }
-                        _ => {
+                        proc_macro2::TokenTree::Punct(p) => match p.as_char() {
+                            '\'' => {
+                                match mode {
+                                    ConsecMode::StartJoin => {}
+                                    ConsecMode::IdentLit | ConsecMode::Punct => {
+                                        sg.seg(out, " ");
+                                    }
+                                }
+                                sg.seg(out, &p.to_string());
+                                mode = ConsecMode::StartJoin;
+                            }
+                            _ => {
+                                match mode {
+                                    ConsecMode::StartJoin => {}
+                                    ConsecMode::IdentLit => {
+                                        sg.seg(out, " ");
+                                    }
+                                    ConsecMode::Punct => {}
+                                }
+                                sg.seg(out, &p.to_string());
+                                mode = ConsecMode::Punct;
+                            }
+                        },
+                        proc_macro2::TokenTree::Literal(l) => {
                             match mode {
-                                ConsecMode::StartJoin(_) => {}
-                                ConsecMode::IdentLit => {
+                                ConsecMode::StartJoin => {}
+                                ConsecMode::IdentLit | ConsecMode::Punct => {
                                     sg.seg(out, " ");
                                 }
-                                ConsecMode::Punct => {}
                             }
-                            sg.seg(out, &p.to_string());
-                            mode = ConsecMode::Punct;
+                            sg.seg(out, &l.to_string());
+                            mode = ConsecMode::IdentLit;
                         }
-                    },
-                    proc_macro2::TokenTree::Literal(l) => {
-                        match mode {
-                            ConsecMode::StartJoin(_) => {}
-                            ConsecMode::IdentLit | ConsecMode::Punct => {
-                                sg.seg(out, " ");
-                            }
-                        }
-                        sg.seg(out, &l.to_string());
-                        mode = ConsecMode::IdentLit;
                     }
                 }
             }
+            if let Some(suf) = sub.1 {
+                sg.seg(out, suf);
+            }
+            if i < substreams_len - 1 {
+                sg.seg_unsplit(out, " ");
+            }
         }
-        recurse_tokens(out, base_indent, node, tokens)
     }
 }

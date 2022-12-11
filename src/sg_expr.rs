@@ -6,10 +6,10 @@ use syn::{punctuated::Punctuated, token::Comma, Expr, ExprClosure};
 use crate::{
     new_sg,
     sg_general::{
-        append_binary, append_block, append_comma_bracketed_list, new_sg_attrs, new_sg_binary,
-        new_sg_block, new_sg_comma_bracketed_list, new_sg_macro,
+        append_binary, append_block, build_rev_pair, new_sg_attrs, new_sg_binary, new_sg_block,
+        new_sg_comma_bracketed_list, new_sg_macro,
     },
-    sg_type::{append_path, build_array_type, build_extended_path, build_ref},
+    sg_type::{append_path, build_array_type, build_extended_path, build_path, build_ref},
     Alignment, Formattable, MakeSegsState, SplitGroup,
 };
 
@@ -199,21 +199,6 @@ impl Formattable for &Expr {
                             "|",
                         )
                     }
-                    fn build_rev_pair(
-                        out: &mut MakeSegsState,
-                        base_indent: &Alignment,
-                        base: impl Formattable,
-                        right: impl Formattable,
-                    ) -> Rc<RefCell<SplitGroup>> {
-                        let mut node = new_sg();
-                        node.child(base.make_segs(out, base_indent));
-                        node.seg(out, " ");
-                        node.child(right.make_segs(out, base_indent));
-                        let out = node.build();
-                        out.borrow_mut().children.reverse();
-                        out
-                    }
-
                     match &e.output {
                         syn::ReturnType::Default => build_rev_pair(
                             out,
@@ -400,45 +385,39 @@ impl Formattable for &Expr {
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut node = new_sg();
-                    node.seg(out, "match ");
-                    node.child(e.expr.make_segs(out, base_indent));
-                    node.seg(out, " {");
-                    node.seg_unsplit(out, " ");
+                    let mut sg = new_sg();
+                    sg.seg(out, "match ");
+                    sg.child(e.expr.make_segs(out, base_indent));
+                    sg.seg(out, " {");
+                    sg.seg_unsplit(out, " ");
                     let indent = base_indent.indent();
                     for (i, el) in e.arms.iter().enumerate() {
-                        node.split(out, indent.clone());
-                        node.child({
-                            new_sg_binary(
-                                out,
-                                &indent,
-                                |out: &mut MakeSegsState, base_indent: &Alignment| {
-                                    if let Some(guard) = &el.guard {
-                                        new_sg_binary(
-                                            out,
-                                            &base_indent,
-                                            &el.pat,
-                                            " if",
-                                            guard.1.as_ref(),
-                                        )
-                                    } else {
-                                        el.pat.make_segs(out, &base_indent)
-                                    }
-                                },
-                                " =>",
-                                el.body.as_ref(),
-                            )
+                        sg.split(out, indent.clone());
+                        sg.child({
+                            let mut sg = new_sg();
+                            sg.child({
+                                if let Some(guard) = &el.guard {
+                                    new_sg_binary(out, &indent, &el.pat, " if", guard.1.as_ref())
+                                } else {
+                                    el.pat.make_segs(out, &indent)
+                                }
+                            });
+                            sg.seg(out, " => ");
+                            sg.child(el.body.make_segs(out, &indent));
+                            let out = sg.build();
+                            out.borrow_mut().children.reverse();
+                            out
                         });
                         if i == e.arms.len() - 1 {
-                            node.seg_split(out, ",");
+                            sg.seg_split(out, ",");
                         } else {
-                            node.seg(out, ",");
+                            sg.seg(out, ",");
                         }
-                        node.seg_unsplit(out, " ");
+                        sg.seg_unsplit(out, " ");
                     }
-                    node.split(out, base_indent.clone());
-                    node.seg(out, "}");
-                    node.build()
+                    sg.split(out, base_indent.clone());
+                    sg.seg(out, "}");
+                    sg.build()
                 },
             ),
             Expr::MethodCall(e) => new_sg_attrs(
@@ -562,13 +541,7 @@ impl Formattable for &Expr {
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut node = new_sg();
-                    append_path(
-                        out,
-                        &mut node,
-                        base_indent,
-                        e.path.leading_colon.is_some(),
-                        e.path.segments.pairs(),
-                    );
+                    node.child(build_path(out, base_indent, &e.path));
                     node.seg(out, " {");
                     let indent = base_indent.indent();
                     for (i, pair) in e.fields.pairs().enumerate() {

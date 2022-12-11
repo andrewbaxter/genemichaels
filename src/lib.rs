@@ -98,6 +98,14 @@ pub(crate) fn split_group(node: &RefCell<SplitGroup>) {
 
 pub(crate) fn split_line_at(line: &RefCell<Line>, at: usize) {
     let new_segs = line.borrow_mut().segs.split_off(at);
+    if let Some(s) = new_segs.get(0) {
+        match &s.as_ref().borrow().content {
+            SegmentContent::Break(a) => {
+                a.activate_get();
+            }
+            _ => {}
+        }
+    }
     insert_line(
         line.borrow().lines.clone(),
         line.borrow().index + 1,

@@ -10,7 +10,7 @@ use crate::{
     new_sg, new_sg_lit,
     sg_general::{
         append_binary, append_block, append_comma_bracketed_list, append_inline_list,
-        append_macro_body, new_sg_attrs, new_sg_binary, new_sg_block, new_sg_comma_bracketed_list,
+        append_macro_body, new_sg_attrs, new_sg_block, new_sg_comma_bracketed_list,
         new_sg_comma_bracketed_list_ext, new_sg_macro,
     },
     sg_type::{append_path, build_generics, build_path},
@@ -312,7 +312,14 @@ impl Formattable for Item {
                     if !x.generics.params.is_empty() {
                         node.child(build_generics(out, base_indent, &x.generics));
                     }
-                    append_comma_bracketed_list(out, base_indent, &mut node, "{", &x.variants, "}");
+                    append_comma_bracketed_list(
+                        out,
+                        base_indent,
+                        &mut node,
+                        " {",
+                        &x.variants,
+                        "}",
+                    );
                     node.build()
                 },
             ),
@@ -505,7 +512,7 @@ impl Formattable for Item {
                                 out,
                                 base_indent,
                                 &mut node,
-                                "{",
+                                " {",
                                 &s.named,
                                 "}",
                             );
@@ -633,7 +640,7 @@ impl Formattable for Item {
                         out,
                         base_indent,
                         &mut node,
-                        "{",
+                        " {",
                         &x.fields.named,
                         "}",
                     );
@@ -685,7 +692,7 @@ impl Formattable for Variant {
                             out,
                             base_indent,
                             &mut node,
-                            "{",
+                            " {",
                             &s.named,
                             "}",
                         );
