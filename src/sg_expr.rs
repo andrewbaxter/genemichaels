@@ -78,8 +78,8 @@ impl Formattable for &Expr {
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut node = new_sg();
-                    node.seg(out, ".await");
                     node.child(e.base.make_segs(out, base_indent));
+                    node.seg(out, ".await");
                     node.build()
                 },
             ),

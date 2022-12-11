@@ -36,7 +36,6 @@ impl Formattable for &Pat {
                 &x.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut prefix = String::new();
-                    prefix.write_str("*").unwrap();
                     if x.by_ref.is_some() {
                         prefix.write_str("const ").unwrap();
                     }

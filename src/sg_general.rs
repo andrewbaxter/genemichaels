@@ -1,7 +1,7 @@
 use std::{cell::RefCell, fmt::Write, rc::Rc};
 
 use proc_macro2::TokenStream;
-use quote::{quote, ToTokens};
+use quote::quote;
 use syn::{punctuated::Punctuated, Attribute, Block, ExprCall, Macro};
 
 use crate::{
@@ -57,12 +57,20 @@ pub(crate) fn append_statement_list(
     node: &mut SplitGroupBuilder,
     block: &Vec<impl Formattable>,
 ) {
-    node.seg_unsplit(out, " ");
-    let indent = base_indent.indent();
-    for el in block {
-        node.split(out, indent.clone());
-        node.child((&el).make_segs(out, base_indent));
+    if block.len() > 1 {
+        let indent = base_indent.indent();
+        for el in block {
+            node.split_always(out, indent.clone());
+            node.child((&el).make_segs(out, &indent));
+        }
+    } else {
         node.seg_unsplit(out, " ");
+        let indent = base_indent.indent();
+        for el in block {
+            node.split(out, indent.clone());
+            node.child((&el).make_segs(out, &indent));
+            node.seg_unsplit(out, " ");
+        }
     }
 }
 
@@ -75,7 +83,11 @@ pub(crate) fn append_block(
 ) {
     node.seg(out, prefix);
     append_statement_list(out, base_indent, node, block);
-    node.split(out, base_indent.clone());
+    if block.len() > 1 {
+        node.split_always(out, base_indent.clone());
+    } else {
+        node.split(out, base_indent.clone());
+    }
     node.seg(out, "}");
 }
 
@@ -103,7 +115,7 @@ pub(crate) fn append_inline_list<E: Formattable, T>(
         node.split(out, indent.clone());
         node.child(pair.value().make_segs(out, &indent));
         if i < exprs.len() - 1 {
-            node.seg_split(out, punct);
+            node.seg(out, punct);
             node.seg_unsplit(out, " ");
         } else {
             if punct_is_suffix {
@@ -195,7 +207,10 @@ pub(crate) fn new_sg_attrs(
                 }
             };
             prefix.write_str("[").unwrap();
+            node.seg(out, prefix);
+            node.child(build_path(out, base_indent, &attr.path));
             append_macro_body(out, base_indent, &mut node, attr.tokens.clone());
+            node.seg(out, "]");
             node.build()
         });
         node.split(out, base_indent.clone());

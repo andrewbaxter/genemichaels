@@ -7,7 +7,7 @@ fn main() {
     #[derive(Parser)]
     struct Args {
         file: PathBuf,
-        #[arg(default_value_t = 120)]
+        #[arg(default_value_t = 80)]
         line_length: usize,
     }
     let args = Args::parse();

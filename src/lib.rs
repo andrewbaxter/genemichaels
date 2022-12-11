@@ -38,7 +38,7 @@ pub(crate) struct SegmentLine {
 
 pub(crate) enum SegmentContent {
     Text(String),
-    Comment((Alignment, Comment)),
+    // Comment((Alignment, Comment)),
     Break(Alignment),
 }
 
@@ -64,8 +64,11 @@ pub(crate) fn line_length(line: &RefCell<Line>) -> usize {
     for seg in &line.borrow().segs {
         match &seg.as_ref().borrow().content {
             SegmentContent::Text(t) => out += t.len(),
-            SegmentContent::Comment(_) => {}
-            SegmentContent::Break(_) => {}
+            SegmentContent::Break(b) => {
+                if seg.as_ref().borrow().node.as_ref().borrow().split {
+                    out += b.activate_get();
+                }
+            }
         };
     }
     out
@@ -95,10 +98,14 @@ pub(crate) fn split_group(node: &RefCell<SplitGroup>) {
 
 pub(crate) fn split_line_at(line: &RefCell<Line>, at: usize) {
     let new_segs = line.borrow_mut().segs.split_off(at);
-    insert_line(&line.borrow().lines, line.borrow().index + 1, new_segs);
+    insert_line(
+        line.borrow().lines.clone(),
+        line.borrow().index + 1,
+        new_segs,
+    );
 }
 
-pub(crate) fn insert_line(lines: &Rc<RefCell<Lines>>, at: usize, segs: Vec<Rc<RefCell<Segment>>>) {
+pub(crate) fn insert_line(lines: Rc<RefCell<Lines>>, at: usize, segs: Vec<Rc<RefCell<Segment>>>) {
     let new_line = Rc::new(RefCell::new(Line {
         lines: lines.clone(),
         index: at,
@@ -123,9 +130,36 @@ pub(crate) fn insert_line(lines: &Rc<RefCell<Lines>>, at: usize, segs: Vec<Rc<Re
     }
 }
 
+fn render_line_str(line: &RefCell<Line>) -> String {
+    let mut rendered = String::new();
+    render_line(&mut rendered, line);
+    rendered
+}
+
+fn render_line(rendered: &mut String, line: &RefCell<Line>) {
+    for seg in &line.borrow().segs {
+        let seg = seg.as_ref().borrow();
+        match (&seg.mode, seg.node.as_ref().borrow().split) {
+            (SegmentMode::All, _) => {}
+            (SegmentMode::Unsplit, true) => continue,
+            (SegmentMode::Unsplit, false) => {}
+            (SegmentMode::Split, true) => {}
+            (SegmentMode::Split, false) => continue,
+        };
+        match &seg.content {
+            SegmentContent::Text(t) => {
+                rendered.write_str(&t).unwrap();
+            }
+            SegmentContent::Break(b) => {
+                rendered.write_str(&" ".repeat(b.activate_get())).unwrap();
+            }
+        }
+    }
+}
+
 pub(crate) struct Alignment_ {
     pub(crate) parent: Option<Alignment>,
-    pub(crate) width: usize,
+    pub(crate) active: bool,
 }
 
 #[derive(Clone)]
@@ -135,22 +169,27 @@ impl Alignment {
     pub(crate) fn indent(&self) -> Alignment {
         Alignment(Rc::new(RefCell::new(Alignment_ {
             parent: Some(self.clone()),
-            width: 0,
+            active: false,
         })))
     }
 
     pub(crate) fn activate_get(&self) -> usize {
-        self.0.borrow_mut().width = 4;
+        self.0.borrow_mut().active = true;
         self.get()
     }
 
     pub(crate) fn get(&self) -> usize {
-        self.0.as_ref().borrow().width
-            + if let Some(parent) = &self.0.as_ref().borrow().parent {
-                parent.get()
-            } else {
-                0usize
+        let parent = match &self.0.as_ref().borrow().parent {
+            Some(p) => p.get(),
+            None => {
+                return 0usize;
             }
+        };
+        if self.0.as_ref().borrow().active {
+            4usize + parent
+        } else {
+            parent
+        }
     }
 }
 
@@ -161,10 +200,6 @@ pub(crate) struct SplitGroupBuilder {
 }
 
 impl SplitGroupBuilder {
-    pub(crate) fn rc<'a>(&'a self) -> &'a Rc<RefCell<SplitGroup>> {
-        &self.node
-    }
-
     pub(crate) fn add(&mut self, out_segs: &mut MakeSegsState, seg: Rc<RefCell<Segment>>) {
         self.segs.push(seg.clone());
         out_segs.line.push(seg);
@@ -227,6 +262,18 @@ impl SplitGroupBuilder {
                 node: self.node.clone(),
                 line: None,
                 mode: SegmentMode::Split,
+                content: SegmentContent::Break(alignment),
+            })),
+        );
+    }
+
+    pub(crate) fn split_always(&mut self, out: &mut MakeSegsState, alignment: Alignment) {
+        self.add(
+            out,
+            Rc::new(RefCell::new(Segment {
+                node: self.node.clone(),
+                line: None,
+                mode: SegmentMode::All,
                 content: SegmentContent::Break(alignment),
             })),
         );
@@ -477,7 +524,7 @@ pub fn format_ast(source: &str, ast: File, max_len: usize) -> Result<String> {
         &mut out,
         &Alignment(Rc::new(RefCell::new(Alignment_ {
             parent: None,
-            width: 0,
+            active: false,
         }))),
         &ast.attrs,
         |out: &mut MakeSegsState, base_indent: &Alignment| {
@@ -508,18 +555,30 @@ pub fn format_ast(source: &str, ast: File, max_len: usize) -> Result<String> {
     // Do initial splits
     {
         let mut i = 0usize;
-        let lines = &lines.as_ref().borrow().lines;
-        while i < lines.len() {
-            let line = lines.get(i).unwrap().as_ref();
-            'segs: for (i, seg) in line.borrow().segs.iter().enumerate() {
-                let seg = seg.as_ref().borrow();
-                match (&seg.content, &seg.mode) {
-                    (SegmentContent::Break(_), SegmentMode::All) => {
-                        split_line_at(line, i);
-                        break 'segs;
+        let mut skip_first = false;
+        while i < lines.as_ref().borrow().lines.len() {
+            let mut res = None;
+            {
+                let lines = lines.as_ref().borrow();
+                let line = lines.lines.get(i).unwrap();
+                'segs: for (i, seg) in line.as_ref().borrow().segs.iter().enumerate() {
+                    if i == 0 && skip_first {
+                        skip_first = false;
+                        continue;
                     }
-                    _ => {}
+                    let seg = seg.as_ref().borrow();
+                    match (&seg.content, &seg.mode) {
+                        (SegmentContent::Break(_), SegmentMode::All) => {
+                            res = Some((line.clone(), i));
+                            break 'segs;
+                        }
+                        _ => {}
+                    };
                 }
+            }
+            if let Some((line, i)) = res {
+                split_line_at(&line, i);
+                skip_first = true;
             }
             i += 1;
         }
@@ -531,16 +590,17 @@ pub fn format_ast(source: &str, ast: File, max_len: usize) -> Result<String> {
         for seg in &node.borrow().segments {
             let seg = seg.as_ref().borrow();
             let line = seg.line.as_ref().unwrap();
-            if line_length(&line.line.as_ref()) > max_len {
+            let len = line_length(&line.line.as_ref());
+            if len > max_len {
                 over = true;
                 break;
             }
         }
         if over {
             split_group(node);
-            for child in &node.borrow().children {
-                recurse(max_len, child.as_ref());
-            }
+        }
+        for child in &node.borrow().children {
+            recurse(max_len, child.as_ref());
         }
     }
     recurse(max_len, root.as_ref());
@@ -552,24 +612,9 @@ pub fn format_ast(source: &str, ast: File, max_len: usize) -> Result<String> {
         rendered.write_char('\n').unwrap();
     }
     for line in &lines.as_ref().borrow().lines {
-        for seg in &line.as_ref().borrow().segs {
-            let seg = seg.as_ref().borrow();
-            match (&seg.mode, seg.node.as_ref().borrow().split) {
-                (SegmentMode::All, _) => {}
-                (SegmentMode::Unsplit, true) => continue,
-                (SegmentMode::Unsplit, false) => {}
-                (SegmentMode::Split, true) => {}
-                (SegmentMode::Split, false) => continue,
-            };
-            match &seg.content {
-                SegmentContent::Text(t) => {
-                    rendered.write_str(&t).unwrap();
-                }
-                SegmentContent::Comment(_) => {}
-                SegmentContent::Break(_) => {}
-            }
-        }
-        rendered.write_str("\n").unwrap();
+        println!("{}", render_line_str(line));
+        //render_line(&mut rendered, line);
+        //rendered.write_str("\n").unwrap();
     }
     Ok(rendered)
 }
