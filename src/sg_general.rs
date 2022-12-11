@@ -33,7 +33,7 @@ pub(crate) fn append_binary(
 ) {
     node.seg(out, tok);
     let indent = base_indent.indent();
-    node.split(out, indent.clone());
+    node.split(out, indent.clone(), true);
     node.seg_unsplit(out, " ");
     node.child(right.make_segs(out, &indent));
 }
@@ -60,14 +60,14 @@ pub(crate) fn append_statement_list(
     if block.len() > 1 {
         let indent = base_indent.indent();
         for el in block {
-            node.split_always(out, indent.clone());
+            node.split_always(out, indent.clone(), true);
             node.child((&el).make_segs(out, &indent));
         }
     } else {
         node.seg_unsplit(out, " ");
         let indent = base_indent.indent();
         for el in block {
-            node.split(out, indent.clone());
+            node.split(out, indent.clone(), true);
             node.child((&el).make_segs(out, &indent));
             node.seg_unsplit(out, " ");
         }
@@ -84,9 +84,9 @@ pub(crate) fn append_block(
     node.seg(out, prefix);
     append_statement_list(out, base_indent, node, block);
     if block.len() > 1 {
-        node.split_always(out, base_indent.clone());
+        node.split_always(out, base_indent.clone(), false);
     } else {
-        node.split(out, base_indent.clone());
+        node.split(out, base_indent.clone(), false);
     }
     node.seg(out, "}");
 }
@@ -112,7 +112,7 @@ pub(crate) fn append_inline_list<E: Formattable, T>(
 ) {
     let indent = base_indent.indent();
     for (i, pair) in exprs.pairs().enumerate() {
-        node.split(out, indent.clone());
+        node.split(out, indent.clone(), true);
         node.child(pair.value().make_segs(out, &indent));
         if i < exprs.len() - 1 {
             node.seg(out, punct);
@@ -136,7 +136,7 @@ pub(crate) fn append_comma_bracketed_list<E: Formattable, T>(
     //node.add_comments(out, base_indent, prefix_start);
     node.seg(out, prefix);
     append_inline_list(out, base_indent, node, ",", true, exprs);
-    node.split(out, base_indent.clone());
+    node.split(out, base_indent.clone(), false);
     node.seg(out, suffix);
 }
 
@@ -172,15 +172,15 @@ pub(crate) fn new_sg_comma_bracketed_list_ext<E: Formattable, T>(
     node.seg(out, prefix);
     let indent = base_indent.indent();
     for pair in exprs.pairs() {
-        node.split(out, indent.clone());
+        node.split(out, indent.clone(), true);
         node.child((&pair.value()).make_segs(out, &indent));
         node.seg(out, ",");
         node.seg_unsplit(out, " ");
     }
-    node.split(out, indent.clone());
+    node.split(out, indent.clone(), true);
     node.child(extra.make_segs(out, base_indent));
     node.seg_unsplit(out, " ");
-    node.split(out, base_indent.clone());
+    node.split(out, base_indent.clone(), false);
     node.seg(out, suffix);
     node.build()
 }
@@ -213,7 +213,7 @@ pub(crate) fn new_sg_attrs(
             node.seg(out, "]");
             node.build()
         });
-        node.split(out, base_indent.clone());
+        node.split(out, base_indent.clone(), false);
         node.seg_unsplit(out, " ");
     }
     node.child(child.make_segs(out, base_indent));
@@ -234,19 +234,19 @@ pub(crate) fn new_sg_macro(
         syn::MacroDelimiter::Paren(_) => {
             node.seg(out, "(");
             append_macro_body(out, &indent, &mut node, mac.tokens.clone());
-            node.split(out, base_indent.clone());
+            node.split(out, base_indent.clone(), false);
             node.seg(out, ")");
         }
         syn::MacroDelimiter::Brace(_) => {
             node.seg(out, "{");
             append_macro_body(out, &indent, &mut node, mac.tokens.clone());
-            node.split(out, base_indent.clone());
+            node.split(out, base_indent.clone(), false);
             node.seg(out, "}");
         }
         syn::MacroDelimiter::Bracket(_) => {
             node.seg(out, "[");
             append_macro_body(out, &indent, &mut node, mac.tokens.clone());
-            node.split(out, base_indent.clone());
+            node.split(out, base_indent.clone(), false);
             node.seg(out, "]");
         }
     }
@@ -298,7 +298,7 @@ pub(crate) fn append_macro_body(
 
         let substreams_len = substreams.len();
         for (i, sub) in substreams.into_iter().enumerate() {
-            sg.split(out, base_indent.clone());
+            sg.split(out, base_indent.clone(), true);
             let tokens = TokenStream::from_iter(sub.0);
             if let Ok(exprs) = syn::parse2::<ExprCall>(quote! { f(#tokens) }) {
                 append_inline_list(out, base_indent, sg, ",", true, &exprs.args);
@@ -315,7 +315,7 @@ pub(crate) fn append_macro_body(
                                     proc_macro2::Delimiter::Parenthesis => {
                                         sg.seg(out, "(");
                                         append_macro_body(out, &indent, &mut sg, g.stream());
-                                        sg.split(out, base_indent.clone());
+                                        sg.split(out, base_indent.clone(), false);
                                         sg.seg(out, ")");
                                     }
                                     proc_macro2::Delimiter::Brace => {
@@ -327,13 +327,13 @@ pub(crate) fn append_macro_body(
                                         }
                                         sg.seg(out, "{");
                                         append_macro_body(out, &indent, &mut sg, g.stream());
-                                        sg.split(out, base_indent.clone());
+                                        sg.split(out, base_indent.clone(), false);
                                         sg.seg(out, "}");
                                     }
                                     proc_macro2::Delimiter::Bracket => {
                                         sg.seg(out, "[");
                                         append_macro_body(out, &indent, &mut sg, g.stream());
-                                        sg.split(out, base_indent.clone());
+                                        sg.split(out, base_indent.clone(), false);
                                         sg.seg(out, "]");
                                     }
                                     proc_macro2::Delimiter::None => {

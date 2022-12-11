@@ -420,7 +420,7 @@ impl Formattable for Item {
                                 &mut node,
                                 x.mac.tokens.to_token_stream(),
                             );
-                            node.split(out, base_indent.clone());
+                            node.split(out, base_indent.clone(), false);
                             node.seg(out, ")");
                         }
                         syn::MacroDelimiter::Brace(_) => {
@@ -431,7 +431,7 @@ impl Formattable for Item {
                                 &mut node,
                                 x.mac.tokens.to_token_stream(),
                             );
-                            node.split(out, base_indent.clone());
+                            node.split(out, base_indent.clone(), false);
                             node.seg(out, "}");
                         }
                         syn::MacroDelimiter::Bracket(_) => {
@@ -442,7 +442,7 @@ impl Formattable for Item {
                                 &mut node,
                                 x.mac.tokens.to_token_stream(),
                             );
-                            node.split(out, base_indent.clone());
+                            node.split(out, base_indent.clone(), false);
                             node.seg(out, "]");
                         }
                     }
@@ -557,20 +557,14 @@ impl Formattable for Item {
                     }
                     if x.colon_token.is_some() {
                         node.seg(out, ": ");
-                        let indent = base_indent.indent();
-                        for (i, pair) in x.supertraits.pairs().enumerate() {
-                            if i > 0 {
-                                /*
-                                if let Some(p) = pair.punct() {
-                                    node.add_comments(out, &indent, p.start());
-                                }
-                                */
-                                node.seg(out, " +");
-                                node.seg_unsplit(out, " ");
-                            }
-                            node.split(out, indent.clone());
-                            node.child(pair.value().make_segs(out, &indent));
-                        }
+                        append_inline_list(
+                            out,
+                            base_indent,
+                            &mut node,
+                            " +",
+                            false,
+                            &x.supertraits,
+                        );
                     }
                     node.child(new_sg_block(out, base_indent, " {", &x.items));
                     node.build()

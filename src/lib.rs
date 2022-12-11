@@ -39,7 +39,7 @@ pub(crate) struct SegmentLine {
 pub(crate) enum SegmentContent {
     Text(String),
     // Comment((Alignment, Comment)),
-    Break(Alignment),
+    Break(Alignment, bool),
 }
 
 pub(crate) struct Segment {
@@ -64,9 +64,9 @@ pub(crate) fn line_length(line: &RefCell<Line>) -> usize {
     for seg in &line.borrow().segs {
         match &seg.as_ref().borrow().content {
             SegmentContent::Text(t) => out += t.len(),
-            SegmentContent::Break(b) => {
+            SegmentContent::Break(b, _) => {
                 if seg.as_ref().borrow().node.as_ref().borrow().split {
-                    out += b.activate_get();
+                    out += b.get();
                 }
             }
         };
@@ -80,7 +80,7 @@ pub(crate) fn split_group(node: &RefCell<SplitGroup>) {
         let res = {
             let seg = seg.as_ref().borrow();
             match (&seg.mode, &seg.content) {
-                (SegmentMode::Split, SegmentContent::Break(_)) => {
+                (SegmentMode::Split, SegmentContent::Break(_, _)) => {
                     let line = seg.borrow().line.as_ref().unwrap();
                     Some((line.line.clone(), line.seg_index))
                 }
@@ -100,8 +100,8 @@ pub(crate) fn split_line_at(line: &RefCell<Line>, at: usize) {
     let new_segs = line.borrow_mut().segs.split_off(at);
     if let Some(s) = new_segs.get(0) {
         match &s.as_ref().borrow().content {
-            SegmentContent::Break(a) => {
-                a.activate_get();
+            SegmentContent::Break(a, activate) if *activate => {
+                a.activate();
             }
             _ => {}
         }
@@ -156,10 +156,13 @@ fn render_line(rendered: &mut String, line: &RefCell<Line>) {
         };
         match &seg.content {
             SegmentContent::Text(t) => {
-                rendered.write_str(&t).unwrap();
+                rendered.push_str(&t);
             }
-            SegmentContent::Break(b) => {
-                rendered.write_str(&" ".repeat(b.activate_get())).unwrap();
+            SegmentContent::Break(b, activate) => {
+                if *activate {
+                    b.activate();
+                }
+                rendered.push_str(&" ".repeat(b.get()));
             }
         }
     }
@@ -181,7 +184,7 @@ impl Alignment {
         })))
     }
 
-    pub(crate) fn activate_get(&self) -> usize {
+    pub(crate) fn activate(&self) -> usize {
         self.0.borrow_mut().active = true;
         self.get()
     }
@@ -263,26 +266,31 @@ impl SplitGroupBuilder {
         );
     }
 
-    pub(crate) fn split(&mut self, out: &mut MakeSegsState, alignment: Alignment) {
+    pub(crate) fn split(&mut self, out: &mut MakeSegsState, alignment: Alignment, activate: bool) {
         self.add(
             out,
             Rc::new(RefCell::new(Segment {
                 node: self.node.clone(),
                 line: None,
                 mode: SegmentMode::Split,
-                content: SegmentContent::Break(alignment),
+                content: SegmentContent::Break(alignment, activate),
             })),
         );
     }
 
-    pub(crate) fn split_always(&mut self, out: &mut MakeSegsState, alignment: Alignment) {
+    pub(crate) fn split_always(
+        &mut self,
+        out: &mut MakeSegsState,
+        alignment: Alignment,
+        activate: bool,
+    ) {
         self.add(
             out,
             Rc::new(RefCell::new(Segment {
                 node: self.node.clone(),
                 line: None,
                 mode: SegmentMode::All,
-                content: SegmentContent::Break(alignment),
+                content: SegmentContent::Break(alignment, activate),
             })),
         );
     }
@@ -538,7 +546,7 @@ pub fn format_ast(source: &str, ast: File, max_len: usize) -> Result<String> {
         |out: &mut MakeSegsState, base_indent: &Alignment| {
             let mut node = new_sg();
             for i in &ast.items {
-                node.split(out, base_indent.clone());
+                node.split(out, base_indent.clone(), false);
                 node.child(i.make_segs(out, base_indent));
             }
             node.build()
@@ -576,7 +584,7 @@ pub fn format_ast(source: &str, ast: File, max_len: usize) -> Result<String> {
                     }
                     let seg = seg.as_ref().borrow();
                     match (&seg.content, &seg.mode) {
-                        (SegmentContent::Break(_), SegmentMode::All) => {
+                        (SegmentContent::Break(_, _), SegmentMode::All) => {
                             res = Some((line.clone(), i));
                             break 'segs;
                         }
@@ -616,13 +624,13 @@ pub fn format_ast(source: &str, ast: File, max_len: usize) -> Result<String> {
     // Render
     let mut rendered = String::new();
     if let Some(shebang) = ast.shebang {
-        rendered.write_str(&shebang).unwrap();
-        rendered.write_char('\n').unwrap();
+        rendered.push_str(&shebang);
+        rendered.push_str("\n");
     }
     for line in &lines.as_ref().borrow().lines {
         println!("{}", render_line_str(line));
         //render_line(&mut rendered, line);
-        //rendered.write_str("\n").unwrap();
+        //rendered.push_str("\n").unwrap();
     }
     Ok(rendered)
 }

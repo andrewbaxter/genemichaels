@@ -9,7 +9,7 @@ use crate::{
         append_binary, append_block, build_rev_pair, new_sg_attrs, new_sg_binary, new_sg_block,
         new_sg_comma_bracketed_list, new_sg_macro,
     },
-    sg_type::{append_path, build_array_type, build_extended_path, build_path, build_ref},
+    sg_type::{build_array_type, build_extended_path, build_path, build_ref},
     Alignment, Formattable, MakeSegsState, SplitGroup,
 };
 
@@ -392,7 +392,7 @@ impl Formattable for &Expr {
                     sg.seg_unsplit(out, " ");
                     let indent = base_indent.indent();
                     for (i, el) in e.arms.iter().enumerate() {
-                        sg.split(out, indent.clone());
+                        sg.split(out, indent.clone(), true);
                         sg.child({
                             let mut sg = new_sg();
                             sg.child({
@@ -415,7 +415,7 @@ impl Formattable for &Expr {
                         }
                         sg.seg_unsplit(out, " ");
                     }
-                    sg.split(out, base_indent.clone());
+                    sg.split(out, base_indent.clone(), false);
                     sg.seg(out, "}");
                     sg.build()
                 },
@@ -549,7 +549,7 @@ impl Formattable for &Expr {
                             node.seg_split(out, ",");
                         }
                         node.seg_unsplit(out, " ");
-                        node.split(out, indent.clone());
+                        node.split(out, indent.clone(), true);
                         match &pair.value().member {
                             syn::Member::Named(n) => {
                                 node.seg(out, &format!("{}: ", n));
@@ -561,14 +561,14 @@ impl Formattable for &Expr {
                     if let Some(rem) = &e.rest {
                         node.seg(out, ",");
                         node.seg_unsplit(out, " ");
-                        node.split(out, indent.clone());
+                        node.split(out, indent.clone(), true);
                         node.seg(out, "..");
                         node.child(rem.make_segs(out, &indent));
                     } else {
                         node.seg_split(out, ",");
                     }
                     node.seg_unsplit(out, " ");
-                    node.split(out, base_indent.clone());
+                    node.split(out, base_indent.clone(), false);
                     node.seg(out, "}");
                     node.build()
                 },
@@ -608,14 +608,7 @@ impl Formattable for &Expr {
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut node = new_sg();
-                    node.child(e.expr.make_segs(out, base_indent));
-                    node.seg(out, ":");
-                    node.seg_unsplit(out, " ");
-                    let indent = base_indent.indent();
-                    node.split(out, indent.clone());
-                    node.child(e.ty.make_segs(out, &indent));
-                    node.build()
+                    new_sg_binary(out, base_indent, e.expr.as_ref(), ":", e.ty.as_ref())
                 },
             ),
             Expr::Unary(e) => new_sg_attrs(

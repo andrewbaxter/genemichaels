@@ -94,7 +94,7 @@ pub(crate) fn append_path<'a>(
             node.seg(out, "::");
         }
         if i > 0 {
-            node.split(out, indent.clone());
+            node.split(out, indent.clone(), true);
         }
         node.seg(out, &seg.value().ident.to_string());
         match &seg.value().arguments {
@@ -181,7 +181,6 @@ pub(crate) fn build_generics(
             |out: &mut MakeSegsState, base_indent: &Alignment| {
                 let mut node = new_sg();
                 append_inline_list(out, base_indent, &mut node, ",", true, &wh.predicates);
-                node.split(out, base_indent.clone());
                 node.build()
             },
         )
