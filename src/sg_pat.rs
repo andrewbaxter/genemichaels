@@ -36,25 +36,33 @@ impl Formattable for &Pat {
                 &x.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut prefix = String::new();
-                    if x.by_ref.is_some() {
+                    let mut start = None;
+                    if let Some(y) = x.by_ref {
                         prefix.write_str("const ").unwrap();
+                        start = Some(y.span.start());
                     }
-                    if x.mutability.is_some() {
+                    if let Some(y) = x.mutability {
                         prefix.write_str("mut ").unwrap();
+                        if start.is_none() {
+                            start = Some(y.span.start());
+                        }
                     }
                     prefix.write_str(&x.ident.to_string()).unwrap();
+                    if start.is_none() {
+                        start = Some(x.ident.span().start());
+                    }
                     if let Some(at) = &x.subpat {
                         new_sg_binary(
                             out,
                             base_indent,
-                            |out: &mut MakeSegsState, _build_indent: &Alignment| {
-                                new_sg_lit(out, &prefix)
+                            |out: &mut MakeSegsState, base_indent: &Alignment| {
+                                new_sg_lit(out, start.map(|s| (base_indent, s)), &prefix)
                             },
                             " @",
                             &*at.1,
                         )
                     } else {
-                        new_sg_lit(out, prefix)
+                        new_sg_lit(out, start.map(|s| (base_indent, s)), prefix)
                     }
                 },
             ),
@@ -117,21 +125,41 @@ impl Formattable for &Pat {
                 base_indent,
                 &x.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    build_ref(out, base_indent, x.mutability.is_some(), x.pat.as_ref())
+                    build_ref(
+                        out,
+                        base_indent,
+                        x.and_token.span.start(),
+                        x.mutability.is_some(),
+                        x.pat.as_ref(),
+                    )
                 },
             ),
             Pat::Rest(x) => new_sg_attrs(
                 out,
                 base_indent,
                 &x.attrs,
-                |out: &mut MakeSegsState, _base_indent: &Alignment| new_sg_lit(out, ".."),
+                |out: &mut MakeSegsState, base_indent: &Alignment| {
+                    new_sg_lit(
+                        out,
+                        Some((base_indent, x.dot2_token.spans[0].start())),
+                        "..",
+                    )
+                },
             ),
             Pat::Slice(x) => new_sg_attrs(
                 out,
                 base_indent,
                 &x.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    new_sg_comma_bracketed_list(out, base_indent, None::<Expr>, "[", &x.elems, "]")
+                    new_sg_comma_bracketed_list(
+                        out,
+                        base_indent,
+                        None::<Expr>,
+                        x.bracket_token.span.start(),
+                        "[",
+                        &x.elems,
+                        "]",
+                    )
                 },
             ),
             Pat::Struct(x) => new_sg_attrs(
@@ -139,15 +167,16 @@ impl Formattable for &Pat {
                 base_indent,
                 &x.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    if x.dot2_token.is_some() {
+                    if let Some(d) = x.dot2_token {
                         new_sg_comma_bracketed_list_ext(
                             out,
                             base_indent,
                             Some(&x.path),
+                            x.brace_token.span.start(),
                             "{",
                             &x.fields,
-                            |out: &mut MakeSegsState, _base_indent: &Alignment| {
-                                new_sg_lit(out, "..")
+                            |out: &mut MakeSegsState, base_indent: &Alignment| {
+                                new_sg_lit(out, Some((base_indent, d.spans[0].start())), "..")
                             },
                             "}",
                         )
@@ -156,6 +185,7 @@ impl Formattable for &Pat {
                             out,
                             base_indent,
                             Some(&x.path),
+                            x.brace_token.span.start(),
                             "{",
                             &x.fields,
                             "}",
@@ -168,7 +198,15 @@ impl Formattable for &Pat {
                 base_indent,
                 &x.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    new_sg_comma_bracketed_list(out, base_indent, None::<Expr>, "(", &x.elems, ")")
+                    new_sg_comma_bracketed_list(
+                        out,
+                        base_indent,
+                        None::<Expr>,
+                        x.paren_token.span.start(),
+                        "(",
+                        &x.elems,
+                        ")",
+                    )
                 },
             ),
             Pat::TupleStruct(x) => new_sg_attrs(
@@ -180,6 +218,7 @@ impl Formattable for &Pat {
                         out,
                         base_indent,
                         Some(&x.path),
+                        x.pat.paren_token.span.start(),
                         "(",
                         &x.pat.elems,
                         ")",
@@ -194,12 +233,18 @@ impl Formattable for &Pat {
                     new_sg_binary(out, base_indent, x.pat.as_ref(), ":", x.ty.as_ref())
                 },
             ),
-            Pat::Verbatim(x) => new_sg_lit(out, x),
+            Pat::Verbatim(x) => new_sg_lit(out, None, x),
             Pat::Wild(x) => new_sg_attrs(
                 out,
                 base_indent,
                 &x.attrs,
-                |out: &mut MakeSegsState, _base_indent: &Alignment| new_sg_lit(out, "_"),
+                |out: &mut MakeSegsState, _base_indent: &Alignment| {
+                    new_sg_lit(
+                        out,
+                        Some((base_indent, x.underscore_token.span.start())),
+                        "_",
+                    )
+                },
             ),
             _ => unreachable!(),
         }

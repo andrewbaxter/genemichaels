@@ -1,16 +1,18 @@
 use std::{cell::RefCell, fmt::Write, rc::Rc};
 
+use proc_macro2::LineColumn;
 use quote::ToTokens;
 use syn::{
     BareFnArg, Expr, FnArg, GenericArgument, GenericMethodArgument, GenericParam, Generics,
-    LifetimeDef, Path, QSelf, ReturnType, TraitItem, Type, TypeParamBound, WherePredicate,
+    LifetimeDef, Path, QSelf, ReturnType, Type, TypeParamBound, WherePredicate,
 };
 
 use crate::{
     new_sg, new_sg_lit,
     sg_general::{
-        append_binary, append_comma_bracketed_list, append_inline_list, new_sg_attrs,
-        new_sg_binary, new_sg_comma_bracketed_list, new_sg_comma_bracketed_list_ext, new_sg_macro,
+        append_binary, append_comma_bracketed_list, append_comments, append_inline_list,
+        new_sg_attrs, new_sg_binary, new_sg_comma_bracketed_list, new_sg_comma_bracketed_list_ext,
+        new_sg_macro,
     },
     Alignment, Formattable, MakeSegsState, SplitGroup, SplitGroupBuilder,
 };
@@ -24,6 +26,7 @@ pub(crate) fn build_extended_path(
     let mut node = new_sg();
     match qself {
         Some(qself) => {
+            append_comments(out, base_indent, &mut node, qself.gt_token.span.start());
             node.seg(out, "<");
             let taken = match qself.position {
                 0 => {
@@ -37,7 +40,7 @@ pub(crate) fn build_extended_path(
                         out,
                         &mut node,
                         base_indent,
-                        p.leading_colon.is_some(),
+                        p.leading_colon.map(|t| Some(t.spans[0].start())),
                         p.segments.pairs().take(n),
                     );
                     n
@@ -48,7 +51,7 @@ pub(crate) fn build_extended_path(
                 out,
                 &mut node,
                 base_indent,
-                true,
+                Some(None),
                 p.segments.pairs().skip(taken),
             );
         }
@@ -57,7 +60,7 @@ pub(crate) fn build_extended_path(
                 out,
                 &mut node,
                 base_indent,
-                p.leading_colon.is_some(),
+                p.leading_colon.map(|t| Some(t.spans[0].start())),
                 p.segments.pairs(),
             );
         }
@@ -75,7 +78,7 @@ pub(crate) fn build_path(
         out,
         &mut node,
         base_indent,
-        path.leading_colon.is_some(),
+        path.leading_colon.map(|t| Some(t.spans[0].start())),
         path.segments.pairs(),
     );
     node.build()
@@ -85,17 +88,21 @@ pub(crate) fn append_path<'a>(
     out: &mut MakeSegsState,
     node: &mut SplitGroupBuilder,
     base_indent: &Alignment,
-    prefix: bool,
+    prefix: Option<Option<LineColumn>>,
     pairs: impl Iterator<Item = syn::punctuated::Pair<&'a syn::PathSegment, &'a syn::token::Colon2>>,
 ) {
     let indent = base_indent.clone();
-    for (i, seg) in pairs.enumerate() {
-        if i > 0 || prefix {
-            node.seg(out, "::");
+    if let Some(leading_colon) = prefix {
+        if let Some(loc) = leading_colon {
+            append_comments(out, base_indent, node, loc);
         }
+        node.seg(out, "::");
+    }
+    for (i, seg) in pairs.enumerate() {
         if i > 0 {
             node.split(out, indent.clone(), true);
         }
+        append_comments(out, base_indent, node, seg.value().ident.span().start());
         node.seg(out, &seg.value().ident.to_string());
         match &seg.value().arguments {
             syn::PathArguments::None => {}
@@ -104,6 +111,7 @@ pub(crate) fn append_path<'a>(
                     out,
                     &indent,
                     None::<&Expr>,
+                    a.lt_token.span.start(),
                     "<",
                     &a.args,
                     ">",
@@ -114,6 +122,7 @@ pub(crate) fn append_path<'a>(
                     out,
                     &indent,
                     None::<&Expr>,
+                    a.paren_token.span.start(),
                     "(",
                     &a.inputs,
                     ")",
@@ -131,31 +140,35 @@ pub(crate) fn append_path<'a>(
 pub(crate) fn build_ref(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
+    start: LineColumn,
     mutability: bool,
     expr: impl Formattable,
 ) -> Rc<RefCell<SplitGroup>> {
-    let mut node = new_sg();
-    node.seg(out, "&");
+    let mut sg = new_sg();
+    append_comments(out, base_indent, &mut sg, start);
+    sg.seg(out, "&");
     if mutability {
-        node.seg(out, "mut ");
+        sg.seg(out, "mut ");
     }
-    node.child(expr.make_segs(out, base_indent));
-    node.build()
+    sg.child(expr.make_segs(out, base_indent));
+    sg.build()
 }
 
 pub(crate) fn build_array_type(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
+    start: LineColumn,
     expr: impl Formattable,
     len: &Expr,
 ) -> Rc<RefCell<SplitGroup>> {
-    let mut node = new_sg();
-    node.seg(out, "[");
-    node.child(expr.make_segs(out, base_indent));
-    node.seg(out, "; ");
-    node.child(len.make_segs(out, base_indent));
-    node.seg(out, "]");
-    node.build()
+    let mut sg = new_sg();
+    append_comments(out, base_indent, &mut sg, start);
+    sg.seg(out, "[");
+    sg.child(expr.make_segs(out, base_indent));
+    sg.seg(out, "; ");
+    sg.child(len.make_segs(out, base_indent));
+    sg.seg(out, "]");
+    sg.build()
 }
 
 pub(crate) fn build_generics(
@@ -172,6 +185,7 @@ pub(crate) fn build_generics(
                     out,
                     base_indent,
                     None::<Expr>,
+                    generics.lt_token.unwrap().span.start(), // why ever none?
                     "<",
                     &generics.params,
                     ">",
@@ -185,7 +199,15 @@ pub(crate) fn build_generics(
             },
         )
     } else {
-        new_sg_comma_bracketed_list(out, base_indent, None::<Expr>, "<", &generics.params, ">")
+        new_sg_comma_bracketed_list(
+            out,
+            base_indent,
+            None::<Expr>,
+            generics.lt_token.unwrap().span.start(), // why ever none?
+            "<",
+            &generics.params,
+            ">",
+        )
     }
 }
 
@@ -312,7 +334,7 @@ impl Formattable for TypeParamBound {
                     out,
                     &mut node,
                     base_indent,
-                    t.path.leading_colon.is_some(),
+                    t.path.leading_colon.map(|t| Some(t.spans[0].start())),
                     t.path.segments.pairs(),
                 );
                 if t.paren_token.is_some() {
@@ -370,9 +392,9 @@ impl Formattable for syn::Lifetime {
     fn make_segs(
         &self,
         out: &mut MakeSegsState,
-        _base_indent: &Alignment,
+        base_indent: &Alignment,
     ) -> Rc<RefCell<SplitGroup>> {
-        new_sg_lit(out, self)
+        new_sg_lit(out, Some((base_indent, self.apostrophe.start())), self)
     }
 }
 
@@ -383,7 +405,13 @@ impl Formattable for &Type {
         base_indent: &Alignment,
     ) -> Rc<RefCell<SplitGroup>> {
         match self {
-            Type::Array(x) => build_array_type(out, base_indent, x.elem.as_ref(), &x.len),
+            Type::Array(x) => build_array_type(
+                out,
+                base_indent,
+                x.bracket_token.span.start(),
+                x.elem.as_ref(),
+                &x.len,
+            ),
             Type::BareFn(x) => {
                 let mut node = new_sg();
                 if let Some(hot) = &x.lifetimes {
@@ -409,14 +437,17 @@ impl Formattable for &Type {
                 }
                 prefix.push_str("fn");
                 node.seg(out, &prefix);
-                if x.variadic.is_some() {
+                if let Some(v) = &x.variadic {
                     node.child(new_sg_comma_bracketed_list_ext(
                         out,
                         base_indent,
                         None::<Expr>,
+                        x.paren_token.span.start(),
                         "(",
                         &x.inputs,
-                        |out: &mut MakeSegsState, _base_indent: &Alignment| new_sg_lit(out, "..."),
+                        |out: &mut MakeSegsState, _base_indent: &Alignment| {
+                            new_sg_lit(out, Some((base_indent, v.dots.spans[0].start())), "...")
+                        },
                         ")",
                     ));
                 } else {
@@ -424,6 +455,7 @@ impl Formattable for &Type {
                         out,
                         base_indent,
                         None::<Expr>,
+                        x.paren_token.span.start(),
                         "(",
                         &x.inputs,
                         ")",
@@ -454,9 +486,13 @@ impl Formattable for &Type {
                 );
                 node.build()
             }
-            Type::Infer(_) => new_sg_lit(out, "_"),
+            Type::Infer(x) => new_sg_lit(
+                out,
+                Some((base_indent, x.underscore_token.span.start())),
+                "_",
+            ),
             Type::Macro(x) => new_sg_macro(out, base_indent, &x.mac, false),
-            Type::Never(_) => new_sg_lit(out, "!"),
+            Type::Never(x) => new_sg_lit(out, Some((base_indent, x.bang_token.span.start())), "!"),
             Type::Paren(x) => {
                 let mut node = new_sg();
                 node.seg(out, "(");
@@ -513,10 +549,16 @@ impl Formattable for &Type {
                 );
                 node.build()
             }
-            Type::Tuple(x) => {
-                new_sg_comma_bracketed_list(out, base_indent, None::<Expr>, "(", &x.elems, ")")
-            }
-            Type::Verbatim(x) => new_sg_lit(out, x),
+            Type::Tuple(x) => new_sg_comma_bracketed_list(
+                out,
+                base_indent,
+                None::<Expr>,
+                x.paren_token.span.start(),
+                "(",
+                &x.elems,
+                ")",
+            ),
+            Type::Verbatim(x) => new_sg_lit(out, None, x),
             _ => unreachable!(),
         }
     }
@@ -567,16 +609,23 @@ impl Formattable for FnArg {
                 out,
                 base_indent,
                 &x.attrs,
-                |out: &mut MakeSegsState, _base_indent: &Alignment| {
-                    let mut prefix = String::new();
-                    if x.reference.is_some() {
-                        prefix.write_str("&").unwrap();
+                |out: &mut MakeSegsState, base_indent: &Alignment| {
+                    let mut sg = new_sg();
+                    if let Some(y) = &x.reference {
+                        append_comments(out, base_indent, &mut sg, y.0.span.start());
+                        sg.seg(out, "&");
+                        if let Some(lt) = &y.1 {
+                            append_comments(out, base_indent, &mut sg, lt.apostrophe.start());
+                            sg.seg(out, lt.to_string());
+                        }
                     }
-                    if x.mutability.is_some() {
-                        prefix.write_str("mut ").unwrap();
+                    if let Some(y) = &x.mutability {
+                        append_comments(out, base_indent, &mut sg, y.span.start());
+                        sg.seg(out, "mut ");
                     }
-                    prefix.write_str("self").unwrap();
-                    new_sg_lit(out, prefix)
+                    append_comments(out, base_indent, &mut sg, x.self_token.span.start());
+                    sg.seg(out, "self");
+                    sg.build()
                 },
             ),
             FnArg::Typed(x) => new_sg_attrs(
@@ -630,23 +679,6 @@ impl Formattable for GenericMethodArgument {
         match self {
             GenericMethodArgument::Type(t) => t.make_segs(out, base_indent),
             GenericMethodArgument::Const(c) => c.make_segs(out, base_indent),
-        }
-    }
-}
-
-impl Formattable for TraitItem {
-    fn make_segs(
-        &self,
-        out: &mut MakeSegsState,
-        base_indent: &Alignment,
-    ) -> Rc<RefCell<SplitGroup>> {
-        match self {
-            TraitItem::Const(_) => todo!(),
-            TraitItem::Method(_) => todo!(),
-            TraitItem::Type(_) => todo!(),
-            TraitItem::Macro(_) => todo!(),
-            TraitItem::Verbatim(_) => todo!(),
-            _ => todo!(),
         }
     }
 }

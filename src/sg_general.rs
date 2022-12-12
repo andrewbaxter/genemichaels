@@ -1,12 +1,12 @@
 use std::{cell::RefCell, fmt::Write, rc::Rc};
 
-use proc_macro2::TokenStream;
+use proc_macro2::{LineColumn, TokenStream};
 use quote::quote;
 use syn::{punctuated::Punctuated, Attribute, Block, ExprCall, Macro};
 
 use crate::{
-    new_sg, sg_type::build_path, Alignment, Formattable, MakeSegsState, SplitGroup,
-    SplitGroupBuilder,
+    comments::HashLineColumn, new_sg, sg_type::build_path, Alignment, Formattable, MakeSegsState,
+    SplitGroup, SplitGroupBuilder,
 };
 
 pub(crate) fn build_rev_pair(
@@ -94,12 +94,14 @@ pub(crate) fn append_block(
 pub(crate) fn new_sg_block(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
+    start: LineColumn,
     prefix: &'static str,
     block: &Vec<impl Formattable>,
 ) -> Rc<RefCell<SplitGroup>> {
-    let mut node = new_sg();
-    append_block(out, base_indent, &mut node, prefix, block);
-    node.build()
+    let mut sg = new_sg();
+    append_comments(out, base_indent, &mut sg, start);
+    append_block(out, base_indent, &mut sg, prefix, block);
+    sg.build()
 }
 
 pub(crate) fn append_inline_list<E: Formattable, T>(
@@ -144,45 +146,49 @@ pub(crate) fn new_sg_comma_bracketed_list<E: Formattable, T>(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
     base: Option<impl Formattable>,
+    start: LineColumn,
     prefix: &str,
     exprs: &Punctuated<E, T>,
     suffix: &str,
 ) -> Rc<RefCell<SplitGroup>> {
-    let mut node = new_sg();
+    let mut sg = new_sg();
     if let Some(base) = base {
-        node.child(base.make_segs(out, base_indent));
+        sg.child(base.make_segs(out, base_indent));
     }
-    append_comma_bracketed_list(out, base_indent, &mut node, prefix, exprs, suffix);
-    node.build()
+    append_comments(out, base_indent, &mut sg, start);
+    append_comma_bracketed_list(out, base_indent, &mut sg, prefix, exprs, suffix);
+    sg.build()
 }
 
 pub(crate) fn new_sg_comma_bracketed_list_ext<E: Formattable, T>(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
     base: Option<impl Formattable>,
+    start: LineColumn,
     prefix: &str,
     exprs: &Punctuated<E, T>,
     extra: impl Formattable,
     suffix: &str,
 ) -> Rc<RefCell<SplitGroup>> {
-    let mut node = new_sg();
+    let mut sg = new_sg();
     if let Some(base) = base {
-        node.child(base.make_segs(out, base_indent));
+        sg.child(base.make_segs(out, base_indent));
     }
-    node.seg(out, prefix);
+    append_comments(out, base_indent, &mut sg, start);
+    sg.seg(out, prefix);
     let indent = base_indent.indent();
     for pair in exprs.pairs() {
-        node.split(out, indent.clone(), true);
-        node.child((&pair.value()).make_segs(out, &indent));
-        node.seg(out, ",");
-        node.seg_unsplit(out, " ");
+        sg.split(out, indent.clone(), true);
+        sg.child((&pair.value()).make_segs(out, &indent));
+        sg.seg(out, ",");
+        sg.seg_unsplit(out, " ");
     }
-    node.split(out, indent.clone(), true);
-    node.child(extra.make_segs(out, base_indent));
-    node.seg_unsplit(out, " ");
-    node.split(out, base_indent.clone(), false);
-    node.seg(out, suffix);
-    node.build()
+    sg.split(out, indent.clone(), true);
+    sg.child(extra.make_segs(out, base_indent));
+    sg.seg_unsplit(out, " ");
+    sg.split(out, base_indent.clone(), false);
+    sg.seg(out, suffix);
+    sg.build()
 }
 
 pub(crate) fn new_sg_attrs(
@@ -196,6 +202,7 @@ pub(crate) fn new_sg_attrs(
     }
     let mut node = new_sg();
     for attr in attrs {
+        append_comments(out, base_indent, &mut node, attr.pound_token.span.start());
         node.child({
             let mut node = new_sg();
             let mut prefix = String::new();
@@ -400,4 +407,26 @@ pub(crate) fn append_macro_body(
             }
         }
     }
+}
+
+pub(crate) fn append_comments(
+    out: &mut MakeSegsState,
+    base_indent: &Alignment,
+    sg: &mut SplitGroupBuilder,
+    loc: LineColumn,
+) {
+    let comments = match out.comments.remove(&HashLineColumn(loc)) {
+        Some(c) => c,
+        None => return,
+    };
+    sg.add(
+        out,
+        Rc::new(RefCell::new(crate::Segment {
+            node: sg.node.clone(),
+            line: None,
+            mode: crate::SegmentMode::All,
+            content: crate::SegmentContent::Comment((base_indent.clone(), comments)),
+        })),
+    );
+    sg.split_always(out, base_indent.clone(), true);
 }

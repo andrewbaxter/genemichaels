@@ -1,10 +1,12 @@
 use anyhow::Result;
-use proc_macro2::{Ident, LineColumn};
-use std::{borrow::Borrow, cell::RefCell, fmt::Write, rc::Rc};
-use structre::UnicodeRegex;
+use comments::{format_md, Comment, HashLineColumn};
+use proc_macro2::{Ident, LineColumn, TokenStream};
+use quote::ToTokens;
+use sg_general::append_comments;
+use std::{borrow::Borrow, cell::RefCell, collections::HashMap, rc::Rc};
 use syn::File;
 
-use crate::sg_general::new_sg_attrs;
+use crate::{comments::CommentExtractor, sg_general::new_sg_attrs};
 // TODO
 // line + block comments
 //  block comments -> counted nested /* */, don't go by lines
@@ -12,6 +14,7 @@ use crate::sg_general::new_sg_attrs;
 //  add parts
 // finish remaining elements
 // wrapping (start from root, wrap any line any node seg is on)
+pub(crate) mod comments;
 pub(crate) mod sg_expr;
 pub(crate) mod sg_general;
 pub(crate) mod sg_pat;
@@ -38,7 +41,7 @@ pub(crate) struct SegmentLine {
 
 pub(crate) enum SegmentContent {
     Text(String),
-    // Comment((Alignment, Comment)),
+    Comment((Alignment, Vec<Comment>)),
     Break(Alignment, bool),
 }
 
@@ -59,6 +62,11 @@ pub(crate) struct Lines {
     pub(crate) lines: Vec<Rc<RefCell<Line>>>,
 }
 
+pub(crate) struct MakeSegsState {
+    pub(crate) line: Vec<Rc<RefCell<Segment>>>,
+    pub(crate) comments: HashMap<HashLineColumn, Vec<Comment>>,
+}
+
 pub(crate) fn line_length(line: &RefCell<Line>) -> usize {
     let mut out = 0;
     for seg in &line.borrow().segs {
@@ -69,6 +77,7 @@ pub(crate) fn line_length(line: &RefCell<Line>) -> usize {
                     out += b.get();
                 }
             }
+            SegmentContent::Comment(_) => {}
         };
     }
     out
@@ -138,13 +147,13 @@ pub(crate) fn insert_line(lines: Rc<RefCell<Lines>>, at: usize, segs: Vec<Rc<Ref
     }
 }
 
-fn render_line_str(line: &RefCell<Line>) -> String {
+fn render_line_str(max_width: usize, line: &RefCell<Line>) -> String {
     let mut rendered = String::new();
-    render_line(&mut rendered, line);
+    render_line(max_width, &mut rendered, line);
     rendered
 }
 
-fn render_line(rendered: &mut String, line: &RefCell<Line>) {
+fn render_line(max_width: usize, rendered: &mut String, line: &RefCell<Line>) {
     for seg in &line.borrow().segs {
         let seg = seg.as_ref().borrow();
         match (&seg.mode, seg.node.as_ref().borrow().split) {
@@ -163,6 +172,24 @@ fn render_line(rendered: &mut String, line: &RefCell<Line>) {
                     b.activate();
                 }
                 rendered.push_str(&" ".repeat(b.get()));
+            }
+            SegmentContent::Comment((b, comments)) => {
+                for comment in comments {
+                    format_md(
+                        rendered,
+                        max_width,
+                        &format!(
+                            "{}//{} ",
+                            " ".repeat(b.get()),
+                            match comment.mode {
+                                comments::CommentMode::Normal => "",
+                                comments::CommentMode::DocInner => "!",
+                                comments::CommentMode::DocOuter => "/",
+                            }
+                        ),
+                        &comment.lines,
+                    );
+                }
             }
         }
     }
@@ -308,182 +335,17 @@ pub(crate) fn new_sg() -> SplitGroupBuilder {
     }
 }
 
-pub(crate) fn new_sg_lit(out: &mut MakeSegsState, text: impl ToString) -> Rc<RefCell<SplitGroup>> {
-    let mut node = new_sg();
-    node.seg(out, text.to_string());
-    node.build()
-}
-
-#[derive(PartialEq, Clone, Copy)]
-pub(crate) enum CommentMode {
-    Normal,
-    DocInner,
-    DocOuter,
-}
-pub(crate) struct Comment {
-    pub(crate) mode: CommentMode,
-    pub(crate) lines: Vec<String>,
-}
-
-pub(crate) struct MakeSegsState {
-    pub(crate) source: String,
-    pub(crate) line: Vec<Rc<RefCell<Segment>>>,
-    pub(crate) last_loc: LineColumn,
-    pub(crate) last_offset: usize,
-}
-
-impl MakeSegsState {
-    pub(crate) fn get_comments(&mut self, loc: LineColumn) -> Vec<Comment> {
-        let input = self.source.as_str();
-        let mut offset = self.last_offset;
-        let mut col = self.last_loc.column;
-        for _ in self.last_loc.line..loc.line {
-            offset += input[offset..].find('\n').unwrap() + 1;
-            col = 0;
-        }
-        offset += input[offset..]
-            .chars()
-            .take(loc.column - col)
-            .map(char::len_utf8)
-            .sum::<usize>();
-        let out = &input[self.last_offset..offset];
-        self.last_offset = offset;
-        self.last_loc = loc;
-
-        let start_re = UnicodeRegex::new(r#"(//(:P/|!)|/\*(:P*|!))"#).unwrap();
-        let block_event_re = UnicodeRegex::new(r#"(/\*|\*/)"#).unwrap();
-        struct CommentBuffer {
-            out: Vec<Comment>,
-            mode: CommentMode,
-            lines: Vec<String>,
-        }
-
-        impl CommentBuffer {
-            fn flush(&mut self) {
-                self.out.push(Comment {
-                    mode: self.mode,
-                    lines: self.lines.split_off(0),
-                });
-            }
-
-            fn add(&mut self, mode: CommentMode, line: &str) {
-                if self.mode != mode && !self.lines.is_empty() {
-                    self.flush();
-                }
-                self.mode = mode;
-                self.lines.push(line.trim().to_string());
-            }
-
-            fn add_continue(&mut self, line: &str) {
-                self.lines.push(line.trim().to_string());
-            }
-        }
-
-        let mut buffer = CommentBuffer {
-            out: vec![],
-            mode: CommentMode::Normal,
-            lines: vec![],
-        };
-
-        let mut search_start_at = 0usize;
-        'comment_loop: loop {
-            match start_re.captures(&out[search_start_at..]) {
-                Some(found_start) => {
-                    let start_prefix_match = found_start.get(1).unwrap();
-                    match start_prefix_match.as_str() {
-                        "//" => {
-                            let start_suffix_match = found_start.get(2);
-                            let (mode, match_end) = match start_suffix_match {
-                                Some(start_suffix_match) => match start_suffix_match.as_str() {
-                                    "/" => (
-                                        CommentMode::DocOuter,
-                                        search_start_at + start_suffix_match.end(),
-                                    ),
-                                    "!" => (
-                                        CommentMode::DocInner,
-                                        search_start_at + start_suffix_match.end(),
-                                    ),
-                                    _ => unreachable!(),
-                                },
-                                None => (
-                                    CommentMode::Normal,
-                                    search_start_at + start_prefix_match.end(),
-                                ),
-                            };
-
-                            let (line, next_start) = match out[match_end..].find('\n') {
-                                Some(line_end) => (&out[match_end..line_end], line_end + 1),
-                                None => (&out[match_end..], out.len()),
-                            };
-
-                            buffer.add(mode, line);
-                            search_start_at = next_start;
-                        }
-                        "/*" => {
-                            let (mode, match_end) = match found_start.get(2) {
-                                Some(suffix_match) => match suffix_match.as_str() {
-                                    "*" => (
-                                        CommentMode::DocOuter,
-                                        search_start_at + suffix_match.end(),
-                                    ),
-                                    "!" => (
-                                        CommentMode::DocInner,
-                                        search_start_at + suffix_match.end(),
-                                    ),
-                                    _ => unreachable!(),
-                                },
-                                None => (
-                                    CommentMode::Normal,
-                                    search_start_at + start_prefix_match.end(),
-                                ),
-                            };
-
-                            let mut nesting = 1;
-                            let mut search_end_at = match_end;
-                            let (lines, next_start) = loop {
-                                let found_event = block_event_re
-                                    .captures(&out[search_end_at..])
-                                    .unwrap()
-                                    .get(1)
-                                    .unwrap();
-                                match found_event.as_str() {
-                                    "/*" => {
-                                        nesting += 1;
-                                        search_end_at = search_end_at + found_event.end();
-                                    }
-                                    "*/" => {
-                                        nesting -= 1;
-                                        if nesting == 0 {
-                                            break (
-                                                &out[match_end..found_event.start()],
-                                                search_end_at + found_event.end(),
-                                            );
-                                        } else {
-                                            search_end_at = search_end_at + found_event.end();
-                                        }
-                                    }
-                                    _ => unreachable!(),
-                                }
-                            };
-
-                            for line in lines.lines() {
-                                buffer.add(mode, line.trim());
-                            }
-
-                            search_start_at = next_start;
-                        }
-                        _ => unreachable!(),
-                    }
-                }
-                None => {
-                    break 'comment_loop;
-                }
-            }
-        }
-
-        buffer.flush();
-        buffer.out
+pub(crate) fn new_sg_lit(
+    out: &mut MakeSegsState,
+    start: Option<(&Alignment, LineColumn)>,
+    text: impl ToString,
+) -> Rc<RefCell<SplitGroup>> {
+    let mut sg = new_sg();
+    if let Some(loc) = start {
+        append_comments(out, loc.0, &mut sg, loc.1);
     }
+    sg.seg(out, text.to_string());
+    sg.build()
 }
 
 pub(crate) trait Formattable {
@@ -508,9 +370,9 @@ impl Formattable for Ident {
     fn make_segs(
         &self,
         out: &mut MakeSegsState,
-        _base_indent: &Alignment,
+        base_indent: &Alignment,
     ) -> Rc<RefCell<SplitGroup>> {
-        new_sg_lit(out, self)
+        new_sg_lit(out, Some((base_indent, self.span().start())), self)
     }
 }
 
@@ -518,9 +380,9 @@ impl Formattable for &Ident {
     fn make_segs(
         &self,
         out: &mut MakeSegsState,
-        _base_indent: &Alignment,
+        base_indent: &Alignment,
     ) -> Rc<RefCell<SplitGroup>> {
-        new_sg_lit(out, self)
+        (*self).make_segs(out, base_indent)
     }
 }
 
@@ -529,12 +391,49 @@ pub fn format_str(code: &str, max_len: usize) -> Result<String> {
 }
 
 pub fn format_ast(source: &str, ast: File, max_len: usize) -> Result<String> {
+    // Extract comments
+    let comments = {
+        let mut comment_extractor = CommentExtractor {
+            source: source,
+            last_loc: LineColumn { line: 1, column: 0 },
+            last_offset: 0,
+            comments: HashMap::new(),
+        };
+
+        fn recurse(comment_extractor: &mut CommentExtractor, ts: TokenStream) {
+            for t in ts {
+                match t {
+                    proc_macro2::TokenTree::Group(g) => {
+                        comment_extractor.extract_to(g.span_open().start());
+                        comment_extractor.advance_to(g.span_open().end());
+                        recurse(comment_extractor, g.stream());
+                        comment_extractor.extract_to(g.span_close().start());
+                        comment_extractor.advance_to(g.span_close().end());
+                    }
+                    proc_macro2::TokenTree::Ident(g) => {
+                        comment_extractor.extract_to(g.span().start());
+                        comment_extractor.advance_to(g.span().end());
+                    }
+                    proc_macro2::TokenTree::Punct(g) => {
+                        comment_extractor.extract_to(g.span().start());
+                        comment_extractor.advance_to(g.span().end());
+                    }
+                    proc_macro2::TokenTree::Literal(g) => {
+                        comment_extractor.extract_to(g.span().start());
+                        comment_extractor.advance_to(g.span().end());
+                    }
+                }
+            }
+        }
+        recurse(&mut comment_extractor, ast.to_token_stream());
+
+        comment_extractor.comments
+    };
+
     // Build text
     let mut out = MakeSegsState {
-        source: source.to_string(),
         line: vec![],
-        last_loc: LineColumn { line: 1, column: 0 },
-        last_offset: 0,
+        comments: comments,
     };
     let root = new_sg_attrs(
         &mut out,
@@ -584,7 +483,8 @@ pub fn format_ast(source: &str, ast: File, max_len: usize) -> Result<String> {
                     }
                     let seg = seg.as_ref().borrow();
                     match (&seg.content, &seg.mode) {
-                        (SegmentContent::Break(_, _), SegmentMode::All) => {
+                        (SegmentContent::Break(_, _), SegmentMode::All)
+                        | (SegmentContent::Comment(_), _) => {
                             res = Some((line.clone(), i));
                             break 'segs;
                         }
@@ -628,9 +528,14 @@ pub fn format_ast(source: &str, ast: File, max_len: usize) -> Result<String> {
         rendered.push_str("\n");
     }
     for line in &lines.as_ref().borrow().lines {
-        println!("{}", render_line_str(line));
+        println!("{}", render_line_str(max_len, line));
         //render_line(&mut rendered, line);
         //rendered.push_str("\n").unwrap();
+    }
+    for (_, comm) in out.comments {
+        for c in comm {
+            println!("Unconsumed comment:\n{}", c.lines);
+        }
     }
     Ok(rendered)
 }
