@@ -1,0 +1,13 @@
+!v1
+weights:
+  accounts:
+    1: 100
+  projects:
+    https://github.com/andrewbaxter/structre: 100
+    https://github.com/clap-rs/clap: 100
+    https://github.com/dtolnay/anyhow: 100
+    https://github.com/dtolnay/proc-macro2: 100
+    https://github.com/dtolnay/quote: 100
+    https://github.com/dtolnay/syn: 100
+    https://github.com/raphlinus/pulldown-cmark: 100
+    https://github.com/unicode-org/icu4x: 100
