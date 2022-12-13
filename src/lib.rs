@@ -6,7 +6,10 @@ use sg_general::append_comments;
 use std::{borrow::Borrow, cell::RefCell, collections::HashMap, rc::Rc};
 use syn::File;
 
-use crate::{comments::CommentExtractor, sg_general::new_sg_attrs};
+use crate::{
+    comments::CommentExtractor,
+    sg_general::{has_comments, new_sg_attrs},
+};
 // TODO
 // line + block comments
 //  block comments -> counted nested /* */, don't go by lines
@@ -144,54 +147,6 @@ pub(crate) fn insert_line(lines: Rc<RefCell<Lines>>, at: usize, segs: Vec<Rc<Ref
         .skip(at + 1)
     {
         line.borrow_mut().index = i;
-    }
-}
-
-fn render_line_str(max_width: usize, line: &RefCell<Line>) -> String {
-    let mut rendered = String::new();
-    render_line(max_width, &mut rendered, line);
-    rendered
-}
-
-fn render_line(max_width: usize, rendered: &mut String, line: &RefCell<Line>) {
-    for seg in &line.borrow().segs {
-        let seg = seg.as_ref().borrow();
-        match (&seg.mode, seg.node.as_ref().borrow().split) {
-            (SegmentMode::All, _) => {}
-            (SegmentMode::Unsplit, true) => continue,
-            (SegmentMode::Unsplit, false) => {}
-            (SegmentMode::Split, true) => {}
-            (SegmentMode::Split, false) => continue,
-        };
-        match &seg.content {
-            SegmentContent::Text(t) => {
-                rendered.push_str(&t);
-            }
-            SegmentContent::Break(b, activate) => {
-                if *activate {
-                    b.activate();
-                }
-                rendered.push_str(&" ".repeat(b.get()));
-            }
-            SegmentContent::Comment((b, comments)) => {
-                for comment in comments {
-                    format_md(
-                        rendered,
-                        max_width,
-                        &format!(
-                            "{}//{} ",
-                            " ".repeat(b.get()),
-                            match comment.mode {
-                                comments::CommentMode::Normal => "",
-                                comments::CommentMode::DocInner => "!",
-                                comments::CommentMode::DocOuter => "/",
-                            }
-                        ),
-                        &comment.lines,
-                    );
-                }
-            }
-        }
     }
 }
 
@@ -348,6 +303,17 @@ pub(crate) fn new_sg_lit(
     sg.build()
 }
 
+#[derive(PartialEq)]
+pub(crate) enum MarginGroup {
+    BlockDef,
+    Import,
+    None,
+}
+
+pub(crate) trait FormattableStmt: ToTokens + Formattable {
+    fn want_margin(&self) -> (MarginGroup, bool);
+}
+
 pub(crate) trait Formattable {
     fn make_segs(
         &self,
@@ -386,11 +352,20 @@ impl Formattable for &Ident {
     }
 }
 
-pub fn format_str(code: &str, max_len: usize) -> Result<String> {
-    format_ast(code, syn::parse_file(code)?, max_len)
+pub struct FormatConfig {
+    /// Try to wrap to this width
+    pub max_width: usize,
+    /// If a node is split, all parents of the node must also be split
+    pub root_splits: bool,
+    /// If a node has comments, split it
+    pub split_comments: bool,
 }
 
-pub fn format_ast(source: &str, ast: File, max_len: usize) -> Result<String> {
+pub fn format_str(code: &str, config: &FormatConfig) -> Result<String> {
+    format_ast(code, syn::parse_file(code)?, config)
+}
+
+pub fn format_ast(source: &str, ast: File, config: &FormatConfig) -> Result<String> {
     // Extract comments
     let comments = {
         let mut comment_extractor = CommentExtractor {
@@ -443,12 +418,22 @@ pub fn format_ast(source: &str, ast: File, max_len: usize) -> Result<String> {
         }))),
         &ast.attrs,
         |out: &mut MakeSegsState, base_indent: &Alignment| {
-            let mut node = new_sg();
-            for i in &ast.items {
-                node.split(out, base_indent.clone(), false);
-                node.child(i.make_segs(out, base_indent));
+            let mut sg = new_sg();
+            let mut previous_margin_group = crate::MarginGroup::None;
+            for (i, el) in ast.items.iter().enumerate() {
+                let (new_margin_group, want_margin) = el.want_margin();
+                if i > 0
+                    && (previous_margin_group != new_margin_group
+                        || want_margin
+                        || has_comments(out, el))
+                {
+                    sg.split_always(out, base_indent.clone(), true);
+                }
+                sg.split_always(out, base_indent.clone(), true);
+                sg.child((&el).make_segs(out, &base_indent));
+                previous_margin_group = new_margin_group;
             }
-            node.build()
+            sg.build()
         },
     );
     let lines = Rc::new(RefCell::new(Lines { lines: vec![] }));
@@ -500,26 +485,38 @@ pub fn format_ast(source: &str, ast: File, max_len: usize) -> Result<String> {
         }
     }
 
-    // Do width based splitting
-    fn recurse(max_len: usize, node: &RefCell<SplitGroup>) {
-        let mut over = false;
+    // Do width based splitting, other splitting
+    fn recurse(config: &FormatConfig, node: &RefCell<SplitGroup>) -> bool {
+        let mut split = false;
         for seg in &node.borrow().segments {
             let seg = seg.as_ref().borrow();
+            match &seg.content {
+                SegmentContent::Comment(_) if config.split_comments => {
+                    split = true;
+                    break;
+                }
+                _ => {}
+            };
             let line = seg.line.as_ref().unwrap();
             let len = line_length(&line.line.as_ref());
-            if len > max_len {
-                over = true;
+            if len > config.max_width {
+                split = true;
                 break;
             }
         }
-        if over {
+        if split {
             split_group(node);
         }
+        let mut split_from_child = false;
         for child in &node.borrow().children {
-            recurse(max_len, child.as_ref());
+            split_from_child = split_from_child || recurse(config, child.as_ref());
         }
+        if !split && split_from_child {
+            split_group(node);
+        }
+        config.root_splits && (split || split_from_child)
     }
-    recurse(max_len, root.as_ref());
+    recurse(config, root.as_ref());
 
     // Render
     let mut rendered = String::new();
@@ -527,10 +524,71 @@ pub fn format_ast(source: &str, ast: File, max_len: usize) -> Result<String> {
         rendered.push_str(&shebang);
         rendered.push_str("\n");
     }
-    for line in &lines.as_ref().borrow().lines {
-        println!("{}", render_line_str(max_len, line));
-        //render_line(&mut rendered, line);
-        //rendered.push_str("\n").unwrap();
+    let lines = lines.as_ref().borrow();
+    for (line_i, line) in lines.lines.iter().enumerate() {
+        let line = line.as_ref().borrow();
+
+        // first line always empty due to first break
+        if line.segs.is_empty() {
+            continue;
+        }
+
+        // since comments are always new lines we end up with duped newlines sometimes if there's a (break), (comment) on consec
+        // lines skip the break
+        if line.segs.len() == 1
+            && lines
+                .lines
+                .get(line_i + 1)
+                .and_then(|l| l.as_ref().borrow().segs.iter().next().map(|l| l.clone()))
+                .map(|l| match &l.as_ref().borrow().content {
+                    SegmentContent::Comment(_) => true,
+                    _ => false,
+                })
+                .unwrap_or(false)
+        {
+            continue;
+        }
+
+        for seg in &line.segs {
+            let seg = seg.as_ref().borrow();
+            match (&seg.mode, seg.node.as_ref().borrow().split) {
+                (SegmentMode::All, _) => {}
+                (SegmentMode::Unsplit, true) => continue,
+                (SegmentMode::Unsplit, false) => {}
+                (SegmentMode::Split, true) => {}
+                (SegmentMode::Split, false) => continue,
+            };
+            match &seg.content {
+                SegmentContent::Text(t) => {
+                    rendered.push_str(&t);
+                }
+                SegmentContent::Break(b, activate) => {
+                    if *activate {
+                        b.activate();
+                    }
+                    rendered.push_str(&" ".repeat(b.get()));
+                }
+                SegmentContent::Comment((b, comments)) => {
+                    for comment in comments {
+                        format_md(
+                            &mut rendered,
+                            config.max_width,
+                            &format!(
+                                "{}//{} ",
+                                " ".repeat(b.get()),
+                                match comment.mode {
+                                    comments::CommentMode::Normal => "",
+                                    comments::CommentMode::DocInner => "!",
+                                    comments::CommentMode::DocOuter => "/",
+                                }
+                            ),
+                            &comment.lines,
+                        );
+                    }
+                }
+            }
+        }
+        rendered.push_str("\n");
     }
     for (_, comm) in out.comments {
         for c in comm {

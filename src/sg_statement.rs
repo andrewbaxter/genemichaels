@@ -14,7 +14,8 @@ use crate::{
         new_sg_comma_bracketed_list, new_sg_comma_bracketed_list_ext, new_sg_macro,
     },
     sg_type::{append_path, build_generics, build_path},
-    Alignment, Formattable, MakeSegsState, SplitGroup, SplitGroupBuilder,
+    Alignment, Formattable, FormattableStmt, MakeSegsState, MarginGroup, SplitGroup,
+    SplitGroupBuilder,
 };
 
 fn append_vis(
@@ -121,6 +122,17 @@ fn append_sig(
     }
 }
 
+impl FormattableStmt for Stmt {
+    fn want_margin(&self) -> (MarginGroup, bool) {
+        match self {
+            Stmt::Local(_) => (MarginGroup::None, false),
+            Stmt::Item(i) => i.want_margin(),
+            Stmt::Expr(_) => (MarginGroup::None, false),
+            Stmt::Semi(_, _) => (MarginGroup::None, false),
+        }
+    }
+}
+
 impl Formattable for Stmt {
     fn make_segs(
         &self,
@@ -148,6 +160,12 @@ impl Formattable for Stmt {
                 node.build()
             }
         }
+    }
+}
+
+impl FormattableStmt for ForeignItem {
+    fn want_margin(&self) -> (MarginGroup, bool) {
+        (MarginGroup::None, false)
     }
 }
 
@@ -220,6 +238,19 @@ impl Formattable for ForeignItem {
     }
 }
 
+impl FormattableStmt for ImplItem {
+    fn want_margin(&self) -> (MarginGroup, bool) {
+        match self {
+            ImplItem::Const(_) => (MarginGroup::None, false),
+            ImplItem::Method(_) => (MarginGroup::BlockDef, true),
+            ImplItem::Type(_) => (MarginGroup::None, false),
+            ImplItem::Macro(_) => (MarginGroup::BlockDef, true),
+            ImplItem::Verbatim(_) => (MarginGroup::None, false),
+            _ => unreachable!(),
+        }
+    }
+}
+
 impl Formattable for ImplItem {
     fn make_segs(
         &self,
@@ -268,7 +299,9 @@ impl Formattable for ImplItem {
                         " {",
                         &x.block.stmts,
                     ));
-                    node.build()
+                    let out = node.build();
+                    out.as_ref().borrow_mut().children.reverse();
+                    out
                 },
             ),
             ImplItem::Type(x) => new_sg_attrs(
@@ -302,6 +335,19 @@ impl Formattable for ImplItem {
                 },
             ),
             ImplItem::Verbatim(x) => new_sg_lit(out, None, x),
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl FormattableStmt for TraitItem {
+    fn want_margin(&self) -> (MarginGroup, bool) {
+        match self {
+            TraitItem::Const(_) => (MarginGroup::None, false),
+            TraitItem::Method(m) => (MarginGroup::BlockDef, m.default.is_some()),
+            TraitItem::Type(_) => (MarginGroup::None, false),
+            TraitItem::Macro(_) => (MarginGroup::BlockDef, true),
+            TraitItem::Verbatim(_) => (MarginGroup::None, false),
             _ => unreachable!(),
         }
     }
@@ -364,10 +410,13 @@ impl Formattable for TraitItem {
                             " {",
                             &d.stmts,
                         ));
+                        let out = sg.build();
+                        out.as_ref().borrow_mut().children.reverse();
+                        out
                     } else {
                         sg.seg(out, ";");
+                        sg.build()
                     }
-                    sg.build()
                 },
             ),
             TraitItem::Type(x) => new_sg_attrs(
@@ -438,6 +487,44 @@ impl Formattable for TraitItem {
     }
 }
 
+impl FormattableStmt for Item {
+    fn want_margin(&self) -> (MarginGroup, bool) {
+        match self {
+            Item::Const(_) => (MarginGroup::None, false),
+            Item::Enum(_) => (MarginGroup::BlockDef, true),
+            Item::ExternCrate(_) => (MarginGroup::None, false),
+            Item::Fn(_) => (MarginGroup::BlockDef, true),
+            Item::ForeignMod(_) => (MarginGroup::BlockDef, true),
+            Item::Impl(_) => (MarginGroup::BlockDef, true),
+            Item::Macro(_) => (MarginGroup::BlockDef, true),
+            Item::Macro2(_) => (MarginGroup::BlockDef, true),
+            Item::Mod(m) => (
+                MarginGroup::BlockDef,
+                match &m.content {
+                    Some(_) => true,
+                    None => false,
+                },
+            ),
+            Item::Static(_) => (MarginGroup::None, false),
+            Item::Struct(s) => (
+                MarginGroup::BlockDef,
+                match &s.fields {
+                    syn::Fields::Named(_) => true,
+                    syn::Fields::Unnamed(_) => true,
+                    syn::Fields::Unit => false,
+                },
+            ),
+            Item::Trait(_) => (MarginGroup::BlockDef, true),
+            Item::TraitAlias(_) => (MarginGroup::None, false),
+            Item::Type(_) => (MarginGroup::None, false),
+            Item::Union(_) => (MarginGroup::BlockDef, true),
+            Item::Use(_) => (MarginGroup::Import, false),
+            Item::Verbatim(_) => (MarginGroup::None, false),
+            _ => unreachable!(),
+        }
+    }
+}
+
 impl Formattable for Item {
     fn make_segs(
         &self,
@@ -501,17 +588,19 @@ impl Formattable for Item {
                 base_indent,
                 &x.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut node = new_sg();
-                    append_vis(out, base_indent, &mut node, &x.vis);
-                    append_sig(out, base_indent, &mut node, &x.sig);
-                    node.child(new_sg_block(
+                    let mut sg = new_sg();
+                    append_vis(out, base_indent, &mut sg, &x.vis);
+                    append_sig(out, base_indent, &mut sg, &x.sig);
+                    sg.child(new_sg_block(
                         out,
                         base_indent,
                         x.block.brace_token.span.start(),
                         " {",
                         &x.block.stmts,
                     ));
-                    node.build()
+                    let out = sg.build();
+                    out.as_ref().borrow_mut().children.reverse();
+                    out
                 },
             ),
             Item::ForeignMod(x) => new_sg_attrs(

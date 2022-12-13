@@ -1,12 +1,12 @@
 use std::{cell::RefCell, fmt::Write, rc::Rc};
 
 use proc_macro2::{LineColumn, TokenStream};
-use quote::quote;
+use quote::{quote, ToTokens};
 use syn::{punctuated::Punctuated, Attribute, Block, ExprCall, Macro};
 
 use crate::{
-    comments::HashLineColumn, new_sg, sg_type::build_path, Alignment, Formattable, MakeSegsState,
-    SplitGroup, SplitGroupBuilder,
+    comments::HashLineColumn, new_sg, sg_type::build_path, Alignment, Formattable, FormattableStmt,
+    MakeSegsState, SplitGroup, SplitGroupBuilder,
 };
 
 pub(crate) fn build_rev_pair(
@@ -55,13 +55,23 @@ pub(crate) fn append_statement_list(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
     node: &mut SplitGroupBuilder,
-    block: &Vec<impl Formattable>,
+    block: &Vec<impl FormattableStmt>,
 ) {
     if block.len() > 1 {
         let indent = base_indent.indent();
-        for el in block {
+        let mut previous_margin_group = crate::MarginGroup::None;
+        for (i, el) in block.iter().enumerate() {
+            let (new_margin_group, want_margin) = el.want_margin();
+            if i > 0
+                && (previous_margin_group != new_margin_group
+                    || want_margin
+                    || has_comments(out, el))
+            {
+                node.split_always(out, indent.clone(), true);
+            }
             node.split_always(out, indent.clone(), true);
             node.child((&el).make_segs(out, &indent));
+            previous_margin_group = new_margin_group;
         }
     } else {
         node.seg_unsplit(out, " ");
@@ -79,7 +89,7 @@ pub(crate) fn append_block(
     base_indent: &Alignment,
     node: &mut SplitGroupBuilder,
     prefix: &'static str,
-    block: &Vec<impl Formattable>,
+    block: &Vec<impl FormattableStmt>,
 ) {
     node.seg(out, prefix);
     append_statement_list(out, base_indent, node, block);
@@ -96,7 +106,7 @@ pub(crate) fn new_sg_block(
     base_indent: &Alignment,
     start: LineColumn,
     prefix: &'static str,
-    block: &Vec<impl Formattable>,
+    block: &Vec<impl FormattableStmt>,
 ) -> Rc<RefCell<SplitGroup>> {
     let mut sg = new_sg();
     append_comments(out, base_indent, &mut sg, start);
@@ -429,4 +439,12 @@ pub(crate) fn append_comments(
         })),
     );
     sg.split_always(out, base_indent.clone(), true);
+}
+
+pub(crate) fn has_comments(out: &mut MakeSegsState, t: impl ToTokens) -> bool {
+    t.to_token_stream()
+        .into_iter()
+        .next()
+        .map(|t| out.comments.contains_key(&HashLineColumn(t.span().start())))
+        .unwrap_or(false)
 }
