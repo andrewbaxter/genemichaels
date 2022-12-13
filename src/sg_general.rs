@@ -81,25 +81,27 @@ pub(crate) fn append_statement_list_raw(
     }
 }
 
-pub(crate) fn append_block(
+pub(crate) fn append_bracketed_statement_list(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
-    node: &mut SplitGroupBuilder,
+    sg: &mut SplitGroupBuilder,
     prefix: &'static str,
     block: &Vec<impl FormattableStmt>,
+    end: LineColumn,
 ) {
-    node.seg(out, prefix);
+    sg.seg(out, prefix);
     let indent = base_indent.indent();
     if block.len() > 1 {
-        node.split_always(out, indent.clone(), true);
+        sg.split_always(out, indent.clone(), true);
     }
-    append_statement_list_raw(out, &indent, node, block);
+    append_statement_list_raw(out, &indent, sg, block);
+    append_comments(out, &indent, sg, end);
     if block.len() > 1 {
-        node.split_always(out, base_indent.clone(), false);
+        sg.split_always(out, base_indent.clone(), false);
     } else {
-        node.split(out, base_indent.clone(), false);
+        sg.split(out, base_indent.clone(), false);
     }
-    node.seg(out, "}");
+    sg.seg(out, "}");
 }
 
 pub(crate) fn new_sg_block(
@@ -108,10 +110,11 @@ pub(crate) fn new_sg_block(
     start: LineColumn,
     prefix: &'static str,
     block: &Vec<impl FormattableStmt>,
+    end: LineColumn,
 ) -> Rc<RefCell<SplitGroup>> {
     let mut sg = new_sg();
     append_comments(out, base_indent, &mut sg, start);
-    append_block(out, base_indent, &mut sg, prefix, block);
+    append_bracketed_statement_list(out, base_indent, &mut sg, prefix, block, end);
     sg.build()
 }
 
@@ -142,29 +145,33 @@ pub(crate) fn append_inline_list_raw<E: Formattable, T>(
 pub(crate) fn append_inline_list<E: Formattable, T>(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
-    node: &mut SplitGroupBuilder,
+    sg: &mut SplitGroupBuilder,
     punct: &str,
     punct_is_suffix: bool,
     exprs: &Punctuated<E, T>,
 ) {
     let indent = base_indent.indent();
-    node.split(out, indent.clone(), true);
-    append_inline_list_raw(out, &indent, node, punct, punct_is_suffix, exprs);
+    sg.split(out, indent.clone(), true);
+    append_inline_list_raw(out, &indent, sg, punct, punct_is_suffix, exprs);
 }
 
 pub(crate) fn append_comma_bracketed_list<E: Formattable, T>(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
-    node: &mut SplitGroupBuilder,
+    sg: &mut SplitGroupBuilder,
     prefix: &str,
     exprs: &Punctuated<E, T>,
+    end: LineColumn,
     suffix: &str,
 ) {
     //node.add_comments(out, base_indent, prefix_start);
-    node.seg(out, prefix);
-    append_inline_list(out, base_indent, node, ",", true, exprs);
-    node.split(out, base_indent.clone(), false);
-    node.seg(out, suffix);
+    sg.seg(out, prefix);
+    let indent = base_indent.indent();
+    sg.split(out, indent.clone(), true);
+    append_inline_list_raw(out, &indent, sg, ",", true, exprs);
+    append_comments(out, &indent, sg, end);
+    sg.split(out, base_indent.clone(), false);
+    sg.seg(out, suffix);
 }
 
 pub(crate) fn new_sg_comma_bracketed_list<E: Formattable, T>(
@@ -174,6 +181,7 @@ pub(crate) fn new_sg_comma_bracketed_list<E: Formattable, T>(
     start: LineColumn,
     prefix: &str,
     exprs: &Punctuated<E, T>,
+    end: LineColumn,
     suffix: &str,
 ) -> Rc<RefCell<SplitGroup>> {
     let mut sg = new_sg();
@@ -181,7 +189,7 @@ pub(crate) fn new_sg_comma_bracketed_list<E: Formattable, T>(
         sg.child(base.make_segs(out, base_indent));
     }
     append_comments(out, base_indent, &mut sg, start);
-    append_comma_bracketed_list(out, base_indent, &mut sg, prefix, exprs, suffix);
+    append_comma_bracketed_list(out, base_indent, &mut sg, prefix, exprs, end, suffix);
     sg.build()
 }
 

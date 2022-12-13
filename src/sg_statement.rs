@@ -1,21 +1,19 @@
-use std::{cell::RefCell, rc::Rc};
-
-use quote::ToTokens;
-use syn::{
-    Expr, Field, ForeignItem, ImplItem, Item, ReturnType, Signature, Stmt, TraitItem, UseTree,
-    Variant, Visibility,
-};
-
 use crate::{
     new_sg, new_sg_lit,
     sg_general::{
-        append_binary, append_block, append_comma_bracketed_list, append_comments,
-        append_inline_list, append_macro_body, new_sg_attrs, new_sg_binary, new_sg_block,
-        new_sg_comma_bracketed_list, new_sg_comma_bracketed_list_ext, new_sg_macro,
+        append_binary, append_bracketed_statement_list, append_comma_bracketed_list,
+        append_comments, append_inline_list, append_macro_body, new_sg_attrs, new_sg_binary,
+        new_sg_block, new_sg_comma_bracketed_list, new_sg_comma_bracketed_list_ext, new_sg_macro,
     },
     sg_type::{append_path, build_generics, build_path},
     Alignment, Formattable, FormattableStmt, MakeSegsState, MarginGroup, SplitGroup,
-    SplitGroupBuilder,
+    SplitGroupBuilder, TrivialLineColMath,
+};
+use quote::ToTokens;
+use std::{cell::RefCell, rc::Rc};
+use syn::{
+    Expr, Field, ForeignItem, ImplItem, Item, ReturnType, Signature, Stmt, TraitItem, UseTree,
+    Variant, Visibility,
 };
 
 fn append_vis(
@@ -110,6 +108,7 @@ fn append_sig(
             sig.paren_token.span.start(),
             "(",
             &sig.inputs,
+            sig.paren_token.span.end().prev(),
             ")",
         ));
     }
@@ -298,6 +297,7 @@ impl Formattable for ImplItem {
                         x.block.brace_token.span.start(),
                         " {",
                         &x.block.stmts,
+                        x.block.brace_token.span.end().prev(),
                     ));
                     let out = node.build();
                     out.as_ref().borrow_mut().children.reverse();
@@ -409,6 +409,7 @@ impl Formattable for TraitItem {
                             d.brace_token.span.start(),
                             " {",
                             &d.stmts,
+                            d.brace_token.span.end().prev(),
                         ));
                         let out = sg.build();
                         out.as_ref().borrow_mut().children.reverse();
@@ -562,7 +563,15 @@ impl Formattable for Item {
                     if !x.generics.params.is_empty() {
                         sg.child(build_generics(out, base_indent, &x.generics));
                     }
-                    append_comma_bracketed_list(out, base_indent, &mut sg, " {", &x.variants, "}");
+                    append_comma_bracketed_list(
+                        out,
+                        base_indent,
+                        &mut sg,
+                        " {",
+                        &x.variants,
+                        x.brace_token.span.end().prev(),
+                        "}",
+                    );
                     sg.build()
                 },
             ),
@@ -597,6 +606,7 @@ impl Formattable for Item {
                         x.block.brace_token.span.start(),
                         " {",
                         &x.block.stmts,
+                        x.block.brace_token.span.end().prev(),
                     ));
                     let out = sg.build();
                     out.as_ref().borrow_mut().children.reverse();
@@ -609,6 +619,7 @@ impl Formattable for Item {
                 &x.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg();
+
                     // extern token missing?
                     let mut prefix = String::new();
                     prefix.push_str("extern ");
@@ -616,7 +627,14 @@ impl Formattable for Item {
                         prefix.push_str(&name.to_token_stream().to_string());
                     }
                     sg.seg(out, &prefix);
-                    append_block(out, base_indent, &mut sg, " {", &x.items);
+                    append_bracketed_statement_list(
+                        out,
+                        base_indent,
+                        &mut sg,
+                        " {",
+                        &x.items,
+                        x.brace_token.span.end().prev(),
+                    );
                     sg.build()
                 },
             ),
@@ -650,7 +668,14 @@ impl Formattable for Item {
                         sg.seg(out, " for ");
                     }
                     sg.child(x.self_ty.make_segs(out, base_indent));
-                    append_block(out, base_indent, &mut sg, " {", &x.items);
+                    append_bracketed_statement_list(
+                        out,
+                        base_indent,
+                        &mut sg,
+                        " {",
+                        &x.items,
+                        x.brace_token.span.end().prev(),
+                    );
                     sg.build()
                 },
             ),
@@ -729,7 +754,14 @@ impl Formattable for Item {
                     sg.seg(out, "mod ");
                     sg.seg(out, &x.ident.to_string());
                     if let Some(content) = &x.content {
-                        append_block(out, base_indent, &mut sg, " {", &content.1);
+                        append_bracketed_statement_list(
+                            out,
+                            base_indent,
+                            &mut sg,
+                            " {",
+                            &content.1,
+                            content.0.span.end().prev(),
+                        );
                     } else {
                         sg.seg(out, ";");
                     }
@@ -774,6 +806,7 @@ impl Formattable for Item {
                                 &mut sg,
                                 " {",
                                 &s.named,
+                                s.brace_token.span.end().prev(),
                                 "}",
                             );
                         }
@@ -784,6 +817,7 @@ impl Formattable for Item {
                                 &mut sg,
                                 "(",
                                 &t.unnamed,
+                                t.paren_token.span.end().prev(),
                                 ")",
                             );
                             sg.seg(out, ";");
@@ -828,6 +862,7 @@ impl Formattable for Item {
                         x.brace_token.span.start(),
                         " {",
                         &x.items,
+                        x.brace_token.span.end().prev(),
                     ));
                     sg.build()
                 },
@@ -901,6 +936,7 @@ impl Formattable for Item {
                         &mut sg,
                         " {",
                         &x.fields.named,
+                        x.fields.brace_token.span.end().prev(),
                         "}",
                     );
                     sg.build()
@@ -954,6 +990,7 @@ impl Formattable for Variant {
                             &mut node,
                             " {",
                             &s.named,
+                            s.brace_token.span.end().prev(),
                             "}",
                         );
                     }
@@ -964,6 +1001,7 @@ impl Formattable for Variant {
                             &mut node,
                             "(",
                             &t.unnamed,
+                            t.paren_token.span.end().prev(),
                             ")",
                         );
                     }
@@ -1023,7 +1061,15 @@ impl Formattable for &UseTree {
                 node.seg(out, "*");
             }
             syn::UseTree::Group(x) => {
-                append_comma_bracketed_list(out, base_indent, &mut node, "{", &x.items, "}");
+                append_comma_bracketed_list(
+                    out,
+                    base_indent,
+                    &mut node,
+                    "{",
+                    &x.items,
+                    x.brace_token.span.end().prev(),
+                    "}",
+                );
             }
         }
         node.build()

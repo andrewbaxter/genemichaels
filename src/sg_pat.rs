@@ -9,7 +9,7 @@ use crate::{
         new_sg_comma_bracketed_list, new_sg_comma_bracketed_list_ext, new_sg_macro,
     },
     sg_type::{build_extended_path, build_ref},
-    Alignment, Formattable, MakeSegsState, SplitGroup,
+    Alignment, Formattable, MakeSegsState, SplitGroup, TrivialLineColMath,
 };
 
 impl Formattable for &Pat {
@@ -158,6 +158,7 @@ impl Formattable for &Pat {
                         x.bracket_token.span.start(),
                         "[",
                         &x.elems,
+                        x.bracket_token.span.end().prev(),
                         "]",
                     )
                 },
@@ -188,6 +189,7 @@ impl Formattable for &Pat {
                             x.brace_token.span.start(),
                             "{",
                             &x.fields,
+                            x.brace_token.span.end().prev(),
                             "}",
                         )
                     }
@@ -205,6 +207,7 @@ impl Formattable for &Pat {
                         x.paren_token.span.start(),
                         "(",
                         &x.elems,
+                        x.paren_token.span.end().prev(),
                         ")",
                     )
                 },
@@ -221,6 +224,7 @@ impl Formattable for &Pat {
                         x.pat.paren_token.span.start(),
                         "(",
                         &x.pat.elems,
+                        x.pat.paren_token.span.end().prev(),
                         ")",
                     )
                 },

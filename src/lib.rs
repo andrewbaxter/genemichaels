@@ -10,13 +10,6 @@ use crate::{
     comments::CommentExtractor,
     sg_general::{has_comments, new_sg_attrs},
 };
-// TODO
-// line + block comments
-//  block comments -> counted nested /* */, don't go by lines
-//  grab before every token
-//  add parts
-// finish remaining elements
-// wrapping (start from root, wrap any line any node seg is on)
 pub(crate) mod comments;
 pub(crate) mod sg_expr;
 pub(crate) mod sg_general;
@@ -24,6 +17,21 @@ pub(crate) mod sg_pat;
 pub(crate) mod sg_statement;
 pub(crate) mod sg_type;
 pub mod utils;
+
+pub(crate) trait TrivialLineColMath {
+    // syn doesn't provide end token spans often, in which case the start span
+    // covers everything.  This is a dumb method to take the end of that and move back
+    // one char to hopefully get the start of the end token.
+    fn prev(&self) -> LineColumn;
+}
+
+impl TrivialLineColMath for LineColumn {
+    fn prev(&self) -> LineColumn {
+        let mut out = self.clone();
+        out.column -= 1;
+        out
+    }
+}
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub enum CommentMode {

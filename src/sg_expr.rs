@@ -8,11 +8,11 @@ use syn::{
 use crate::{
     new_sg, new_sg_lit,
     sg_general::{
-        append_binary, append_block, append_comments, build_rev_pair, new_sg_attrs, new_sg_binary,
-        new_sg_block, new_sg_comma_bracketed_list, new_sg_macro,
+        append_binary, append_bracketed_statement_list, append_comments, build_rev_pair,
+        new_sg_attrs, new_sg_binary, new_sg_block, new_sg_comma_bracketed_list, new_sg_macro,
     },
     sg_type::{build_array_type, build_extended_path, build_path, build_ref},
-    Alignment, Formattable, MakeSegsState, SplitGroup,
+    Alignment, Formattable, MakeSegsState, SplitGroup, TrivialLineColMath,
 };
 
 #[derive(Clone)]
@@ -114,6 +114,7 @@ fn new_sg_dotted(
                             tf.colon2_token.spans[0].start(),
                             "::<",
                             &tf.args,
+                            tf.lt_token.span.start(),
                             ">",
                         )
                     } else {
@@ -123,6 +124,7 @@ fn new_sg_dotted(
                 e.paren_token.span.start(),
                 "(",
                 &e.args,
+                e.paren_token.span.end().prev(),
                 ")",
             ),
             Dotted::Try(inner) => {
@@ -170,6 +172,7 @@ impl Formattable for &Expr {
                         e.bracket_token.span.start(),
                         "[",
                         &e.elems,
+                        e.bracket_token.span.end().prev(),
                         "]",
                     )
                 },
@@ -208,6 +211,7 @@ impl Formattable for &Expr {
                             c.span.start(),
                             "async move {",
                             &e.block.stmts,
+                            e.block.brace_token.span.end().prev(),
                         )
                     } else {
                         new_sg_block(
@@ -216,6 +220,7 @@ impl Formattable for &Expr {
                             e.async_token.span.start(),
                             "async {",
                             &e.block.stmts,
+                            e.block.brace_token.span.end().prev(),
                         )
                     }
                 },
@@ -253,6 +258,7 @@ impl Formattable for &Expr {
                         e.block.brace_token.span.start(),
                         "{",
                         &e.block.stmts,
+                        e.block.brace_token.span.end().prev(),
                     )
                 },
             ),
@@ -296,6 +302,7 @@ impl Formattable for &Expr {
                         e.paren_token.span.start(),
                         "(",
                         &e.args,
+                        e.paren_token.span.end().prev(),
                         ")",
                     )
                 },
@@ -349,6 +356,7 @@ impl Formattable for &Expr {
                             e.or1_token.span.start(),
                             &prefix,
                             &e.inputs,
+                            e.or2_token.span.start(),
                             "|",
                         )
                     }
@@ -424,7 +432,14 @@ impl Formattable for &Expr {
                         node.child(e.expr.make_segs(out, base_indent));
                         node.build()
                     });
-                    append_block(out, base_indent, &mut node, " {", &e.body.stmts);
+                    append_bracketed_statement_list(
+                        out,
+                        base_indent,
+                        &mut node,
+                        " {",
+                        &e.body.stmts,
+                        e.body.brace_token.span.end().prev(),
+                    );
                     node.build()
                 },
             ),
@@ -441,23 +456,32 @@ impl Formattable for &Expr {
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut node = new_sg();
-                    node.child({
-                        let mut node = new_sg();
-                        node.child({
-                            let mut node = new_sg();
-                            node.seg(out, "if ");
-                            node.child(e.cond.make_segs(out, base_indent));
-                            node.build()
+                    let mut sg = new_sg();
+                    sg.child({
+                        let mut sg = new_sg();
+                        sg.child({
+                            let mut sg = new_sg();
+                            append_comments(out, base_indent, &mut sg, e.if_token.span.start());
+                            sg.seg(out, "if ");
+                            sg.child(e.cond.make_segs(out, base_indent));
+                            sg.build()
                         });
-                        append_block(out, base_indent, &mut node, " {", &e.then_branch.stmts);
-                        node.build()
+                        append_bracketed_statement_list(
+                            out,
+                            base_indent,
+                            &mut sg,
+                            " {",
+                            &e.then_branch.stmts,
+                            e.then_branch.brace_token.span.end().prev(),
+                        );
+                        sg.build()
                     });
-                    if let Some((_, else_branch)) = &e.else_branch {
-                        node.seg(out, " else ");
-                        node.child(else_branch.make_segs(out, base_indent));
+                    if let Some((t, else_branch)) = &e.else_branch {
+                        append_comments(out, base_indent, &mut sg, t.span.start());
+                        sg.seg(out, " else ");
+                        sg.child(else_branch.make_segs(out, base_indent));
                     }
-                    node.build()
+                    sg.build()
                 },
             ),
             Expr::Index(e) => new_sg_attrs(
@@ -474,6 +498,7 @@ impl Formattable for &Expr {
                         e.bracket_token.span.start(),
                         "[",
                         &exprs,
+                        e.bracket_token.span.end().prev(),
                         "]",
                     )
                 },
@@ -512,7 +537,14 @@ impl Formattable for &Expr {
                         sg.seg(out, format!("{} ", l.to_token_stream()));
                     }
                     append_comments(out, base_indent, &mut sg, e.loop_token.span.start());
-                    append_block(out, base_indent, &mut sg, "loop {", &e.body.stmts);
+                    append_bracketed_statement_list(
+                        out,
+                        base_indent,
+                        &mut sg,
+                        "loop {",
+                        &e.body.stmts,
+                        e.body.brace_token.span.end().prev(),
+                    );
                     sg.build()
                 },
             ),
@@ -587,6 +619,7 @@ impl Formattable for &Expr {
                         e.paren_token.span.start(),
                         "(",
                         &exprs,
+                        e.paren_token.span.end().prev(),
                         ")",
                     )
                 },
@@ -734,7 +767,14 @@ impl Formattable for &Expr {
                     let mut sg = new_sg();
                     append_comments(out, base_indent, &mut sg, e.try_token.span.start());
                     sg.seg(out, "try ");
-                    append_block(out, base_indent, &mut sg, " {", &e.block.stmts);
+                    append_bracketed_statement_list(
+                        out,
+                        base_indent,
+                        &mut sg,
+                        " {",
+                        &e.block.stmts,
+                        e.block.brace_token.span.end().prev(),
+                    );
                     sg.build()
                 },
             ),
@@ -750,6 +790,7 @@ impl Formattable for &Expr {
                         e.paren_token.span.start(),
                         "(",
                         &e.elems,
+                        e.paren_token.span.end().prev(),
                         ")",
                     )
                 },
@@ -781,7 +822,14 @@ impl Formattable for &Expr {
                     let mut sg = new_sg();
                     append_comments(out, base_indent, &mut sg, e.unsafe_token.span.start());
                     sg.seg(out, "unsafe ");
-                    append_block(out, base_indent, &mut sg, " {", &e.block.stmts);
+                    append_bracketed_statement_list(
+                        out,
+                        base_indent,
+                        &mut sg,
+                        " {",
+                        &e.block.stmts,
+                        e.block.brace_token.span.end().prev(),
+                    );
                     sg.build()
                 },
             ),
@@ -803,7 +851,14 @@ impl Formattable for &Expr {
                     append_comments(out, base_indent, &mut sg, e.while_token.span.start());
                     sg.seg(out, "while ");
                     sg.child(e.cond.make_segs(out, base_indent));
-                    append_block(out, base_indent, &mut sg, " {", &e.body.stmts);
+                    append_bracketed_statement_list(
+                        out,
+                        base_indent,
+                        &mut sg,
+                        " {",
+                        &e.body.stmts,
+                        e.body.brace_token.span.end().prev(),
+                    );
                     sg.build()
                 },
             ),

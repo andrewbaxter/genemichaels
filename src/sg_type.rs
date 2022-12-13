@@ -14,7 +14,7 @@ use crate::{
         new_sg_attrs, new_sg_binary, new_sg_comma_bracketed_list, new_sg_comma_bracketed_list_ext,
         new_sg_macro,
     },
-    Alignment, Formattable, MakeSegsState, SplitGroup, SplitGroupBuilder,
+    Alignment, Formattable, MakeSegsState, SplitGroup, SplitGroupBuilder, TrivialLineColMath,
 };
 
 pub(crate) fn build_extended_path(
@@ -128,6 +128,7 @@ pub(crate) fn append_path<'a>(
                         "<"
                     ),
                     &a.args,
+                    a.gt_token.span.start(),
                     ">",
                 ));
             }
@@ -139,6 +140,7 @@ pub(crate) fn append_path<'a>(
                     a.paren_token.span.start(),
                     "(",
                     &a.inputs,
+                    a.paren_token.span.end().prev(),
                     ")",
                 ));
                 node.seg(out, " -> ");
@@ -206,6 +208,7 @@ pub(crate) fn build_generics(
                     generics.lt_token.unwrap().span.start(), // why ever none?
                     "<",
                     &generics.params,
+                    generics.gt_token.unwrap().span.start(), // why ever none?
                     ">",
                 )
             },
@@ -224,6 +227,7 @@ pub(crate) fn build_generics(
             generics.lt_token.unwrap().span.start(), // why ever none?
             "<",
             &generics.params,
+            generics.gt_token.unwrap().span.start(), // why ever none?
             ">",
         )
     }
@@ -246,6 +250,7 @@ impl Formattable for WherePredicate {
                         &mut node,
                         "<",
                         &hot.lifetimes,
+                        hot.gt_token.span.start(),
                         "> ",
                     );
                 }
@@ -345,6 +350,7 @@ impl Formattable for TypeParamBound {
                         &mut node,
                         "<",
                         &hot.lifetimes,
+                        hot.gt_token.span.start(),
                         "> ",
                     );
                 }
@@ -440,6 +446,7 @@ impl Formattable for &Type {
                         &mut node,
                         "<",
                         &hot.lifetimes,
+                        hot.gt_token.span.start(),
                         "> ",
                     );
                 }
@@ -476,6 +483,7 @@ impl Formattable for &Type {
                         x.paren_token.span.start(),
                         "(",
                         &x.inputs,
+                        x.paren_token.span.end().prev(),
                         ")",
                     ));
                 }
@@ -574,6 +582,7 @@ impl Formattable for &Type {
                 x.paren_token.span.start(),
                 "(",
                 &x.elems,
+                x.paren_token.span.end().prev(),
                 ")",
             ),
             Type::Verbatim(x) => new_sg_lit(out, None, x),
