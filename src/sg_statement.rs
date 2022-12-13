@@ -980,14 +980,15 @@ impl Formattable for Variant {
             base_indent,
             &self.attrs,
             |out: &mut MakeSegsState, base_indent: &Alignment| {
-                let mut node = new_sg();
-                node.seg(out, &self.ident);
+                let mut sg = new_sg();
+                append_comments(out, base_indent, &mut sg, self.ident.span().start());
+                sg.seg(out, &self.ident);
                 match &self.fields {
                     syn::Fields::Named(s) => {
                         append_comma_bracketed_list(
                             out,
                             base_indent,
-                            &mut node,
+                            &mut sg,
                             " {",
                             &s.named,
                             s.brace_token.span.end().prev(),
@@ -998,7 +999,7 @@ impl Formattable for Variant {
                         append_comma_bracketed_list(
                             out,
                             base_indent,
-                            &mut node,
+                            &mut sg,
                             "(",
                             &t.unnamed,
                             t.paren_token.span.end().prev(),
@@ -1008,9 +1009,9 @@ impl Formattable for Variant {
                     syn::Fields::Unit => {}
                 }
                 if let Some(e) = &self.discriminant {
-                    append_binary(out, base_indent, &mut node, " = ", &e.1);
+                    append_binary(out, base_indent, &mut sg, " = ", &e.1);
                 }
-                node.build()
+                sg.build()
             },
         )
     }
@@ -1027,13 +1028,14 @@ impl Formattable for Field {
             base_indent,
             &self.attrs,
             |out: &mut MakeSegsState, base_indent: &Alignment| {
-                let mut node = new_sg();
-                append_vis(out, base_indent, &mut node, &self.vis);
+                let mut sg = new_sg();
+                append_vis(out, base_indent, &mut sg, &self.vis);
                 if let Some(n) = &self.ident {
-                    node.seg(out, &format!("{}: ", n));
+                    append_comments(out, base_indent, &mut sg, n.span().start());
+                    sg.seg(out, &format!("{}: ", n));
                 }
-                node.child((&self.ty).make_segs(out, base_indent));
-                node.build()
+                sg.child((&self.ty).make_segs(out, base_indent));
+                sg.build()
             },
         )
     }
@@ -1045,26 +1047,30 @@ impl Formattable for &UseTree {
         out: &mut MakeSegsState,
         base_indent: &Alignment,
     ) -> Rc<RefCell<SplitGroup>> {
-        let mut node = new_sg();
+        let mut sg = new_sg();
         match self {
             syn::UseTree::Path(x) => {
-                node.seg(out, &format!("{}::", x.ident));
-                node.child(x.tree.make_segs(out, base_indent));
+                append_comments(out, base_indent, &mut sg, x.ident.span().start());
+                sg.seg(out, &format!("{}::", x.ident));
+                sg.child(x.tree.make_segs(out, base_indent));
             }
             syn::UseTree::Name(x) => {
-                node.seg(out, &x.ident.to_string());
+                append_comments(out, base_indent, &mut sg, x.ident.span().start());
+                sg.seg(out, &x.ident.to_string());
             }
             syn::UseTree::Rename(x) => {
-                node.seg(out, format!("{} as {}", x.ident, x.rename));
+                append_comments(out, base_indent, &mut sg, x.ident.span().start());
+                append_comments(out, base_indent, &mut sg, x.rename.span().start());
+                sg.seg(out, format!("{} as {}", x.ident, x.rename));
             }
             syn::UseTree::Glob(_) => {
-                node.seg(out, "*");
+                sg.seg(out, "*");
             }
             syn::UseTree::Group(x) => {
                 append_comma_bracketed_list(
                     out,
                     base_indent,
-                    &mut node,
+                    &mut sg,
                     "{",
                     &x.items,
                     x.brace_token.span.end().prev(),
@@ -1072,7 +1078,7 @@ impl Formattable for &UseTree {
                 );
             }
         }
-        node.build()
+        sg.build()
     }
 }
 

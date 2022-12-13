@@ -309,9 +309,12 @@ pub(crate) fn append_macro_body(
     } else {
         #[derive(PartialEq)]
         enum ConsecMode {
-            StartJoin, // Start, joining punct (.)
-            IdentLit,  // Idents, literals
-            Punct,     // Other punctuation
+            // Start, joining punct (.)
+            StartJoin,
+            // Idents, literals
+            IdentLit,
+            // Other punctuation
+            Punct,
         }
         let mut mode = ConsecMode::StartJoin;
 
