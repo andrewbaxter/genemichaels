@@ -119,7 +119,14 @@ pub(crate) fn append_path<'a>(
                     &indent,
                     None::<&Expr>,
                     a.lt_token.span.start(),
-                    "<",
+                    &format!(
+                        "{}{}",
+                        match &a.colon2_token {
+                            Some(_) => "::",
+                            None => "",
+                        },
+                        "<"
+                    ),
                     &a.args,
                     ">",
                 ));
