@@ -1,3 +1,5 @@
+# Gene Michaels
+
 - formats everything
 - doesn't not format some things
 - this is a haiku
@@ -8,7 +10,7 @@ Named after Gene Michaels.
 
 Dog fooded _in this repo_.
 
-# Usage
+## Usage
 
 Run `cargo install genemichaels`
 
@@ -22,7 +24,22 @@ If you're using vs code, add the setting:
 
 to use it with reckless abandon.
 
-# How it works
+## Programmatic usage
+
+Do `cargo add genemichaels`
+
+There's one main function at the moment:
+
+- `genemichaels::format_str` - takes a string (full rust source file, doesn't support snippets at the moment) and formatting config, returns a struct containing the formatted string and any comments that weren't included in the output.
+- `genemichaels::format_ast` - takes any formattable AST element (implements `genemichaels::Formattable`), the config, and any comments associated with the source from which the AST element was originally derived (this will probably be empty for generated code). It returns the same as the above.
+
+## Macros
+
+This formats macros.
+
+It assumes your macros look and act mostly like normal rust constructs (especially regarding whitespace and trailing commas). If this isn't the case, you should fix the macros or use `rustfmt` instead.
+
+## How it works
 
 At a very high level:
 

@@ -5,7 +5,7 @@ use quote::ToTokens;
 use sg_general::append_comments;
 use std::{borrow::Borrow, cell::RefCell, collections::HashMap, rc::Rc};
 use syn::File;
-use crate::{comments::CommentExtractor, sg_general::{has_comments, new_sg_attrs}};
+use crate::{comments::CommentExtractor};
 
 pub(crate) mod comments;
 pub(crate) mod sg_expr;
@@ -13,6 +13,7 @@ pub(crate) mod sg_general;
 pub(crate) mod sg_pat;
 pub(crate) mod sg_statement;
 pub(crate) mod sg_type;
+pub(crate) mod sg_root;
 pub mod utils;
 
 pub(crate) trait TrivialLineColMath { 
@@ -30,7 +31,7 @@ impl TrivialLineColMath for LineColumn { fn prev(&self) -> LineColumn {
 
 #[derive(Debug)] pub struct Comment {pub(crate) mode: CommentMode, pub(crate) lines: String}
 
-pub(crate) struct SplitGroup {
+pub struct SplitGroup {
     pub(crate) children: Vec<Rc<RefCell<SplitGroup>>>,
     pub(crate) split: bool,
     pub(crate) segments: Vec<Rc<RefCell<Segment>>>,
@@ -57,7 +58,7 @@ pub(crate) struct Line {
 
 pub(crate) struct Lines {pub(crate) lines: Vec<Rc<RefCell<Line>>>}
 
-pub(crate) struct MakeSegsState {
+pub struct MakeSegsState {
     pub(crate) line: Vec<Rc<RefCell<Segment>>>,
     pub(crate) comments: HashMap<HashLineColumn, Vec<Comment>>,
 }
@@ -115,7 +116,7 @@ pub(crate) fn insert_line(lines: Rc<RefCell<Lines>>, at: usize, segs: Vec<Rc<Ref
 
 pub(crate) struct Alignment_ {pub(crate) parent: Option<Alignment>, pub(crate) active: bool}
 
-#[derive(Clone)] pub(crate) struct Alignment(pub(crate) Rc<RefCell<Alignment_>>);
+#[derive(Clone)] pub struct Alignment(Rc<RefCell<Alignment_>>);
 
 impl Alignment {
     pub(crate) fn indent(&self) -> Alignment {
@@ -261,7 +262,7 @@ pub(crate) fn new_sg_lit(
 
 pub(crate) trait FormattableStmt: ToTokens + Formattable { fn want_margin(&self) -> (MarginGroup, bool); }
 
-pub(crate) trait Formattable {
+pub trait Formattable {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>>;
 }
 
@@ -289,68 +290,54 @@ pub struct FormatConfig {
     #[doc= " If a node has comments, split it"] pub split_comments: bool,
 }
 
-pub struct FormatRes {pub rendered: String, pub lost_comments: Vec<(LineColumn, Vec<Comment>)>}
+pub struct FormatRes {pub rendered: String, pub lost_comments: HashMap<HashLineColumn, Vec<Comment>>}
 
-pub fn format_str(code: &str, config: &FormatConfig) -> Result<FormatRes> {
-    format_ast(code, syn::parse_file(code)?, config)
+pub fn format_str(source: &str, config: &FormatConfig) -> Result<FormatRes> {
+    let ast: File = syn::parse_file(source)?;
+
+    // Extract comments
+    let mut comment_extractor =
+        CommentExtractor {
+            source: source,
+            last_loc: LineColumn {line: 1, column: 0},
+            last_offset: 0,
+            comments: HashMap::new(),
+        };
+
+    fn recurse(comment_extractor: &mut CommentExtractor, ts: TokenStream) {
+        for t in ts { match t { proc_macro2::TokenTree::Group(g) => {
+            comment_extractor.extract_to(g.span_open().start());
+            comment_extractor.advance_to(g.span_open().end());
+            recurse(comment_extractor, g.stream());
+            comment_extractor.extract_to(g.span_close().start());
+            comment_extractor.advance_to(g.span_close().end());
+        }, proc_macro2::TokenTree::Ident(g) => {
+            comment_extractor.extract_to(g.span().start());
+            comment_extractor.advance_to(g.span().end());
+        }, proc_macro2::TokenTree::Punct(g) => {
+            comment_extractor.extract_to(g.span().start());
+            comment_extractor.advance_to(g.span().end());
+        }, proc_macro2::TokenTree::Literal(g) => {
+            comment_extractor.extract_to(g.span().start());
+            comment_extractor.advance_to(g.span().end());
+        } } }
+    }
+
+    recurse(&mut comment_extractor, ast.to_token_stream());
+    format_ast(ast, config, comment_extractor.comments)
 }
 
-pub fn format_ast(source: &str, ast: File, config: &FormatConfig) -> Result<FormatRes> {
-    // Extract comments
-    let comments = {
-        let mut comment_extractor =
-            CommentExtractor {
-                source: source,
-                last_loc: LineColumn {line: 1, column: 0},
-                last_offset: 0,
-                comments: HashMap::new(),
-            };
-
-        fn recurse(comment_extractor: &mut CommentExtractor, ts: TokenStream) {
-            for t in ts { match t { proc_macro2::TokenTree::Group(g) => {
-                comment_extractor.extract_to(g.span_open().start());
-                comment_extractor.advance_to(g.span_open().end());
-                recurse(comment_extractor, g.stream());
-                comment_extractor.extract_to(g.span_close().start());
-                comment_extractor.advance_to(g.span_close().end());
-            }, proc_macro2::TokenTree::Ident(g) => {
-                comment_extractor.extract_to(g.span().start());
-                comment_extractor.advance_to(g.span().end());
-            }, proc_macro2::TokenTree::Punct(g) => {
-                comment_extractor.extract_to(g.span().start());
-                comment_extractor.advance_to(g.span().end());
-            }, proc_macro2::TokenTree::Literal(g) => {
-                comment_extractor.extract_to(g.span().start());
-                comment_extractor.advance_to(g.span().end());
-            } } }
-        }
-
-        recurse(&mut comment_extractor, ast.to_token_stream());
-        comment_extractor.comments
-    };
-
+pub fn format_ast(
+    ast: impl Formattable,
+    config: &FormatConfig,
+    comments: HashMap<HashLineColumn, Vec<Comment>>,
+) -> Result<
+    FormatRes,
+> {
     // Build text
     let mut out = MakeSegsState {line: vec![], comments: comments};
-    let root =
-        new_sg_attrs(
-            &mut out,
-            &Alignment(Rc::new(RefCell::new(Alignment_ {parent: None, active: false}))),
-            &ast.attrs,
-            |out: &mut MakeSegsState, base_indent: &Alignment| {
-                let mut sg = new_sg();
-                let mut previous_margin_group = crate::MarginGroup::None;
-                for (i, el) in ast.items.iter().enumerate() {
-                    let (new_margin_group, want_margin) = el.want_margin();
-                    if i > 0 && (previous_margin_group != new_margin_group || want_margin || has_comments(out, el)) {
-                        sg.split_always(out, base_indent.clone(), true);
-                    }
-                    sg.split_always(out, base_indent.clone(), true);
-                    sg.child((&el).make_segs(out, &base_indent));
-                    previous_margin_group = new_margin_group;
-                }
-                sg.build()
-            },
-        );
+    let base_indent = Alignment(Rc::new(RefCell::new(Alignment_ {parent: None, active: false})));
+    let root = ast.make_segs(&mut out, &base_indent);
     let lines = Rc::new(RefCell::new(Lines {lines: vec![]}));
     let line = Rc::new(RefCell::new(Line {lines: lines.clone(), index: 0, segs: out.line}));
     lines.borrow_mut().lines.push(line.clone());
@@ -422,10 +409,6 @@ pub fn format_ast(source: &str, ast: File, config: &FormatConfig) -> Result<Form
 
     // Render
     let mut rendered = String::new();
-    if let Some(shebang) = ast.shebang {
-        rendered.push_str(&shebang);
-        rendered.push_str("\n");
-    }
     let lines = lines.as_ref().borrow();
     for (line_i, line) in lines.lines.iter().enumerate() {
         let line = line.as_ref().borrow();
@@ -482,5 +465,5 @@ pub fn format_ast(source: &str, ast: File, config: &FormatConfig) -> Result<Form
         }
         rendered.push_str("\n");
     }
-    Ok(FormatRes {rendered: rendered, lost_comments: out.comments.into_iter().map(|(k, v)| (k.0, v)).collect()})
+    Ok(FormatRes {rendered: rendered, lost_comments: out.comments})
 }

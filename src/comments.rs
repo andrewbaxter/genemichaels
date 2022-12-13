@@ -7,7 +7,7 @@ use std::rc::Rc;
 use structre::UnicodeRegex;
 use crate::{Comment, CommentMode};
 
-#[derive(PartialEq, Eq, Debug)] pub(crate) struct HashLineColumn(pub LineColumn);
+#[derive(PartialEq, Eq, Debug)] pub struct HashLineColumn(pub LineColumn);
 
 impl Hash for HashLineColumn {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) { (self.0.line, self.0.column).hash(state); }
