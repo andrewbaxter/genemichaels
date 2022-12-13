@@ -6,6 +6,8 @@ use std::hash::Hash;
 use std::rc::Rc;
 use structre::UnicodeRegex;
 
+use crate::{Comment, CommentMode};
+
 #[derive(PartialEq, Eq, Debug)]
 pub(crate) struct HashLineColumn(pub LineColumn);
 
@@ -13,19 +15,6 @@ impl Hash for HashLineColumn {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         (self.0.line, self.0.column).hash(state);
     }
-}
-
-#[derive(PartialEq, Clone, Copy, Debug)]
-pub(crate) enum CommentMode {
-    Normal,
-    DocInner,
-    DocOuter,
-}
-
-#[derive(Debug)]
-pub(crate) struct Comment {
-    pub(crate) mode: CommentMode,
-    pub(crate) lines: String,
 }
 
 pub(crate) struct CommentExtractor<'a> {

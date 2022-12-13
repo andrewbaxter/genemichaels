@@ -1,5 +1,5 @@
 use anyhow::Result;
-use comments::{format_md, Comment, HashLineColumn};
+use comments::{format_md, HashLineColumn};
 use proc_macro2::{Ident, LineColumn, TokenStream};
 use quote::ToTokens;
 use sg_general::append_comments;
@@ -24,6 +24,19 @@ pub(crate) mod sg_pat;
 pub(crate) mod sg_statement;
 pub(crate) mod sg_type;
 pub mod utils;
+
+#[derive(PartialEq, Clone, Copy, Debug)]
+pub enum CommentMode {
+    Normal,
+    DocInner,
+    DocOuter,
+}
+
+#[derive(Debug)]
+pub struct Comment {
+    pub(crate) mode: CommentMode,
+    pub(crate) lines: String,
+}
 
 pub(crate) struct SplitGroup {
     pub(crate) children: Vec<Rc<RefCell<SplitGroup>>>,
@@ -361,11 +374,16 @@ pub struct FormatConfig {
     pub split_comments: bool,
 }
 
-pub fn format_str(code: &str, config: &FormatConfig) -> Result<String> {
+pub struct FormatRes {
+    pub rendered: String,
+    pub lost_comments: Vec<(LineColumn, Vec<Comment>)>,
+}
+
+pub fn format_str(code: &str, config: &FormatConfig) -> Result<FormatRes> {
     format_ast(code, syn::parse_file(code)?, config)
 }
 
-pub fn format_ast(source: &str, ast: File, config: &FormatConfig) -> Result<String> {
+pub fn format_ast(source: &str, ast: File, config: &FormatConfig) -> Result<FormatRes> {
     // Extract comments
     let comments = {
         let mut comment_extractor = CommentExtractor {
@@ -499,6 +517,7 @@ pub fn format_ast(source: &str, ast: File, config: &FormatConfig) -> Result<Stri
             };
             let line = seg.line.as_ref().unwrap();
             let len = line_length(&line.line.as_ref());
+
             if len > config.max_width {
                 split = true;
                 break;
@@ -509,7 +528,8 @@ pub fn format_ast(source: &str, ast: File, config: &FormatConfig) -> Result<Stri
         }
         let mut split_from_child = false;
         for child in &node.borrow().children {
-            split_from_child = split_from_child || recurse(config, child.as_ref());
+            let new_split_from_child = recurse(config, child.as_ref());
+            split_from_child = split_from_child || new_split_from_child;
         }
         if !split && split_from_child {
             split_group(node);
@@ -580,9 +600,9 @@ pub fn format_ast(source: &str, ast: File, config: &FormatConfig) -> Result<Stri
                                 "{}//{} ",
                                 " ".repeat(b.get()),
                                 match comment.mode {
-                                    comments::CommentMode::Normal => "",
-                                    comments::CommentMode::DocInner => "!",
-                                    comments::CommentMode::DocOuter => "/",
+                                    CommentMode::Normal => "",
+                                    CommentMode::DocInner => "!",
+                                    CommentMode::DocOuter => "/",
                                 }
                             ),
                             &comment.lines,
@@ -593,10 +613,8 @@ pub fn format_ast(source: &str, ast: File, config: &FormatConfig) -> Result<Stri
         }
         rendered.push_str("\n");
     }
-    for (_, comm) in out.comments {
-        for c in comm {
-            println!("Unconsumed comment:\n{}", c.lines);
-        }
-    }
-    Ok(rendered)
+    Ok(FormatRes {
+        rendered: rendered,
+        lost_comments: out.comments.into_iter().map(|(k, v)| (k.0, v)).collect(),
+    })
 }

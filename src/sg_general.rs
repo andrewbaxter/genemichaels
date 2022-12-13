@@ -51,34 +51,31 @@ pub(crate) fn new_sg_binary(
     node.build()
 }
 
-pub(crate) fn append_statement_list(
+pub(crate) fn append_statement_list_raw(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
     node: &mut SplitGroupBuilder,
     block: &Vec<impl FormattableStmt>,
 ) {
     if block.len() > 1 {
-        let indent = base_indent.indent();
         let mut previous_margin_group = crate::MarginGroup::None;
         for (i, el) in block.iter().enumerate() {
             let (new_margin_group, want_margin) = el.want_margin();
-            if i > 0
-                && (previous_margin_group != new_margin_group
-                    || want_margin
-                    || has_comments(out, el))
-            {
-                node.split_always(out, indent.clone(), true);
+            if i > 0 {
+                if previous_margin_group != new_margin_group || want_margin || has_comments(out, el)
+                {
+                    node.split_always(out, base_indent.clone(), true);
+                }
+                node.split_always(out, base_indent.clone(), true);
             }
-            node.split_always(out, indent.clone(), true);
-            node.child((&el).make_segs(out, &indent));
+            node.child((&el).make_segs(out, &base_indent));
             previous_margin_group = new_margin_group;
         }
     } else {
         node.seg_unsplit(out, " ");
-        let indent = base_indent.indent();
         for el in block {
-            node.split(out, indent.clone(), true);
-            node.child((&el).make_segs(out, &indent));
+            node.split(out, base_indent.clone(), true);
+            node.child((&el).make_segs(out, &base_indent));
             node.seg_unsplit(out, " ");
         }
     }
@@ -92,7 +89,11 @@ pub(crate) fn append_block(
     block: &Vec<impl FormattableStmt>,
 ) {
     node.seg(out, prefix);
-    append_statement_list(out, base_indent, node, block);
+    let indent = base_indent.indent();
+    if block.len() > 1 {
+        node.split_always(out, indent.clone(), true);
+    }
+    append_statement_list_raw(out, &indent, node, block);
     if block.len() > 1 {
         node.split_always(out, base_indent.clone(), false);
     } else {
@@ -114,7 +115,7 @@ pub(crate) fn new_sg_block(
     sg.build()
 }
 
-pub(crate) fn append_inline_list<E: Formattable, T>(
+pub(crate) fn append_inline_list_raw<E: Formattable, T>(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
     node: &mut SplitGroupBuilder,
@@ -122,10 +123,11 @@ pub(crate) fn append_inline_list<E: Formattable, T>(
     punct_is_suffix: bool,
     exprs: &Punctuated<E, T>,
 ) {
-    let indent = base_indent.indent();
     for (i, pair) in exprs.pairs().enumerate() {
-        node.split(out, indent.clone(), true);
-        node.child(pair.value().make_segs(out, &indent));
+        if i > 0 {
+            node.split(out, base_indent.clone(), true);
+        }
+        node.child(pair.value().make_segs(out, &base_indent));
         if i < exprs.len() - 1 {
             node.seg(out, punct);
             node.seg_unsplit(out, " ");
@@ -135,6 +137,19 @@ pub(crate) fn append_inline_list<E: Formattable, T>(
             }
         }
     }
+}
+
+pub(crate) fn append_inline_list<E: Formattable, T>(
+    out: &mut MakeSegsState,
+    base_indent: &Alignment,
+    node: &mut SplitGroupBuilder,
+    punct: &str,
+    punct_is_suffix: bool,
+    exprs: &Punctuated<E, T>,
+) {
+    let indent = base_indent.indent();
+    node.split(out, indent.clone(), true);
+    append_inline_list_raw(out, &indent, node, punct, punct_is_suffix, exprs);
 }
 
 pub(crate) fn append_comma_bracketed_list<E: Formattable, T>(
@@ -280,9 +295,9 @@ pub(crate) fn append_macro_body(
     tokens: TokenStream,
 ) {
     if let Ok(exprs) = syn::parse2::<ExprCall>(quote! { f(#tokens) }) {
-        append_inline_list(out, base_indent, sg, ",", true, &exprs.args);
+        append_inline_list_raw(out, base_indent, sg, ",", true, &exprs.args);
     } else if let Ok(block) = syn::parse2::<Block>(quote! { { #tokens } }) {
-        append_statement_list(out, base_indent, sg, &block.stmts);
+        append_statement_list_raw(out, base_indent, sg, &block.stmts);
     } else {
         #[derive(PartialEq)]
         enum ConsecMode {
@@ -318,9 +333,9 @@ pub(crate) fn append_macro_body(
             sg.split(out, base_indent.clone(), true);
             let tokens = TokenStream::from_iter(sub.0);
             if let Ok(exprs) = syn::parse2::<ExprCall>(quote! { f(#tokens) }) {
-                append_inline_list(out, base_indent, sg, ",", true, &exprs.args);
+                append_inline_list_raw(out, base_indent, sg, ",", true, &exprs.args);
             } else if let Ok(block) = syn::parse2::<Block>(quote! { { #tokens } }) {
-                append_statement_list(out, base_indent, sg, &block.stmts);
+                append_statement_list_raw(out, base_indent, sg, &block.stmts);
             } else {
                 for t in tokens {
                     match t {

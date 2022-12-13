@@ -730,6 +730,8 @@ impl Formattable for Item {
                     sg.seg(out, &x.ident.to_string());
                     if let Some(content) = &x.content {
                         append_block(out, base_indent, &mut sg, " {", &content.1);
+                    } else {
+                        sg.seg(out, ";");
                     }
                     sg.build()
                 },

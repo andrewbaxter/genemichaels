@@ -685,8 +685,8 @@ impl Formattable for &Expr {
                     for (i, pair) in e.fields.pairs().enumerate() {
                         if i > 0 {
                             node.seg(out, ",");
+                            node.seg_unsplit(out, " ");
                         }
-                        node.seg_unsplit(out, " ");
                         node.split(out, indent.clone(), true);
                         match &pair.value().member {
                             syn::Member::Named(n) => {
@@ -705,7 +705,6 @@ impl Formattable for &Expr {
                     } else {
                         node.seg_split(out, ",");
                     }
-                    node.seg_unsplit(out, " ");
                     node.split(out, base_indent.clone(), false);
                     node.seg(out, "}");
                     node.build()
