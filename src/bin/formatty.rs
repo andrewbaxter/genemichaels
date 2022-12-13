@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Context};
 use clap::Parser;
 use formatty::{es, format_str, FormatConfig};
-use std::{fs, path::PathBuf, process};
+use std::{fs, io::Read, path::PathBuf, process};
 use syn::File;
 
 // TODO
@@ -10,7 +10,7 @@ use syn::File;
 fn main() {
     #[derive(Parser)]
     struct Args {
-        file: PathBuf,
+        file: Option<PathBuf>,
         #[arg(short, long, default_value_t = 120)]
         line_length: usize,
         #[arg(
@@ -26,7 +26,20 @@ fn main() {
     }
     let args = Args::parse();
     match es!({
-        let source = String::from_utf8(fs::read(&args.file)?)?;
+        let source = match &args.file {
+            Some(f) => fs::read(f)?,
+            None => {
+                if args.write {
+                    return Err(anyhow!(
+                        "Can't update file when source is passed via stdin (no path specified)"
+                    ));
+                }
+                let mut bytes = Vec::new();
+                std::io::stdin().read_to_end(&mut bytes)?;
+                bytes
+            }
+        };
+        let source = String::from_utf8(source)?;
         let res = format_str(
             &source,
             &FormatConfig {
@@ -47,7 +60,7 @@ fn main() {
             .context("Rendered document couldn't be re-parsed in verification step")?;
 
         if args.write {
-            fs::write(&args.file, res.rendered.as_bytes())?;
+            fs::write(args.file.as_ref().unwrap(), res.rendered.as_bytes())?;
         } else {
             print!("{}", res.rendered);
         }
@@ -56,7 +69,7 @@ fn main() {
     }) {
         Ok(_) => {}
         Err(e) => {
-            eprintln!("Error formatting {}: {:?}", args.file.to_string_lossy(), e);
+            eprintln!("Error formatting {:?}: {:?}", args.file, e);
             process::exit(1);
         }
     };

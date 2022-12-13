@@ -68,8 +68,9 @@ fn new_sg_dotted(
     base_indent: &Alignment,
     root: Dotted,
 ) -> Rc<RefCell<SplitGroup>> {
-    let mut childs = vec![];
-    let leaf = gather_dotted(&mut childs, root);
+    let mut children = vec![];
+    let leaf = gather_dotted(&mut children, root);
+    children.reverse();
     let mut sg = new_sg();
     sg.child(leaf.make_segs(out, base_indent));
     let indent = base_indent.indent();
@@ -133,7 +134,7 @@ fn new_sg_dotted(
         }
     }
 
-    for child in childs {
+    for child in children {
         sg.split(out, indent.clone(), true);
         sg.child(build_child(out, &indent, &child));
     }
