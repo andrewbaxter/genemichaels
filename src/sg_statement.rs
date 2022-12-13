@@ -290,7 +290,6 @@ impl Formattable for ImplItem {
                         ),
                     );
                     let out = node.build();
-                    out.as_ref().borrow_mut().children.reverse();
                     out
                 },
             ),
@@ -387,7 +386,6 @@ impl Formattable for TraitItem {
                     if let Some(d) = &x.default {
                         sg.child(new_sg_block(out, base_indent, d.brace_token.span.start(), " {", &d.stmts, d.brace_token.span.end().prev()));
                         let out = sg.build();
-                        out.as_ref().borrow_mut().children.reverse();
                         out
                     } else {
                         sg.seg(out, ";");
@@ -553,7 +551,6 @@ impl Formattable for Item {
                         ),
                     );
                     let out = sg.build();
-                    out.as_ref().borrow_mut().children.reverse();
                     out
                 },
             ),

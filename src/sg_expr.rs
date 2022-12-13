@@ -8,7 +8,7 @@ use crate::{
         append_binary,
         append_bracketed_statement_list,
         append_comments,
-        build_rev_pair,
+        build_pair,
         new_sg_attrs,
         new_sg_binary,
         new_sg_block,
@@ -331,13 +331,13 @@ impl Formattable for &Expr {
                     }
 
                     match &e.output {
-                        syn::ReturnType::Default => build_rev_pair(
+                        syn::ReturnType::Default => build_pair(
                             out,
                             base_indent,
                             |out: &mut MakeSegsState, base_indent: &Alignment| { build_base(out, base_indent, e) },
                             e.body.as_ref(),
                         ),
-                        syn::ReturnType::Type(_, output) => build_rev_pair(
+                        syn::ReturnType::Type(_, output) => build_pair(
                             out,
                             base_indent,
                             |out: &mut MakeSegsState, base_indent: &Alignment| {
@@ -544,7 +544,6 @@ impl Formattable for &Expr {
                             sg.seg(out, " => ");
                             sg.child(arm.body.make_segs(out, &indent));
                             let out = sg.build();
-                            out.borrow_mut().children.reverse();
                             out
                         });
                         if i == e.arms.len() - 1 { sg.seg_split(out, ","); } else { sg.seg(out, ","); }

@@ -32,7 +32,7 @@ impl TrivialLineColMath for LineColumn { fn prev(&self) -> LineColumn {
 #[derive(Debug)] pub struct Comment {pub(crate) mode: CommentMode, pub(crate) lines: String}
 
 pub struct SplitGroup {
-    pub(crate) children: Vec<Rc<RefCell<SplitGroup>>>,
+    pub(crate) parent: Option<Rc<RefCell<SplitGroup>>>,
     pub(crate) split: bool,
     pub(crate) segments: Vec<Rc<RefCell<Segment>>>,
 }
@@ -134,11 +134,7 @@ impl Alignment {
     }
 }
 
-pub(crate) struct SplitGroupBuilder {
-    node: Rc<RefCell<SplitGroup>>,
-    children: Vec<Rc<RefCell<SplitGroup>>>,
-    segs: Vec<Rc<RefCell<Segment>>>,
-}
+pub(crate) struct SplitGroupBuilder {node: Rc<RefCell<SplitGroup>>, segs: Vec<Rc<RefCell<Segment>>>}
 
 impl SplitGroupBuilder {
     pub(crate) fn add(&mut self, out_segs: &mut MakeSegsState, seg: Rc<RefCell<Segment>>) {
@@ -146,12 +142,13 @@ impl SplitGroupBuilder {
         out_segs.line.push(seg);
     }
 
-    pub(crate) fn child(&mut self, child: Rc<RefCell<SplitGroup>>) { self.children.push(child); }
+    pub(crate) fn child(&mut self, child: Rc<RefCell<SplitGroup>>) {
+        child.as_ref().borrow_mut().parent = Some(self.node.clone());
+    }
 
     pub(crate) fn build(self) -> Rc<RefCell<SplitGroup>> {
         let mut n1 = self.node.borrow_mut();
         n1.segments.extend(self.segs);
-        n1.children.extend(self.children);
         drop(n1);
         return self.node;
     }
@@ -239,9 +236,8 @@ impl SplitGroupBuilder {
 
 pub(crate) fn new_sg() -> SplitGroupBuilder {
     SplitGroupBuilder {
-        node: Rc::new(RefCell::new(SplitGroup {split: false, segments: vec![], children: vec![]})),
+        node: Rc::new(RefCell::new(SplitGroup {split: false, segments: vec![], parent: None})),
         segs: vec![],
-        children: vec![],
     }
 }
 
@@ -337,10 +333,9 @@ pub fn format_ast(
     // Build text
     let mut out = MakeSegsState {line: vec![], comments: comments};
     let base_indent = Alignment(Rc::new(RefCell::new(Alignment_ {parent: None, active: false})));
-    let root = ast.make_segs(&mut out, &base_indent);
+    ast.make_segs(&mut out, &base_indent);
     let lines = Rc::new(RefCell::new(Lines {lines: vec![]}));
-    let line = Rc::new(RefCell::new(Line {lines: lines.clone(), index: 0, segs: out.line}));
-    lines.borrow_mut().lines.push(line.clone());
+    lines.borrow_mut().lines.push(Rc::new(RefCell::new(Line {lines: lines.clone(), index: 0, segs: out.line})));
     for line in &lines.as_ref().borrow().lines {
         for seg in &line.as_ref().borrow().segs {
             seg.as_ref().borrow_mut().line = Some(SegmentLine {line: line.clone(), seg_index: 0});
@@ -379,33 +374,42 @@ pub fn format_ast(
         }
     }
 
-    // Do width based splitting, other splitting
-    fn recurse(config: &FormatConfig, node: &RefCell<SplitGroup>) -> bool {
-        let mut split = false;
-        for seg in &node.borrow().segments {
-            let seg = seg.as_ref().borrow();
-            match &seg.content { SegmentContent::Comment(_) if config.split_comments => {
-                split = true;
-                break;
-            }, _ => { } };
-            let line = seg.line.as_ref().unwrap();
-            let len = line_length(&line.line.as_ref());
-            if len > config.max_width {
-                split = true;
-                break;
+    // Chop lines down until they're very chopful
+    {
+        let mut i = 0usize;
+        while i < lines.as_ref().borrow().lines.len() {
+            let line = lines.as_ref().borrow().lines.get(i).unwrap().clone();
+            loop {
+                if line_length(&line) <= config.max_width { break; }
+                let split_node = {
+                    let line = line.as_ref().borrow();
+                    let mut rootest = None;
+                    for seg in &line.segs {
+                        let seg = seg.as_ref().borrow();
+                        let sg = seg.node.clone();
+                        if sg.as_ref().borrow().split { continue; }
+                        let mut depth = 0;
+                        {
+                            let mut at = sg.clone();
+                            loop {
+                                let new_at = if let Some(p) = &at.as_ref().borrow().parent {
+                                    depth += 1;
+                                    p.clone()
+                                } else { break; };
+                                at = new_at;
+                            }
+                        }
+                        if rootest.as_ref().map(|(rootest_depth, _)| *rootest_depth < depth).unwrap_or(true) {
+                            rootest = Some((depth, sg));
+                        }
+                    }
+                    rootest.map(|(_, sg)| sg)
+                };
+                if let Some(split_node) = split_node { split_group(&split_node); }
             }
+            i += 1;
         }
-        if split { split_group(node); }
-        let mut split_from_child = false;
-        for child in &node.borrow().children {
-            let new_split_from_child = recurse(config, child.as_ref());
-            split_from_child = split_from_child || new_split_from_child;
-        }
-        if !split && split_from_child { split_group(node); }
-        config.root_splits && (split || split_from_child)
     }
-
-    recurse(config, root.as_ref());
 
     // Render
     let mut rendered = String::new();

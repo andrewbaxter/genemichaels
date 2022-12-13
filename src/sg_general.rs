@@ -14,7 +14,7 @@ use crate::{
     SplitGroupBuilder,
 };
 
-pub(crate) fn build_rev_pair(
+pub(crate) fn build_pair(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
     base: impl Formattable,
@@ -27,7 +27,6 @@ pub(crate) fn build_rev_pair(
     node.seg(out, " ");
     node.child(right.make_segs(out, base_indent));
     let out = node.build();
-    out.borrow_mut().children.reverse();
     out
 }
 
