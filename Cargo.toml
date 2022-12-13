@@ -2,7 +2,7 @@
 name = "genemichaels"
 version = "0.1.0"
 edition = "2021"
-license = "ISD"
+license = "ISC"
 description = "Makes your code formatty"
 repository = "https://github.com/andrewbaxter/genemichaels"
 readme = "readme.md"
