@@ -155,7 +155,6 @@ impl SplitGroupBuilder {
         return self.node;
     }
 
-
     pub(crate) fn seg(&mut self, out: &mut MakeSegsState, text: impl ToString) {
         self.add(
             out,
