@@ -6,6 +6,8 @@ Status: Alpha. There's some risk of corrupting source code (mostly when dealing 
 
 Named after Gene Michaels.
 
+Dog fooded _in this repo_.
+
 # Usage
 
 Run `cargo install genemichaels`
