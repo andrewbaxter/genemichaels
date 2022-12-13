@@ -60,68 +60,79 @@ impl<'a> CommentExtractor<'a> {
 
         let mut buffer = CommentBuffer {out: vec![], mode: CommentMode::Normal, lines: vec![]};
         let mut text = whole_text;
-        'comment_loop : loop { match start_re.captures(text) { Some(found_start) => {
-            let start_prefix_match = found_start.get(1).or(found_start.get(3)).unwrap();
-            match start_prefix_match.as_str() { "//" => {
-                let mode = {
-                    let start_suffix_match = found_start.get(2);
-                    let (mode, match_end) =
-                        match start_suffix_match {
-                            Some(start_suffix_match) => (
-                                match start_suffix_match.as_str() {
-                                    "/" => CommentMode::DocOuter,
-                                    "!" => CommentMode::DocInner,
-                                    _ => unreachable!(),
-                                },
-                                start_suffix_match.end(),
-                            ),
-                            None => (CommentMode::Normal, start_prefix_match.end()),
-                        };
-                    text = &text[match_end..];
-                    mode
-                };
-                let (line, next_start) =
-                    match text.find('\n') {
-                        Some(line_end) => (&text[..line_end], line_end + 1),
-                        None => (text, text.len()),
-                    };
-                buffer.add(mode, line);
-                assert_ne!(next_start, 0);
-                text = &text[next_start..];
-            }, "/*" => {
-                let mode = {
-                    let start_suffix_match = found_start.get(2);
-                    let (mode, match_end) =
-                        match start_suffix_match {
-                            Some(start_suffix_match) => (
-                                match start_suffix_match.as_str() {
-                                    "*" => CommentMode::DocOuter,
-                                    "!" => CommentMode::DocInner,
-                                    _ => unreachable!(),
-                                },
-                                start_suffix_match.end(),
-                            ),
-                            None => (CommentMode::Normal, start_prefix_match.end()),
-                        };
-                    text = &text[match_end..];
-                    mode
-                };
-                let mut nesting = 1;
-                let mut search_end_at = 0usize;
-                let (lines, next_start) = loop {
-                    let found_event = block_event_re.captures(&text[search_end_at..]).unwrap().get(1).unwrap();
-                    let event_start = search_end_at + found_event.start();
-                    search_end_at = search_end_at + found_event.end();
-                    match found_event.as_str() { "/*" => { nesting += 1; }, "*/" => {
-                        nesting -= 1;
-                        if nesting == 0 { break (&text[..event_start], search_end_at); }
-                    }, _ => unreachable!() }
-                };
-                for line in lines.lines() { buffer.add(mode, line.trim()); }
-                assert_ne!(next_start, 0);
-                text = &text[next_start..];
-            }, _ => unreachable!() }
-        }, None => { break 'comment_loop; } } }
+        'comment_loop : loop {
+            match start_re.captures(text) {
+                Some(found_start) => {
+                    let start_prefix_match = found_start.get(1).or(found_start.get(3)).unwrap();
+                    match start_prefix_match.as_str() {
+                        "//" => {
+                            let mode =
+                                {
+                                    let start_suffix_match = found_start.get(2);
+                                    let (mode, match_end) =
+                                        match start_suffix_match {
+                                            Some(start_suffix_match) => (
+                                                match start_suffix_match.as_str() {
+                                                    "/" => CommentMode::DocOuter,
+                                                    "!" => CommentMode::DocInner,
+                                                    _ => unreachable!(),
+                                                },
+                                                start_suffix_match.end(),
+                                            ),
+                                            None => (CommentMode::Normal, start_prefix_match.end()),
+                                        };
+                                    text = &text[match_end..];
+                                    mode
+                                };
+                            let (line, next_start) =
+                                match text.find('\n') {
+                                    Some(line_end) => (&text[..line_end], line_end + 1),
+                                    None => (text, text.len()),
+                                };
+                            buffer.add(mode, line);
+                            assert_ne!(next_start, 0);
+                            text = &text[next_start..];
+                        },
+                        "/*" => {
+                            let mode =
+                                {
+                                    let start_suffix_match = found_start.get(2);
+                                    let (mode, match_end) =
+                                        match start_suffix_match {
+                                            Some(start_suffix_match) => (
+                                                match start_suffix_match.as_str() {
+                                                    "*" => CommentMode::DocOuter,
+                                                    "!" => CommentMode::DocInner,
+                                                    _ => unreachable!(),
+                                                },
+                                                start_suffix_match.end(),
+                                            ),
+                                            None => (CommentMode::Normal, start_prefix_match.end()),
+                                        };
+                                    text = &text[match_end..];
+                                    mode
+                                };
+                            let mut nesting = 1;
+                            let mut search_end_at = 0usize;
+                            let (lines, next_start) = loop {
+                                let found_event = block_event_re.captures(&text[search_end_at..]).unwrap().get(1).unwrap();
+                                let event_start = search_end_at + found_event.start();
+                                search_end_at = search_end_at + found_event.end();
+                                match found_event.as_str() { "/*" => { nesting += 1; }, "*/" => {
+                                    nesting -= 1;
+                                    if nesting == 0 { break (&text[..event_start], search_end_at); }
+                                }, _ => unreachable!() }
+                            };
+                            for line in lines.lines() { buffer.add(mode, line.trim()); }
+                            assert_ne!(next_start, 0);
+                            text = &text[next_start..];
+                        },
+                        _ => unreachable!(),
+                    }
+                },
+                None => { break 'comment_loop; },
+            }
+        }
         buffer.flush();
         if !buffer.out.is_empty() { self.comments.insert(HashLineColumn(loc), buffer.out); }
     }
@@ -133,18 +144,22 @@ enum StackRes {Push(Box<dyn StackEl>), Keep, Pop}
 
 struct LineState_ {first_prefix: Option<String>, prefix: String, explicit_wrap: bool, max_width: usize}
 
-impl LineState_ { fn flush(&mut self, state: &mut State, out: &mut String) { if !state.line_buffer.is_empty() {
-    out.push_str(
-        &format!("{}{}{}{}",
-            if state.need_nl { "\n" } else { "" },
-            match &self.first_prefix.take() { Some(t) => t, None => &*self.prefix },
-            &state.line_buffer,
-            if self.explicit_wrap { " \\" } else { "" },
-        ),
-    );
-    state.line_buffer.clear();
-    state.need_nl = true;
-} } }
+impl LineState_ {
+    fn flush(&mut self, state: &mut State, out: &mut String) {
+        if !state.line_buffer.is_empty() {
+            out.push_str(
+                &format!("{}{}{}{}",
+                    if state.need_nl { "\n" } else { "" },
+                    match &self.first_prefix.take() { Some(t) => t, None => &*self.prefix },
+                    &state.line_buffer,
+                    if self.explicit_wrap { " \\" } else { "" },
+                ),
+            );
+            state.line_buffer.clear();
+            state.need_nl = true;
+        }
+    }
+}
 
 struct LineState(Rc<RefCell<LineState_>>);
 
@@ -209,28 +224,31 @@ impl LineState {
 
         // let segmenter = LineBreakSegmenter::try_new_unstable(&icu_testdata::unstable()).unwrap();
         let mut text = text;
-        while !text.is_empty() { if state.line_buffer.len() + text.len() > max_width { 
-            // match segmenter .segment_str(&text)
-            match text
-                .char_indices()
-                .filter(|i| i.1 == ' ')
-                .map(|i| i.0 + 1)
-                .take_while(|b| state.line_buffer.len() + *b < max_width)
-                .last() {
-                Some(b) => {
-                    state.line_buffer.push_str(&text[..b]);
-                    s.flush(state, out);
-                    text = &text[b..];
-                },
-                None => { if !state.line_buffer.is_empty() { s.flush(state, out); } else {
-                    state.line_buffer.push_str(text);
-                    s.flush(state, out);
-                    text = &text[text.len()..];
-                } },
-            } } else {
-            state.line_buffer.push_str(text);
-            text = &text[text.len()..];
-        } }
+        while !text.is_empty() {
+            if state.line_buffer.len() + text.len() > max_width {
+                // match segmenter .segment_str(&text)
+                match text
+                    .char_indices()
+                    .filter(|i| i.1 == ' ')
+                    .map(|i| i.0 + 1)
+                    .take_while(|b| state.line_buffer.len() + *b < max_width)
+                    .last() {
+                    Some(b) => {
+                        state.line_buffer.push_str(&text[..b]);
+                        s.flush(state, out);
+                        text = &text[b..];
+                    },
+                    None => { if !state.line_buffer.is_empty() { s.flush(state, out); } else {
+                        state.line_buffer.push_str(text);
+                        s.flush(state, out);
+                        text = &text[text.len()..];
+                    } },
+                }
+            } else {
+                state.line_buffer.push_str(text);
+                text = &text[text.len()..];
+            }
+        }
     }
 
     fn flush(&self, state: &mut State, out: &mut String) { self.0.as_ref().borrow_mut().flush(state, out); }
@@ -263,66 +281,68 @@ impl StackInline { fn new(state: &mut State, out: &mut String, args: StackInline
 } }
 
 impl StackEl for StackInline {
-    fn handle(&mut self, state: &mut State, out: &mut String, e: Event) -> StackRes { match e {
-        Event::End(_) => {
-            if let Some(b) = self.bound { self.line_state.write_unbreakable(state, out, &b); }
-            if self.line_root { self.line_state.flush(state, out); }
-            StackRes::Pop
-        },
-        Event::Text(x) => {
-            self.line_state.write_breakable(state, out, &x);
-            StackRes::Keep
-        },
-        Event::Code(x) => {
-            self.line_state.write_unbreakable(state, out, &format!("`{}`", x));
-            StackRes::Keep
-        },
-        Event::Start(x) => match x {
-            pulldown_cmark::Tag::Emphasis => StackRes::Push(
-                StackInline::new(
-                    state,
-                    out,
-                    StackInlineArgs {bound: Some("_".into()), line_state: self.line_state.share(), line_root: true},
+    fn handle(&mut self, state: &mut State, out: &mut String, e: Event) -> StackRes {
+        match e {
+            Event::End(_) => {
+                if let Some(b) = self.bound { self.line_state.write_unbreakable(state, out, &b); }
+                if self.line_root { self.line_state.flush(state, out); }
+                StackRes::Pop
+            },
+            Event::Text(x) => {
+                self.line_state.write_breakable(state, out, &x);
+                StackRes::Keep
+            },
+            Event::Code(x) => {
+                self.line_state.write_unbreakable(state, out, &format!("`{}`", x));
+                StackRes::Keep
+            },
+            Event::Start(x) => match x {
+                pulldown_cmark::Tag::Emphasis => StackRes::Push(
+                    StackInline::new(
+                        state,
+                        out,
+                        StackInlineArgs {bound: Some("_".into()), line_state: self.line_state.share(), line_root: true},
+                    ),
                 ),
-            ),
-            pulldown_cmark::Tag::Strong => StackRes::Push(
-                StackInline::new(
-                    state,
-                    out,
-                    StackInlineArgs {bound: Some("**".into()), line_state: self.line_state.share(), line_root: true},
+                pulldown_cmark::Tag::Strong => StackRes::Push(
+                    StackInline::new(
+                        state,
+                        out,
+                        StackInlineArgs {bound: Some("**".into()), line_state: self.line_state.share(), line_root: true},
+                    ),
                 ),
-            ),
-            pulldown_cmark::Tag::Strikethrough => StackRes::Push(
-                StackInline::new(
-                    state,
-                    out,
-                    StackInlineArgs {bound: Some("~".into()), line_state: self.line_state.share(), line_root: true},
+                pulldown_cmark::Tag::Strikethrough => StackRes::Push(
+                    StackInline::new(
+                        state,
+                        out,
+                        StackInlineArgs {bound: Some("~".into()), line_state: self.line_state.share(), line_root: true},
+                    ),
                 ),
-            ),
-            pulldown_cmark::Tag::Paragraph => unreachable!(),
-            pulldown_cmark::Tag::Heading(_, _, _) => unreachable!(),
-            pulldown_cmark::Tag::BlockQuote => unreachable!(),
-            pulldown_cmark::Tag::CodeBlock(_) => unreachable!(),
-            pulldown_cmark::Tag::List(_) => unreachable!(),
-            pulldown_cmark::Tag::Item => unreachable!(),
-            pulldown_cmark::Tag::FootnoteDefinition(_) => unreachable!(),
-            pulldown_cmark::Tag::Table(_) => unreachable!(),
-            pulldown_cmark::Tag::TableHead => unreachable!(),
-            pulldown_cmark::Tag::TableRow => unreachable!(),
-            pulldown_cmark::Tag::TableCell => unreachable!(),
-            pulldown_cmark::Tag::Link(_, _, _) => unreachable!(),
-            pulldown_cmark::Tag::Image(_, _, _) => unreachable!(),
-        },
-        Event::Html(_) => unreachable!(),
-        Event::FootnoteReference(_) => unreachable!(),
-        Event::SoftBreak => {
-            self.line_state.write_whitespace(state, out, " ");
-            StackRes::Keep
-        },
-        Event::HardBreak => StackRes::Keep,
-        Event::Rule => unreachable!(),
-        Event::TaskListMarker(_) => unreachable!(),
-    } }
+                pulldown_cmark::Tag::Paragraph => unreachable!(),
+                pulldown_cmark::Tag::Heading(_, _, _) => unreachable!(),
+                pulldown_cmark::Tag::BlockQuote => unreachable!(),
+                pulldown_cmark::Tag::CodeBlock(_) => unreachable!(),
+                pulldown_cmark::Tag::List(_) => unreachable!(),
+                pulldown_cmark::Tag::Item => unreachable!(),
+                pulldown_cmark::Tag::FootnoteDefinition(_) => unreachable!(),
+                pulldown_cmark::Tag::Table(_) => unreachable!(),
+                pulldown_cmark::Tag::TableHead => unreachable!(),
+                pulldown_cmark::Tag::TableRow => unreachable!(),
+                pulldown_cmark::Tag::TableCell => unreachable!(),
+                pulldown_cmark::Tag::Link(_, _, _) => unreachable!(),
+                pulldown_cmark::Tag::Image(_, _, _) => unreachable!(),
+            },
+            Event::Html(_) => unreachable!(),
+            Event::FootnoteReference(_) => unreachable!(),
+            Event::SoftBreak => {
+                self.line_state.write_whitespace(state, out, " ");
+                StackRes::Keep
+            },
+            Event::HardBreak => StackRes::Keep,
+            Event::Rule => unreachable!(),
+            Event::TaskListMarker(_) => unreachable!(),
+        }
+    }
 }
 
 struct StackBlock {line: LineState, need_line: bool, end_bound: Option<&'static str>}
@@ -334,138 +354,142 @@ impl StackBlock { fn new(state: &mut State, out: &mut String, args: StackBlockAr
     Box::new(StackBlock {line: args.line, end_bound: args.end_bound, need_line: false})
 } }
 
-impl StackEl for StackBlock { fn handle(&mut self, state: &mut State, out: &mut String, e: Event) -> StackRes {
-    if self.need_line { out.push_str("\n"); }
-    let out =
-        match e {
-            Event::Start(x) => match x {
-                pulldown_cmark::Tag::Paragraph => StackRes::Push(
-                    StackInline::new(
-                        state,
-                        out,
-                        StackInlineArgs {
-                            bound: None,
-                            line_state: self.line.indent(None, "".into(), false),
-                            line_root: true,
-                        },
-                    ),
-                ),
-                pulldown_cmark::Tag::Heading(level, _, _) => StackRes::Push(
-                    StackInline::new(
-                        state,
-                        out,
-                        StackInlineArgs {
-                            bound: None,
-                            line_state: self
-                                .line
-                                .indent(Some("#".repeat(level as i32 as usize).into()), "  ".into(), true),
-                            line_root: true,
-                        },
-                    ),
-                ),
-                pulldown_cmark::Tag::BlockQuote => StackRes::Push(
-                    StackBlock::new(
-                        state,
-                        out,
-                        StackBlockArgs {
-                            line: self.line.indent(None, ">".into(), false),
-                            start_bound: None,
-                            end_bound: None,
-                        },
-                    ),
-                ),
-                pulldown_cmark::Tag::CodeBlock(lang) => {
-                    self
-                        .line
-                        .write_unbreakable(
+impl StackEl for StackBlock {
+    fn handle(&mut self, state: &mut State, out: &mut String, e: Event) -> StackRes {
+        if self.need_line { out.push_str("\n"); }
+        let out =
+            match e {
+                Event::Start(x) => match x {
+                    pulldown_cmark::Tag::Paragraph => StackRes::Push(
+                        StackInline::new(
                             state,
                             out,
-                            &format!("```{}",
-                                match &lang {
-                                    pulldown_cmark::CodeBlockKind::Indented => "",
-                                    pulldown_cmark::CodeBlockKind::Fenced(x) => x,
-                                },
-                            ),
-                        );
-                    StackRes::Push(Box::new(StackCodeBlock {line: self.line.zero_indent()}))
-                },
-                pulldown_cmark::Tag::List(ordered) => match ordered {
-                    Some(index) => StackRes::Push(
-                        Box::new(StackNumberList {count: index, line: self.line.zero_indent()}),
+                            StackInlineArgs {
+                                bound: None,
+                                line_state: self.line.indent(None, "".into(), false),
+                                line_root: true,
+                            },
+                        ),
                     ),
-                    None => StackRes::Push(Box::new(StackBulletList {line: self.line.zero_indent()})),
-                },
-                pulldown_cmark::Tag::Table(_) => { todo!(); 
-                    // StackRes::Push(StackTable::new(out, self.line.zero_indent()))
+                    pulldown_cmark::Tag::Heading(level, _, _) => StackRes::Push(
+                        StackInline::new(
+                            state,
+                            out,
+                            StackInlineArgs {
+                                bound: None,
+                                line_state: self
+                                    .line
+                                    .indent(Some("#".repeat(level as i32 as usize).into()), "  ".into(), true),
+                                line_root: true,
+                            },
+                        ),
+                    ),
+                    pulldown_cmark::Tag::BlockQuote => StackRes::Push(
+                        StackBlock::new(
+                            state,
+                            out,
+                            StackBlockArgs {
+                                line: self.line.indent(None, ">".into(), false),
+                                start_bound: None,
+                                end_bound: None,
+                            },
+                        ),
+                    ),
+                    pulldown_cmark::Tag::CodeBlock(lang) => {
+                        self
+                            .line
+                            .write_unbreakable(
+                                state,
+                                out,
+                                &format!("```{}",
+                                    match &lang {
+                                        pulldown_cmark::CodeBlockKind::Indented => "",
+                                        pulldown_cmark::CodeBlockKind::Fenced(x) => x,
+                                    },
+                                ),
+                            );
+                        StackRes::Push(Box::new(StackCodeBlock {line: self.line.zero_indent()}))
                     },
-                pulldown_cmark::Tag::Link(_, url, title) => {
-                    self.line.write_unbreakable(state, out, "[");
-                    self.line.write_breakable(state, out, &title);
-                    self.line.write_unbreakable(state, out, &format!("]({})", url));
-                    self.line.flush(state, out);
-                    StackRes::Keep
-                },
-                pulldown_cmark::Tag::Image(_, url, title) => {
-                    self.line.write_unbreakable(state, out, &format!("![]({}", url));
-                    if title.is_empty() { self.line.write_unbreakable(state, out, ")"); } else {
-                        self.line.write_unbreakable(state, out, " \"");
+                    pulldown_cmark::Tag::List(ordered) => match ordered {
+                        Some(index) => StackRes::Push(
+                            Box::new(StackNumberList {count: index, line: self.line.zero_indent()}),
+                        ),
+                        None => StackRes::Push(Box::new(StackBulletList {line: self.line.zero_indent()})),
+                    },
+                    pulldown_cmark::Tag::Table(_) => { todo!(); 
+                        // StackRes::Push(StackTable::new(out, self.line.zero_indent()))
+                        },
+                    pulldown_cmark::Tag::Link(_, url, title) => {
+                        self.line.write_unbreakable(state, out, "[");
                         self.line.write_breakable(state, out, &title);
-                        self.line.write_unbreakable(state, out, "\")");
-                    }
-                    self.line.flush(state, out);
-                    StackRes::Keep
+                        self.line.write_unbreakable(state, out, &format!("]({})", url));
+                        self.line.flush(state, out);
+                        StackRes::Keep
+                    },
+                    pulldown_cmark::Tag::Image(_, url, title) => {
+                        self.line.write_unbreakable(state, out, &format!("![]({}", url));
+                        if title.is_empty() { self.line.write_unbreakable(state, out, ")"); } else {
+                            self.line.write_unbreakable(state, out, " \"");
+                            self.line.write_breakable(state, out, &title);
+                            self.line.write_unbreakable(state, out, "\")");
+                        }
+                        self.line.flush(state, out);
+                        StackRes::Keep
+                    },
+                    pulldown_cmark::Tag::Item |
+                    pulldown_cmark::Tag::TableHead |
+                    pulldown_cmark::Tag::TableRow |
+                    pulldown_cmark::Tag::TableCell |
+                    pulldown_cmark::Tag::Emphasis |
+                    pulldown_cmark::Tag::Strong |
+                    pulldown_cmark::Tag::Strikethrough |
+                    pulldown_cmark::Tag::FootnoteDefinition(_) => unreachable!(
+                    ),
                 },
-                pulldown_cmark::Tag::Item |
-                pulldown_cmark::Tag::TableHead |
-                pulldown_cmark::Tag::TableRow |
-                pulldown_cmark::Tag::TableCell |
-                pulldown_cmark::Tag::Emphasis |
-                pulldown_cmark::Tag::Strong |
-                pulldown_cmark::Tag::Strikethrough |
-                pulldown_cmark::Tag::FootnoteDefinition(_) => unreachable!(
+                Event::End(_) => {
+                    if let Some(b) = self.end_bound {
+                        self.line.write_unbreakable(state, out, b);
+                        self.line.flush(state, out);
+                    }
+                    StackRes::Pop
+                },
+                Event::Text(_) |
+                Event::Code(_) |
+                Event::Html(_) |
+                Event::FootnoteReference(_) |
+                Event::SoftBreak |
+                Event::HardBreak |
+                Event::Rule |
+                Event::TaskListMarker(_) => unreachable!(
                 ),
-            },
-            Event::End(_) => {
-                if let Some(b) = self.end_bound {
-                    self.line.write_unbreakable(state, out, b);
-                    self.line.flush(state, out);
-                }
-                StackRes::Pop
-            },
-            Event::Text(_) |
-            Event::Code(_) |
-            Event::Html(_) |
-            Event::FootnoteReference(_) |
-            Event::SoftBreak |
-            Event::HardBreak |
-            Event::Rule |
-            Event::TaskListMarker(_) => unreachable!(
-            ),
-        };
-    self.need_line = true;
-    out
-} }
+            };
+        self.need_line = true;
+        out
+    }
+}
 
 struct StackNumberList {count: u64, line: LineState}
 
-impl StackEl for StackNumberList { fn handle(&mut self, state: &mut State, out: &mut String, e: Event) -> StackRes {
-    let use_count = self.count;
-    self.count += 1;
-    match e {
-        Event::Start(pulldown_cmark::Tag::Item) => StackRes::Push(
-            StackBlock::new(
-                state,
-                out,
-                StackBlockArgs {
-                    line: self.line.indent(Some(format!("{}. ", use_count)), "   ".into(), false),
-                    start_bound: None,
-                    end_bound: None,
-                },
+impl StackEl for StackNumberList {
+    fn handle(&mut self, state: &mut State, out: &mut String, e: Event) -> StackRes {
+        let use_count = self.count;
+        self.count += 1;
+        match e {
+            Event::Start(pulldown_cmark::Tag::Item) => StackRes::Push(
+                StackBlock::new(
+                    state,
+                    out,
+                    StackBlockArgs {
+                        line: self.line.indent(Some(format!("{}. ", use_count)), "   ".into(), false),
+                        start_bound: None,
+                        end_bound: None,
+                    },
+                ),
             ),
-        ),
-        _ => unreachable!(),
+            _ => unreachable!(),
+        }
     }
-} }
+}
 
 struct StackBulletList {line: LineState}
 

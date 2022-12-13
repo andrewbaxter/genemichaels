@@ -81,28 +81,30 @@ fn new_sg_dotted(out: &mut MakeSegsState, base_indent: &Alignment, root: Dotted)
             Dotted::Method(e) => new_sg_comma_bracketed_list(
                 out,
                 base_indent,
-                Some(|out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let build_base =
-                        |out: &mut MakeSegsState, _base_indent: &Alignment| {
-                            new_sg_lit(
+                Some(
+                    |out: &mut MakeSegsState, base_indent: &Alignment| {
+                        let build_base =
+                            |out: &mut MakeSegsState, _base_indent: &Alignment| {
+                                new_sg_lit(
+                                    out,
+                                    Some((base_indent, e.dot_token.span.start())),
+                                    format!(".{}", e.method),
+                                )
+                            };
+                        if let Some(tf) = &e.turbofish {
+                            new_sg_comma_bracketed_list(
                                 out,
-                                Some((base_indent, e.dot_token.span.start())),
-                                format!(".{}", e.method),
+                                base_indent,
+                                Some(build_base),
+                                tf.colon2_token.spans[0].start(),
+                                "::<",
+                                &tf.args,
+                                tf.lt_token.span.start(),
+                                ">",
                             )
-                        };
-                    if let Some(tf) = &e.turbofish {
-                        new_sg_comma_bracketed_list(
-                            out,
-                            base_indent,
-                            Some(build_base),
-                            tf.colon2_token.spans[0].start(),
-                            "::<",
-                            &tf.args,
-                            tf.lt_token.span.start(),
-                            ">",
-                        )
-                    } else { build_base(out, base_indent) }
-                }),
+                        } else { build_base(out, base_indent) }
+                    },
+                ),
                 e.paren_token.span.start(),
                 "(",
                 &e.args,
@@ -421,25 +423,27 @@ impl Formattable for &Expr {
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg();
-                    sg.child({
-                        let mut sg = new_sg();
-                        sg.child({
+                    sg.child(
+                        {
                             let mut sg = new_sg();
-                            append_comments(out, base_indent, &mut sg, e.if_token.span.start());
-                            sg.seg(out, "if ");
-                            sg.child(e.cond.make_segs(out, base_indent));
+                            sg.child({
+                                let mut sg = new_sg();
+                                append_comments(out, base_indent, &mut sg, e.if_token.span.start());
+                                sg.seg(out, "if ");
+                                sg.child(e.cond.make_segs(out, base_indent));
+                                sg.build()
+                            });
+                            append_bracketed_statement_list(
+                                out,
+                                base_indent,
+                                &mut sg,
+                                " {",
+                                &e.then_branch.stmts,
+                                e.then_branch.brace_token.span.end().prev(),
+                            );
                             sg.build()
-                        });
-                        append_bracketed_statement_list(
-                            out,
-                            base_indent,
-                            &mut sg,
-                            " {",
-                            &e.then_branch.stmts,
-                            e.then_branch.brace_token.span.end().prev(),
-                        );
-                        sg.build()
-                    });
+                        },
+                    );
                     if let Some((t, else_branch)) = &e.else_branch {
                         append_comments(out, base_indent, &mut sg, t.span.start());
                         sg.seg(out, " else ");
@@ -532,21 +536,23 @@ impl Formattable for &Expr {
                     let indent = base_indent.indent();
                     for (i, arm) in e.arms.iter().enumerate() {
                         sg.split(out, indent.clone(), true);
-                        sg.child({
-                            let mut sg = new_sg();
-                            sg.child(
-                                {
-                                    if let Some(guard) = &arm.guard {
-                                        new_sg_binary(out, &indent, &arm.pat, " if", guard.1.as_ref())
-                                    } else { arm.pat.make_segs(out, &indent) }
-                                },
-                            );
-                            sg.seg(out, " => ");
-                            sg.child(arm.body.make_segs(out, &indent));
-                            let out = sg.build();
-                            out.borrow_mut().children.reverse();
-                            out
-                        });
+                        sg.child(
+                            {
+                                let mut sg = new_sg();
+                                sg.child(
+                                    {
+                                        if let Some(guard) = &arm.guard {
+                                            new_sg_binary(out, &indent, &arm.pat, " if", guard.1.as_ref())
+                                        } else { arm.pat.make_segs(out, &indent) }
+                                    },
+                                );
+                                sg.seg(out, " => ");
+                                sg.child(arm.body.make_segs(out, &indent));
+                                let out = sg.build();
+                                out.borrow_mut().children.reverse();
+                                out
+                            },
+                        );
                         if i == e.arms.len() - 1 { sg.seg_split(out, ","); } else { sg.seg(out, ","); }
                         sg.seg_unsplit(out, " ");
                     }
