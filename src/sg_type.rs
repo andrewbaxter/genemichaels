@@ -92,15 +92,22 @@ pub(crate) fn append_path<'a>(
     pairs: impl Iterator<Item = syn::punctuated::Pair<&'a syn::PathSegment, &'a syn::token::Colon2>>,
 ) {
     let indent = base_indent.clone();
-    if let Some(leading_colon) = prefix {
-        if let Some(loc) = leading_colon {
-            append_comments(out, base_indent, node, loc);
-        }
-        node.seg(out, "::");
-    }
+    let mut dots = prefix;
     for (i, seg) in pairs.enumerate() {
         if i > 0 {
             node.split(out, indent.clone(), true);
+        }
+        match dots {
+            Some(d) => {
+                match d {
+                    Some(t) => {
+                        append_comments(out, base_indent, node, t);
+                    }
+                    None => {}
+                };
+                node.seg(out, "::");
+            }
+            None => {}
         }
         append_comments(out, base_indent, node, seg.value().ident.span().start());
         node.seg(out, &seg.value().ident.to_string());
@@ -134,6 +141,10 @@ pub(crate) fn append_path<'a>(
                 }
             }
         };
+        match seg.punct() {
+            Some(p) => dots = Some(Some(p.spans[0].start())),
+            None => dots = None,
+        }
     }
 }
 

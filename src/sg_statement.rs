@@ -641,11 +641,10 @@ impl Formattable for Item {
                     if !x.generics.params.is_empty() {
                         sg.child(build_generics(out, base_indent, &x.generics));
                     }
+                    sg.seg(out, " ");
                     if let Some((bang, base, _)) = &x.trait_ {
                         if bang.is_some() {
-                            sg.seg(out, " !");
-                        } else {
-                            sg.seg(out, " ");
+                            sg.seg(out, "!");
                         }
                         sg.child(build_path(out, base_indent, &base));
                         sg.seg(out, " for ");

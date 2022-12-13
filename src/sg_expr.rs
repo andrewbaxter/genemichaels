@@ -1,10 +1,12 @@
 use std::{cell::RefCell, rc::Rc};
 
 use quote::ToTokens;
-use syn::{punctuated::Punctuated, token::Comma, Expr, ExprClosure};
+use syn::{
+    punctuated::Punctuated, token::Comma, Expr, ExprAwait, ExprClosure, ExprField, ExprMethodCall,
+};
 
 use crate::{
-    new_sg,
+    new_sg, new_sg_lit,
     sg_general::{
         append_binary, append_block, append_comments, build_rev_pair, new_sg_attrs, new_sg_binary,
         new_sg_block, new_sg_comma_bracketed_list, new_sg_macro,
@@ -12,6 +14,131 @@ use crate::{
     sg_type::{build_array_type, build_extended_path, build_path, build_ref},
     Alignment, Formattable, MakeSegsState, SplitGroup,
 };
+
+#[derive(Clone)]
+enum Dotted<'a> {
+    Await(&'a ExprAwait),
+    Field(&'a ExprField),
+    Method(&'a ExprMethodCall),
+    // only if base is dotted
+    Try(Box<Dotted<'a>>),
+}
+
+enum DottedRes<'a> {
+    Dotted(Dotted<'a>),
+    Leaf(&'a Expr),
+}
+
+fn get_dotted<'a>(e: &'a Expr) -> DottedRes<'a> {
+    match e {
+        Expr::Await(x) => DottedRes::Dotted(Dotted::Await(x)),
+        Expr::Field(x) => DottedRes::Dotted(Dotted::Field(x)),
+        Expr::MethodCall(x) => DottedRes::Dotted(Dotted::Method(x)),
+        Expr::Try(x) => match get_dotted(&x.expr) {
+            DottedRes::Dotted(d) => DottedRes::Dotted(Dotted::Try(Box::new(d))),
+            DottedRes::Leaf(_) => DottedRes::Leaf(e),
+        },
+        _ => DottedRes::Leaf(e),
+    }
+}
+
+fn gather_dotted<'a, 'b: 'a>(
+    out: &'a mut Vec<Dotted<'b>>,
+    root: Dotted<'b>,
+) -> &'b dyn Formattable {
+    out.push(root.clone());
+    match match root {
+        Dotted::Await(x) => get_dotted(&x.base),
+        Dotted::Field(x) => get_dotted(&x.base),
+        Dotted::Method(x) => get_dotted(&x.receiver),
+        Dotted::Try(e) => match &*e {
+            Dotted::Await(x) => get_dotted(&x.base),
+            Dotted::Field(x) => get_dotted(&x.base),
+            Dotted::Method(x) => get_dotted(&x.receiver),
+            Dotted::Try(_) => unreachable!(),
+        },
+    } {
+        DottedRes::Dotted(d) => gather_dotted(out, d),
+        DottedRes::Leaf(l) => l,
+    }
+}
+
+fn new_sg_dotted(
+    out: &mut MakeSegsState,
+    base_indent: &Alignment,
+    root: Dotted,
+) -> Rc<RefCell<SplitGroup>> {
+    let mut childs = vec![];
+    let leaf = gather_dotted(&mut childs, root);
+    let mut sg = new_sg();
+    sg.child(leaf.make_segs(out, base_indent));
+    let indent = base_indent.indent();
+
+    fn build_child(
+        out: &mut MakeSegsState,
+        base_indent: &Alignment,
+        child: &Dotted,
+    ) -> Rc<RefCell<SplitGroup>> {
+        match child {
+            Dotted::Await(x) => {
+                new_sg_lit(out, Some((base_indent, x.dot_token.span.start())), ".await")
+            }
+            Dotted::Field(e) => new_sg_lit(
+                out,
+                Some((base_indent, e.dot_token.span.start())),
+                format!(
+                    ".{}",
+                    match &e.member {
+                        syn::Member::Named(n) => n.to_string(),
+                        syn::Member::Unnamed(u) => u.index.to_string(),
+                    }
+                ),
+            ),
+            Dotted::Method(e) => new_sg_comma_bracketed_list(
+                out,
+                base_indent,
+                Some(|out: &mut MakeSegsState, base_indent: &Alignment| {
+                    let build_base = |out: &mut MakeSegsState, _base_indent: &Alignment| {
+                        new_sg_lit(
+                            out,
+                            Some((base_indent, e.dot_token.span.start())),
+                            format!(".{}", e.method),
+                        )
+                    };
+                    if let Some(tf) = &e.turbofish {
+                        new_sg_comma_bracketed_list(
+                            out,
+                            base_indent,
+                            Some(build_base),
+                            tf.colon2_token.spans[0].start(),
+                            "::<",
+                            &tf.args,
+                            ">",
+                        )
+                    } else {
+                        build_base(out, base_indent)
+                    }
+                }),
+                e.paren_token.span.start(),
+                "(",
+                &e.args,
+                ")",
+            ),
+            Dotted::Try(inner) => {
+                let mut sg = new_sg();
+                sg.child(build_child(out, base_indent, inner.as_ref()));
+                sg.seg(out, "?");
+                sg.build()
+            }
+        }
+    }
+
+    for child in childs {
+        sg.split(out, indent.clone(), true);
+        sg.child(build_child(out, &indent, &child));
+    }
+    sg.build()
+}
 
 impl Formattable for Expr {
     fn make_segs(
@@ -97,10 +224,7 @@ impl Formattable for &Expr {
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut node = new_sg();
-                    node.child(e.base.make_segs(out, base_indent));
-                    node.seg(out, ".await");
-                    node.build()
+                    new_sg_dotted(out, base_indent, Dotted::Await(e))
                 },
             ),
             Expr::Binary(e) => new_sg_attrs(
@@ -275,20 +399,7 @@ impl Formattable for &Expr {
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, _base_indent: &Alignment| {
-                    // TODO chain here, follow calls, .await, ?
-                    let mut node = new_sg();
-                    node.child(e.base.make_segs(out, base_indent));
-                    node.seg(
-                        out,
-                        &format!(
-                            ".{}",
-                            match &e.member {
-                                syn::Member::Named(n) => n.to_string(),
-                                syn::Member::Unnamed(u) => u.index.to_string(),
-                            }
-                        ),
-                    );
-                    node.build()
+                    new_sg_dotted(out, base_indent, Dotted::Field(e))
                 },
             ),
             Expr::ForLoop(e) => new_sg_attrs(
@@ -457,35 +568,7 @@ impl Formattable for &Expr {
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    new_sg_comma_bracketed_list(
-                        out,
-                        base_indent,
-                        Some(|out: &mut MakeSegsState, base_indent: &Alignment| {
-                            let build_base = |out: &mut MakeSegsState, base_indent: &Alignment| {
-                                let mut node = new_sg();
-                                node.child(e.receiver.make_segs(out, base_indent));
-                                node.seg(out, format!(".{}", e.method));
-                                node.build()
-                            };
-                            if let Some(tf) = &e.turbofish {
-                                new_sg_comma_bracketed_list(
-                                    out,
-                                    base_indent,
-                                    Some(build_base),
-                                    tf.colon2_token.spans[0].start(),
-                                    "::<",
-                                    &tf.args,
-                                    ">",
-                                )
-                            } else {
-                                build_base(out, base_indent)
-                            }
-                        }),
-                        e.paren_token.span.start(),
-                        "(",
-                        &e.args,
-                        ")",
-                    )
+                    new_sg_dotted(out, base_indent, Dotted::Method(e))
                 },
             ),
             Expr::Paren(e) => new_sg_attrs(
@@ -601,7 +684,7 @@ impl Formattable for &Expr {
                     let indent = base_indent.indent();
                     for (i, pair) in e.fields.pairs().enumerate() {
                         if i > 0 {
-                            node.seg_split(out, ",");
+                            node.seg(out, ",");
                         }
                         node.seg_unsplit(out, " ");
                         node.split(out, indent.clone(), true);
@@ -632,11 +715,14 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut node = new_sg();
-                    node.child(e.expr.make_segs(out, base_indent));
-                    node.seg(out, "?");
-                    node.build()
+                |out: &mut MakeSegsState, base_indent: &Alignment| match get_dotted(self) {
+                    DottedRes::Dotted(d) => new_sg_dotted(out, base_indent, d),
+                    DottedRes::Leaf(_) => {
+                        let mut node = new_sg();
+                        node.child(e.expr.make_segs(out, base_indent));
+                        node.seg(out, "?");
+                        node.build()
+                    }
                 },
             ),
             Expr::TryBlock(e) => new_sg_attrs(

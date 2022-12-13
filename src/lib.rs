@@ -566,7 +566,10 @@ pub fn format_ast(source: &str, ast: File, config: &FormatConfig) -> Result<Stri
                     if *activate {
                         b.activate();
                     }
-                    rendered.push_str(&" ".repeat(b.get()));
+                    if line.segs.len() > 1 {
+                        // if empty line (=just break), don't write indent
+                        rendered.push_str(&" ".repeat(b.get()));
+                    }
                 }
                 SegmentContent::Comment((b, comments)) => {
                     for comment in comments {
