@@ -11,7 +11,8 @@ fn main() {
         files: Vec<PathBuf>,
         #[arg(short, long, default_value_t = 120)] line_length: usize,
         #[arg(short, long, help = "Modify the file in place rather than print to stdout")] write: bool,
-        #[arg(long, help = "If any node is split, split all parents too")] root_splits: bool,
+        #[arg(long, help = "By default, if any node is split all parents will be split too; this disables that")]
+        dont_root_splits: bool,
         #[arg(long, help = "Split any node with comments")] split_comments: bool,
     }
 
@@ -31,7 +32,7 @@ fn main() {
     let config =
         FormatConfig {
             max_width: args.line_length,
-            root_splits: args.root_splits,
+            root_splits: !args.dont_root_splits,
             split_comments: args.split_comments,
         };
     if args.files.is_empty() { match es!({
