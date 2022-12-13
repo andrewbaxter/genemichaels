@@ -71,9 +71,6 @@ fn new_sg_dotted(
     let mut children = vec![];
     let leaf = gather_dotted(&mut children, root);
     children.reverse();
-    let mut sg = new_sg();
-    sg.child(leaf.make_segs(out, base_indent));
-    let indent = base_indent.indent();
 
     fn build_child(
         out: &mut MakeSegsState,
@@ -136,9 +133,16 @@ fn new_sg_dotted(
         }
     }
 
-    for child in children {
-        sg.split(out, indent.clone(), true);
-        sg.child(build_child(out, &indent, &child));
+    let mut sg = new_sg();
+    sg.child(leaf.make_segs(out, base_indent));
+    if children.len() > 1 {
+        let indent = base_indent.indent();
+        for child in children {
+            sg.split(out, indent.clone(), true);
+            sg.child(build_child(out, &indent, &child));
+        }
+    } else {
+        sg.child(build_child(out, base_indent, &children.get(0).unwrap()));
     }
     sg.build()
 }
@@ -568,19 +572,19 @@ impl Formattable for &Expr {
                     sg.seg(out, " {");
                     sg.seg_unsplit(out, " ");
                     let indent = base_indent.indent();
-                    for (i, el) in e.arms.iter().enumerate() {
+                    for (i, arm) in e.arms.iter().enumerate() {
                         sg.split(out, indent.clone(), true);
                         sg.child({
                             let mut sg = new_sg();
                             sg.child({
-                                if let Some(guard) = &el.guard {
-                                    new_sg_binary(out, &indent, &el.pat, " if", guard.1.as_ref())
+                                if let Some(guard) = &arm.guard {
+                                    new_sg_binary(out, &indent, &arm.pat, " if", guard.1.as_ref())
                                 } else {
-                                    el.pat.make_segs(out, &indent)
+                                    arm.pat.make_segs(out, &indent)
                                 }
                             });
                             sg.seg(out, " => ");
-                            sg.child(el.body.make_segs(out, &indent));
+                            sg.child(arm.body.make_segs(out, &indent));
                             let out = sg.build();
                             out.borrow_mut().children.reverse();
                             out

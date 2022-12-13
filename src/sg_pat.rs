@@ -5,7 +5,7 @@ use syn::{Expr, FieldPat, Pat};
 use crate::{
     new_sg, new_sg_lit,
     sg_general::{
-        append_binary, append_inline_list, new_sg_attrs, new_sg_binary,
+        append_binary, append_inline_list_raw, new_sg_attrs, new_sg_binary,
         new_sg_comma_bracketed_list, new_sg_comma_bracketed_list_ext, new_sg_macro,
     },
     sg_type::{build_extended_path, build_ref},
@@ -91,7 +91,7 @@ impl Formattable for &Pat {
                     if x.leading_vert.is_some() {
                         node.seg(out, "| ");
                     }
-                    append_inline_list(out, base_indent, &mut node, " |", false, &x.cases);
+                    append_inline_list_raw(out, base_indent, &mut node, " |", false, &x.cases);
                     node.build()
                 },
             ),
