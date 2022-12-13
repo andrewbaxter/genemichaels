@@ -530,6 +530,7 @@ impl Formattable for &Expr {
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg();
+                    append_comments(out, base_indent, &mut sg, e.match_token.span.start());
                     sg.seg(out, "match ");
                     sg.child(e.expr.make_segs(out, base_indent));
                     sg.seg(out, " {");

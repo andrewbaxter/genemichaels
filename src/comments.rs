@@ -26,6 +26,9 @@ pub(crate) struct CommentExtractor<'a> {
 
 impl<'a> CommentExtractor<'a> {
     pub(crate) fn advance_to(&mut self, loc: LineColumn) -> &str {
+        if loc.line < self.last_loc.line || (loc.line  == self.last_loc.line && loc.column < self.last_loc.column) {
+            return "";
+        }
         let mut offset = self.last_offset;
         let mut col = self.last_loc.column;
         for _ in self.last_loc.line..loc.line {
