@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use clap::Parser;
 use genemichaels::{es, format_str, FormatConfig};
 use std::{fs, io::Read, path::PathBuf, process};
@@ -13,7 +13,7 @@ fn main() {
         #[arg(short, long, help = "Modify the file in place rather than print to stdout")] write: bool,
         #[arg(long, help = "By default, if any node is split all parents will be split too; this disables that")]
         dont_root_splits: bool,
-        #[arg(long, help = "Split any node with comments")] split_comments: bool,
+        #[arg(long, help = "Don't initially split any node with comments")] dont_split_comments: bool,
     }
 
     let args = Args::parse();
@@ -23,9 +23,19 @@ fn main() {
         if !res.lost_comments.is_empty() {
             return Err(anyhow!("The following comments were missed during formatting: {:?}", res.lost_comments));
         }
-        syn::parse_str::<File>(
-            &res.rendered,
-        ).context("Rendered document couldn't be re-parsed in verification step")?;
+        match syn::parse_str::<File>(&res.rendered) {
+            Ok(_) => { },
+            Err(e) => {
+                println!("{}", res.rendered);
+                return Err(
+                    anyhow!("Rendered document couldn't be re-parsed in verification step: {}:{}: {}",
+                        e.span().start().line,
+                        e.span().start().column,
+                        e,
+                    ),
+                );
+            },
+        };
         Ok(res.rendered)
     }
 
@@ -33,7 +43,7 @@ fn main() {
         FormatConfig {
             max_width: args.line_length,
             root_splits: !args.dont_root_splits,
-            split_comments: args.split_comments,
+            split_comments: !args.dont_split_comments,
         };
     if args.files.is_empty() { match es!({
         if args.write { return Err(anyhow!("Can't update file when source is passed via stdin (no path specified)")); }

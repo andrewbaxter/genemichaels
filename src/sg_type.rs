@@ -16,6 +16,7 @@ use syn::{
     Type,
     TypeParamBound,
     WherePredicate,
+    WhereClause,
 };
 use crate::{
     new_sg,
@@ -52,25 +53,21 @@ pub(crate) fn build_extended_path(
         Some(qself) => {
             append_comments(out, base_indent, &mut node, qself.gt_token.span.start());
             node.seg(out, "<");
-            let taken =
-                match qself.position {
-                    0 => {
-                        node.child(qself.ty.make_segs(out, base_indent));
-                        0
-                    },
-                    n => {
-                        node.child(qself.ty.make_segs(out, base_indent));
-                        node.seg(out, " as ");
-                        append_path(
-                            out,
-                            &mut node,
-                            base_indent,
-                            p.leading_colon.map(|t| Some(t.spans[0].start())),
-                            p.segments.pairs().take(n),
-                        );
-                        n
-                    },
-                };
+            let taken = match qself.position { 0 => {
+                node.child(qself.ty.make_segs(out, base_indent));
+                0
+            }, n => {
+                node.child(qself.ty.make_segs(out, base_indent));
+                node.seg(out, " as ");
+                append_path(
+                    out,
+                    &mut node,
+                    base_indent,
+                    p.leading_colon.map(|t| Some(t.spans[0].start())),
+                    p.segments.pairs().take(n),
+                );
+                n
+            } };
             node.seg(out, ">");
             append_path(out, &mut node, base_indent, Some(None), p.segments.pairs().skip(taken));
         },
@@ -194,32 +191,42 @@ pub(crate) fn build_array_type(
     sg.build()
 }
 
+pub(crate) fn build_generics_part_a(out: &mut MakeSegsState, base_indent: &Alignment, generics: &Generics) -> Rc<
+    RefCell<SplitGroup>,
+> {
+    new_sg_comma_bracketed_list(out, base_indent, None::<Expr>, 
+        // not really optional, just sometimes not parsed
+        generics.lt_token.map(|s| s.span.start()).unwrap_or(LineColumn {line: 0, column: 0}), "<", &generics.params, 
+        // not really optional, just sometimes not parsed
+        generics.gt_token.map(|s| s.span.start()).unwrap_or(LineColumn {line: 0, column: 0}), ">")
+}
+
 pub(crate) fn build_generics(out: &mut MakeSegsState, base_indent: &Alignment, generics: &Generics) -> Rc<
     RefCell<SplitGroup>,
 > {
     if let Some(wh) = &generics.where_clause {
-        new_sg_binary(
+        build_generics_part_b(
             out,
             base_indent,
-            |out: &mut MakeSegsState, base_indent: &Alignment| {
-                new_sg_comma_bracketed_list(out, base_indent, None::<Expr>, generics.lt_token.unwrap().span.start(), 
-                    // why ever none?
-                    "<", &generics.params, generics.gt_token.unwrap().span.start(), 
-                    // why ever none?
-                    ">")
-            },
-            " where",
-            |out: &mut MakeSegsState, base_indent: &Alignment| {
-                let mut node = new_sg();
-                append_inline_list(out, base_indent, &mut node, ",", true, &wh.predicates);
-                node.build()
-            },
+            |out: &mut MakeSegsState, base_indent: &Alignment| build_generics_part_a(out, base_indent, generics),
+            wh,
         )
-    } else { new_sg_comma_bracketed_list(out, base_indent, None::<Expr>, generics.lt_token.unwrap().span.start(), 
-        // why ever none?
-        "<", &generics.params, generics.gt_token.unwrap().span.start(), 
-        // why ever none?
-        ">") }
+    } else { build_generics_part_a(out, base_indent, generics) }
+}
+
+pub(crate) fn build_generics_part_b(
+    out: &mut MakeSegsState,
+    base_indent: &Alignment,
+    base: impl Formattable,
+    wh: &WhereClause,
+) -> Rc<
+    RefCell<SplitGroup>,
+> {
+    new_sg_binary(out, base_indent, base, " where", |out: &mut MakeSegsState, base_indent: &Alignment| {
+        let mut node = new_sg();
+        append_inline_list(out, base_indent, &mut node, ",", true, &wh.predicates);
+        node.build()
+    })
 }
 
 impl Formattable for WherePredicate {
@@ -253,13 +260,13 @@ impl Formattable for GenericParam {
                 &t.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let build_base = |out: &mut MakeSegsState, base_indent: &Alignment| {
-                        let mut prefix = String::new();
-                        prefix.push_str(&t.ident.to_string());
-                        prefix.push_str(": ");
-                        let mut node = new_sg();
-                        node.seg(out, prefix);
-                        append_inline_list(out, base_indent, &mut node, " +", false, &t.bounds);
-                        node.build()
+                        let mut sg = new_sg();
+                        sg.seg(out, &t.ident);
+                        if t.colon_token.is_some() {
+                            sg.seg(out, ": ");
+                            append_inline_list(out, base_indent, &mut sg, " +", false, &t.bounds);
+                        }
+                        sg.build()
                     };
                     if let Some(def) = &t.default {
                         new_sg_binary(out, base_indent, build_base, " =", def)
@@ -294,51 +301,43 @@ impl Formattable for GenericParam {
 impl Formattable for TypeParamBound {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
         let mut node = new_sg();
-        match self {
-            syn::TypeParamBound::Trait(t) => {
-                if t.paren_token.is_some() { node.seg(out, "("); }
-                match t.modifier {
-                    syn::TraitBoundModifier::None => { },
-                    syn::TraitBoundModifier::Maybe(_) => node.seg(out, "?"),
-                }
-                if let Some(hot) = &t.lifetimes {
-                    node.seg(out, "for");
-                    append_comma_bracketed_list(out, base_indent, &mut node, "<", &hot.lifetimes, hot.gt_token.span.start(), "> ");
-                }
-                append_path(
-                    out,
-                    &mut node,
-                    base_indent,
-                    t.path.leading_colon.map(|t| Some(t.spans[0].start())),
-                    t.path.segments.pairs(),
-                );
-                if t.paren_token.is_some() { node.seg(out, ")"); }
-            },
-            syn::TypeParamBound::Lifetime(l) => { node.seg(out, l.to_string()); },
-        }
+        match self { syn::TypeParamBound::Trait(t) => {
+            if t.paren_token.is_some() { node.seg(out, "("); }
+            match t.modifier {
+                syn::TraitBoundModifier::None => { },
+                syn::TraitBoundModifier::Maybe(_) => node.seg(out, "?"),
+            }
+            if let Some(hot) = &t.lifetimes {
+                node.seg(out, "for");
+                append_comma_bracketed_list(out, base_indent, &mut node, "<", &hot.lifetimes, hot.gt_token.span.start(), "> ");
+            }
+            append_path(
+                out,
+                &mut node,
+                base_indent,
+                t.path.leading_colon.map(|t| Some(t.spans[0].start())),
+                t.path.segments.pairs(),
+            );
+            if t.paren_token.is_some() { node.seg(out, ")"); }
+        }, syn::TypeParamBound::Lifetime(l) => { node.seg(out, l.to_string()); } }
         node.build()
     }
 }
 
 impl Formattable for LifetimeDef {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
-        new_sg_attrs(
-            out,
-            base_indent,
-            &self.attrs,
-            |out: &mut MakeSegsState, base_indent: &Alignment| {
-                let mut node = new_sg();
-                node.seg(out, &self.lifetime);
-                if self.colon_token.is_some() {
-                    append_binary(out, base_indent, &mut node, ":", |out: &mut MakeSegsState, base_indent: &Alignment| {
-                        let mut node = new_sg();
-                        append_inline_list(out, base_indent, &mut node, " +", false, &self.bounds);
-                        node.build()
-                    });
-                }
-                node.build()
-            },
-        )
+        new_sg_attrs(out, base_indent, &self.attrs, |out: &mut MakeSegsState, base_indent: &Alignment| {
+            let mut node = new_sg();
+            node.seg(out, &self.lifetime);
+            if self.colon_token.is_some() {
+                append_binary(out, base_indent, &mut node, ":", |out: &mut MakeSegsState, base_indent: &Alignment| {
+                    let mut node = new_sg();
+                    append_inline_list(out, base_indent, &mut node, " +", false, &self.bounds);
+                    node.build()
+                });
+            }
+            node.build()
+        })
     }
 }
 

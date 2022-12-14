@@ -457,18 +457,12 @@ impl Formattable for &Expr {
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut exprs: Punctuated<&Expr, Comma> = Punctuated::new();
-                    exprs.push_value(e.index.as_ref());
-                    new_sg_comma_bracketed_list(
-                        out,
-                        base_indent,
-                        Some(e.expr.as_ref()),
-                        e.bracket_token.span.start(),
-                        "[",
-                        &exprs,
-                        e.bracket_token.span.end().prev(),
-                        "]",
-                    )
+                    let mut sg = new_sg();
+                    sg.child(e.expr.make_segs(out, base_indent));
+                    sg.seg(out, "[");
+                    sg.child(e.index.make_segs(out, base_indent));
+                    sg.seg(out, "]");
+                    sg.build()
                 },
             ),
             Expr::Let(e) => new_sg_attrs(
