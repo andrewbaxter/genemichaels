@@ -16,10 +16,12 @@ pub(crate) mod sg_type;
 pub(crate) mod sg_root;
 pub mod utils;
 
-pub(crate) trait TrivialLineColMath { 
+pub(crate) trait TrivialLineColMath {
+    
     // syn doesn't provide end token spans often, in which case the start span covers everything.  This is a dumb method to 
     // take the end of that and move back one char to hopefully get the start of the end token.
-    fn prev(&self) -> LineColumn; }
+    fn prev(&self) -> LineColumn;
+}
 
 impl TrivialLineColMath for LineColumn { fn prev(&self) -> LineColumn {
     let mut out = self.clone();
@@ -145,6 +147,8 @@ impl SplitGroupBuilder {
         self.segs.push(seg.clone());
         out_segs.line.push(seg);
     }
+
+    pub(crate) fn initial_split(&mut self) { self.node.as_ref().borrow_mut().split = true; }
 
     pub(crate) fn child(&mut self, child: Rc<RefCell<SplitGroup>>) { self.children.push(child); }
 
@@ -334,8 +338,10 @@ pub fn format_ast(
 ) -> Result<
     FormatRes,
 > {
+    
     // Build text
-    let mut out = MakeSegsState {line: vec![], comments: comments};
+    let mut out =
+        MakeSegsState {line: vec![], comments: comments};
     let base_indent = Alignment(Rc::new(RefCell::new(Alignment_ {parent: None, active: false})));
     let root = ast.make_segs(&mut out, &base_indent);
     let lines = Rc::new(RefCell::new(Lines {lines: vec![]}));
@@ -348,6 +354,13 @@ pub fn format_ast(
     }
 
     // Do initial splits
+    // 
+    // * initially split nodes
+    //    
+    // * always split break segments
+    //    
+    // * comments segments
+    //    
     {
         let mut i = 0usize;
         let mut skip_first = false;
@@ -362,8 +375,19 @@ pub fn format_ast(
                         continue;
                     }
                     let seg = seg.as_ref().borrow();
-                    match (&seg.content, &seg.mode) {
-                        (SegmentContent::Break(_, _), SegmentMode::All) | (SegmentContent::Comment(_), _) => {
+                    let node = seg.node.as_ref().borrow();
+                    match (
+                        &seg.content,
+                        match (&seg.mode, node.split) {
+                            (SegmentMode::All, true) => true,
+                            (SegmentMode::All, false) => true,
+                            (SegmentMode::Unsplit, true) => false,
+                            (SegmentMode::Unsplit, false) => true,
+                            (SegmentMode::Split, true) => true,
+                            (SegmentMode::Split, false) => false,
+                        },
+                    ) {
+                        (SegmentContent::Break(_, _), true) | (SegmentContent::Comment(_), _) => {
                             res = Some((line.clone(), i));
                             break 'segs;
                         },
@@ -408,13 +432,16 @@ pub fn format_ast(
     recurse(config, root.as_ref());
 
     // Render
-    let mut rendered = String::new();
+    let mut rendered =
+        String::new();
     let lines = lines.as_ref().borrow();
     for (line_i, line) in lines.lines.iter().enumerate() {
         let line = line.as_ref().borrow();
 
         // first line always empty due to first break
-        if line.segs.is_empty() { continue; }
+        if line.segs.is_empty() {
+            continue;
+        }
 
         // since comments are always new lines we end up with duped newlines sometimes if there's a (break), (comment) on consec 
         // lines skip the break
@@ -440,9 +467,11 @@ pub fn format_ast(
                 SegmentContent::Text(t) => { rendered.push_str(&t); },
                 SegmentContent::Break(b, activate) => {
                     if *activate { b.activate(); }
-                    if line.segs.len() > 1 { 
+                    if line.segs.len() > 1 {
+                        
                         // if empty line (=just break), don't write indent
-                        rendered.push_str(&" ".repeat(b.get())); }
+                        rendered.push_str(&" ".repeat(b.get()));
+                    }
                 },
                 SegmentContent::Comment((b, comments)) => {
                     for comment in comments {

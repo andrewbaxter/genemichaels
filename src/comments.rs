@@ -1,3 +1,4 @@
+use crate::{Comment, CommentMode};
 use proc_macro2::LineColumn;
 use pulldown_cmark::Event;
 use std::cell::RefCell;
@@ -5,7 +6,6 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use std::rc::Rc;
 use structre::UnicodeRegex;
-use crate::{Comment, CommentMode};
 
 #[derive(PartialEq, Eq, Debug)] pub struct HashLineColumn(pub LineColumn);
 
@@ -142,22 +142,25 @@ struct State {stack: Vec<Box<dyn StackEl>>, line_buffer: String, need_nl: bool}
 
 enum StackRes {Push(Box<dyn StackEl>), Keep, Pop}
 
+#[derive(Debug)]
 struct LineState_ {first_prefix: Option<String>, prefix: String, explicit_wrap: bool, max_width: usize}
 
 impl LineState_ {
+    fn flush_always(&mut self, state: &mut State, out: &mut String) {
+        out.push_str(
+            &format!("{}{}{}{}",
+                if state.need_nl { "\n" } else { "" },
+                match &self.first_prefix.take() { Some(t) => t, None => &*self.prefix },
+                &state.line_buffer,
+                if self.explicit_wrap { " \\" } else { "" },
+            ),
+        );
+        state.line_buffer.clear();
+        state.need_nl = true;
+    }
+
     fn flush(&mut self, state: &mut State, out: &mut String) {
-        if !state.line_buffer.is_empty() {
-            out.push_str(
-                &format!("{}{}{}{}",
-                    if state.need_nl { "\n" } else { "" },
-                    match &self.first_prefix.take() { Some(t) => t, None => &*self.prefix },
-                    &state.line_buffer,
-                    if self.explicit_wrap { " \\" } else { "" },
-                ),
-            );
-            state.line_buffer.clear();
-            state.need_nl = true;
-        }
+        if !state.line_buffer.is_empty() { self.flush_always(state, out); }
     }
 }
 
@@ -205,7 +208,7 @@ impl LineState {
                     LineState_ {
                         first_prefix: match (s.first_prefix.take(), first_prefix) {
                             (None, None) => None,
-                            (None, Some(p)) => Some(p),
+                            (None, Some(p)) => Some(format!("{}{}", s.prefix, p)),
                             (Some(p), None) => Some(p.clone()),
                             (Some(p1), Some(p2)) => Some(format!("{}{}", p1, p2)),
                         },
@@ -223,9 +226,11 @@ impl LineState {
         let max_width = s.max_width - if s.explicit_wrap { 2 } else { 0 };
 
         // let segmenter = LineBreakSegmenter::try_new_unstable(&icu_testdata::unstable()).unwrap();
-        let mut text = text;
+        let mut text =
+            text;
         while !text.is_empty() {
             if state.line_buffer.len() + text.len() > max_width {
+                
                 // match segmenter .segment_str(&text)
                 match text
                     .char_indices()
@@ -267,33 +272,39 @@ impl LineState {
             s.flush(state, out);
         } else { state.line_buffer.push_str(text); }
     }
+
+    fn write_newline(&self, state: &mut State, out: &mut String) {
+        let mut s = self.0.as_ref().borrow_mut();
+        if !state.line_buffer.is_empty() { panic!(); }
+        s.flush_always(state, out);
+    }
 }
 
 trait StackEl { fn handle(&mut self, state: &mut State, out: &mut String, e: Event) -> StackRes; }
 
-struct StackInline {bound: Option<&'static str>, line_state: LineState, line_root: bool}
+struct StackInline {bound: Option<&'static str>, line: LineState, line_root: bool}
 
 struct StackInlineArgs {bound: Option<&'static str>, line_state: LineState, line_root: bool}
 
 impl StackInline { fn new(state: &mut State, out: &mut String, args: StackInlineArgs) -> Box<dyn StackEl> {
     if let Some(b) = args.bound { args.line_state.write_unbreakable(state, out, b); }
-    Box::new(StackInline {bound: args.bound, line_state: args.line_state, line_root: args.line_root})
+    Box::new(StackInline {bound: args.bound, line: args.line_state, line_root: args.line_root})
 } }
 
 impl StackEl for StackInline {
     fn handle(&mut self, state: &mut State, out: &mut String, e: Event) -> StackRes {
         match e {
             Event::End(_) => {
-                if let Some(b) = self.bound { self.line_state.write_unbreakable(state, out, &b); }
-                if self.line_root { self.line_state.flush(state, out); }
+                if let Some(b) = self.bound { self.line.write_unbreakable(state, out, &b); }
+                if self.line_root { self.line.flush(state, out); }
                 StackRes::Pop
             },
             Event::Text(x) => {
-                self.line_state.write_breakable(state, out, &x);
+                self.line.write_breakable(state, out, &x);
                 StackRes::Keep
             },
             Event::Code(x) => {
-                self.line_state.write_unbreakable(state, out, &format!("`{}`", x));
+                self.line.write_unbreakable(state, out, &format!("`{}`", x));
                 StackRes::Keep
             },
             Event::Start(x) => match x {
@@ -301,21 +312,21 @@ impl StackEl for StackInline {
                     StackInline::new(
                         state,
                         out,
-                        StackInlineArgs {bound: Some("_".into()), line_state: self.line_state.share(), line_root: true},
+                        StackInlineArgs {bound: Some("_".into()), line_state: self.line.share(), line_root: true},
                     ),
                 ),
                 pulldown_cmark::Tag::Strong => StackRes::Push(
                     StackInline::new(
                         state,
                         out,
-                        StackInlineArgs {bound: Some("**".into()), line_state: self.line_state.share(), line_root: true},
+                        StackInlineArgs {bound: Some("**".into()), line_state: self.line.share(), line_root: true},
                     ),
                 ),
                 pulldown_cmark::Tag::Strikethrough => StackRes::Push(
                     StackInline::new(
                         state,
                         out,
-                        StackInlineArgs {bound: Some("~".into()), line_state: self.line_state.share(), line_root: true},
+                        StackInlineArgs {bound: Some("~".into()), line_state: self.line.share(), line_root: true},
                     ),
                 ),
                 pulldown_cmark::Tag::Paragraph => unreachable!(),
@@ -335,7 +346,7 @@ impl StackEl for StackInline {
             Event::Html(_) => unreachable!(),
             Event::FootnoteReference(_) => unreachable!(),
             Event::SoftBreak => {
-                self.line_state.write_whitespace(state, out, " ");
+                self.line.write_whitespace(state, out, " ");
                 StackRes::Keep
             },
             Event::HardBreak => StackRes::Keep,
@@ -356,7 +367,7 @@ impl StackBlock { fn new(state: &mut State, out: &mut String, args: StackBlockAr
 
 impl StackEl for StackBlock {
     fn handle(&mut self, state: &mut State, out: &mut String, e: Event) -> StackRes {
-        if self.need_line { out.push_str("\n"); }
+        if self.need_line { self.line.write_newline(state, out); }
         let out =
             match e {
                 Event::Start(x) => match x {
@@ -416,9 +427,11 @@ impl StackEl for StackBlock {
                         ),
                         None => StackRes::Push(Box::new(StackBulletList {line: self.line.zero_indent()})),
                     },
-                    pulldown_cmark::Tag::Table(_) => { todo!(); 
+                    pulldown_cmark::Tag::Table(_) => {
+                        todo!();
                         // StackRes::Push(StackTable::new(out, self.line.zero_indent()))
-                        },
+
+                    },
                     pulldown_cmark::Tag::Link(_, url, title) => {
                         self.line.write_unbreakable(state, out, "[");
                         self.line.write_breakable(state, out, &title);
@@ -436,15 +449,14 @@ impl StackEl for StackBlock {
                         self.line.flush(state, out);
                         StackRes::Keep
                     },
-                    pulldown_cmark::Tag::Item |
-                    pulldown_cmark::Tag::TableHead |
-                    pulldown_cmark::Tag::TableRow |
-                    pulldown_cmark::Tag::TableCell |
-                    pulldown_cmark::Tag::Emphasis |
-                    pulldown_cmark::Tag::Strong |
-                    pulldown_cmark::Tag::Strikethrough |
-                    pulldown_cmark::Tag::FootnoteDefinition(_) => unreachable!(
-                    ),
+                    pulldown_cmark::Tag::Item => unreachable!(),
+                    pulldown_cmark::Tag::TableHead => unreachable!(),
+                    pulldown_cmark::Tag::TableRow => unreachable!(),
+                    pulldown_cmark::Tag::TableCell => unreachable!(),
+                    pulldown_cmark::Tag::Emphasis => unreachable!(),
+                    pulldown_cmark::Tag::Strong => unreachable!(),
+                    pulldown_cmark::Tag::Strikethrough => unreachable!(),
+                    pulldown_cmark::Tag::FootnoteDefinition(_) => unreachable!(),
                 },
                 Event::End(_) => {
                     if let Some(b) = self.end_bound {
@@ -453,15 +465,18 @@ impl StackEl for StackBlock {
                     }
                     StackRes::Pop
                 },
-                Event::Text(_) |
-                Event::Code(_) |
-                Event::Html(_) |
-                Event::FootnoteReference(_) |
-                Event::SoftBreak |
-                Event::HardBreak |
-                Event::Rule |
-                Event::TaskListMarker(_) => unreachable!(
-                ),
+                Event::Text(t) => {
+                    self.line.write_breakable(state, out, &t);
+                    self.line.flush(state, out);
+                    StackRes::Keep
+                },
+                Event::Code(_) => unreachable!(),
+                Event::Html(_) => unreachable!(),
+                Event::FootnoteReference(_) => unreachable!(),
+                Event::SoftBreak => unreachable!(),
+                Event::HardBreak => unreachable!(),
+                Event::Rule => unreachable!(),
+                Event::TaskListMarker(_) => unreachable!(),
             };
         self.need_line = true;
         out
@@ -486,6 +501,7 @@ impl StackEl for StackNumberList {
                     },
                 ),
             ),
+            Event::End(_) => StackRes::Pop,
             _ => unreachable!(),
         }
     }
@@ -507,6 +523,7 @@ impl StackEl for StackBulletList {
                     },
                 ),
             ),
+            Event::End(_) => StackRes::Pop,
             _ => unreachable!(),
         }
     }
