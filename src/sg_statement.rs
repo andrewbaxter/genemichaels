@@ -688,28 +688,31 @@ impl Formattable for Item {
                 base_indent,
                 &x.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut node = new_sg();
-                    node.child(build_path(out, base_indent, &x.mac.path));
-                    node.seg(out, "!");
-                    if let Some(n) = &x.ident { node.seg(out, &format!(" {}", n)); }
+                    let mut sg = new_sg();
+                    sg.child(build_path(out, base_indent, &x.mac.path));
+                    sg.seg(out, "!");
+                    if let Some(n) = &x.ident { sg.seg(out, &format!(" {}", n)); }
                     let indent = base_indent.indent();
                     match &x.mac.delimiter { syn::MacroDelimiter::Paren(_) => {
-                        node.seg(out, "(");
-                        append_macro_body(out, &indent, &mut node, x.mac.tokens.to_token_stream());
-                        node.split(out, base_indent.clone(), false);
-                        node.seg(out, ")");
+                        sg.seg(out, "(");
+                        append_macro_body(out, &indent, &mut sg, x.mac.tokens.to_token_stream());
+                        sg.split(out, base_indent.clone(), false);
+                        sg.seg(out, ")");
                     }, syn::MacroDelimiter::Brace(_) => {
-                        node.seg(out, "{");
-                        append_macro_body(out, &indent, &mut node, x.mac.tokens.to_token_stream());
-                        node.split(out, base_indent.clone(), false);
-                        node.seg(out, "}");
+                        sg.seg(out, "{");
+                        append_macro_body(out, &indent, &mut sg, x.mac.tokens.to_token_stream());
+                        sg.split(out, base_indent.clone(), false);
+                        sg.seg(out, "}");
                     }, syn::MacroDelimiter::Bracket(_) => {
-                        node.seg(out, "[");
-                        append_macro_body(out, &indent, &mut node, x.mac.tokens.to_token_stream());
-                        node.split(out, base_indent.clone(), false);
-                        node.seg(out, "]");
+                        sg.seg(out, "[");
+                        append_macro_body(out, &indent, &mut sg, x.mac.tokens.to_token_stream());
+                        sg.split(out, base_indent.clone(), false);
+                        sg.seg(out, "]");
                     } }
-                    node.build()
+                    if x.semi_token.is_some() {
+                    sg.seg(out, ";");
+                    }
+                    sg.build()
                 },
             ),
             Item::Macro2(x) => new_sg_outer_attrs(

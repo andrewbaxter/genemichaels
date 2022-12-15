@@ -205,9 +205,7 @@ pub(crate) fn build_generics_part_a(out: &mut MakeSegsState, base_indent: &Align
         // not really optional, just sometimes not parsed
         generics
             .lt_token
-            .map(
-                |s| s.span.start(),
-            )
+            .map(|s| s.span.start())
             .unwrap_or(LineColumn {line: 0, column: 0}),
         "<",
         &generics.params,
@@ -249,7 +247,7 @@ pub(crate) fn build_generics_part_b(
 }
 
 impl Formattable for WherePredicate {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
+    fn make_segs(& self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
         match self {
             WherePredicate::Type(t) => {
                 let mut node = new_sg();
@@ -283,7 +281,7 @@ impl Formattable for WherePredicate {
 }
 
 impl Formattable for GenericParam {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
+    fn make_segs(& self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
         match self {
             GenericParam::Type(t) => new_sg_outer_attrs(
                 out,
@@ -330,7 +328,7 @@ impl Formattable for GenericParam {
 }
 
 impl Formattable for TypeParamBound {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
+    fn make_segs(& self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
         let mut node = new_sg();
         match self {
             syn::TypeParamBound::Trait(t) => {
@@ -367,7 +365,7 @@ impl Formattable for TypeParamBound {
 }
 
 impl Formattable for LifetimeDef {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
+    fn make_segs(& self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
         new_sg_outer_attrs(
             out,
             base_indent,
@@ -389,13 +387,13 @@ impl Formattable for LifetimeDef {
 }
 
 impl Formattable for syn::Lifetime {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
+    fn make_segs(& self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
         new_sg_lit(out, Some((base_indent, self.apostrophe.start())), self)
     }
 }
 
 impl Formattable for &Type {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
+    fn make_segs(& self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
         match self {
             Type::Array(x) => build_array_type(
                 out,
@@ -533,13 +531,13 @@ impl Formattable for &Type {
 }
 
 impl Formattable for Type {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
+    fn make_segs(& self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
         (&self).make_segs(out, base_indent)
     }
 }
 
 impl Formattable for BareFnArg {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
+    fn make_segs(& self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
         new_sg_outer_attrs(
             out,
             base_indent,
@@ -555,7 +553,7 @@ impl Formattable for BareFnArg {
 }
 
 impl Formattable for FnArg {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
+    fn make_segs(& self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
         match self {
             FnArg::Receiver(x) => new_sg_outer_attrs(
                 out,
@@ -570,8 +568,8 @@ impl Formattable for FnArg {
                         if let Some(lt) = &y.1 {
                             append_comments(out, base_indent, &mut sg, lt.apostrophe.start());
                             sg.seg(out, lt.to_string());
+                            need_space = true;
                         }
-                        need_space = true;
                     }
                     if let Some(y) = &x.mutability {
                         append_comments(out, base_indent, &mut sg, y.span.start());
@@ -596,7 +594,7 @@ impl Formattable for FnArg {
 }
 
 impl Formattable for GenericArgument {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
+    fn make_segs(& self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
         match self {
             GenericArgument::Lifetime(l) => l.make_segs(out, base_indent),
             GenericArgument::Type(t) => t.make_segs(out, base_indent),
@@ -617,7 +615,7 @@ impl Formattable for GenericArgument {
 }
 
 impl Formattable for GenericMethodArgument {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
+    fn make_segs(& self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
         match self {
             GenericMethodArgument::Type(t) => t.make_segs(out, base_indent),
             GenericMethodArgument::Const(c) => c.make_segs(out, base_indent),
@@ -626,7 +624,7 @@ impl Formattable for GenericMethodArgument {
 }
 
 impl Formattable for &Path {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
+    fn make_segs(& self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
         build_path(out, base_indent, self)
     }
 }

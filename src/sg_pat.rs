@@ -21,7 +21,7 @@ use crate::{
 };
 
 impl Formattable for &Pat {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
+    fn make_segs(& self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
         match self {
             Pat::Box(x) => new_sg_outer_attrs(
                 out,
@@ -234,13 +234,13 @@ impl Formattable for &Pat {
 }
 
 impl Formattable for Pat {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
+    fn make_segs(& self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
         (&self).make_segs(out, base_indent)
     }
 }
 
 impl Formattable for FieldPat {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
+    fn make_segs(& self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
         new_sg_outer_attrs(
             out,
             base_indent,

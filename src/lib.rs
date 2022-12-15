@@ -38,6 +38,7 @@ pub struct SplitGroup {
     pub(crate) segments: Vec<Rc<RefCell<Segment>>>,
 }
 
+#[derive(Debug)]
 pub(crate) enum SegmentMode {All, Unsplit, Split}
 
 pub(crate) struct SegmentLine {pub(crate) line: Rc<RefCell<Line>>, pub(crate) seg_index: usize}
@@ -50,6 +51,12 @@ pub(crate) struct Segment {
     pub(crate) line: Option<SegmentLine>,
     pub(crate) mode: SegmentMode,
     pub(crate) content: SegmentContent,
+}
+
+impl std::fmt::Debug for Segment {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        (&self.mode, &self.content, self.node.as_ref().borrow().split).fmt(f)
+    }
 }
 
 pub(crate) struct Line {
@@ -102,7 +109,7 @@ pub(crate) fn split_line_at(line: &RefCell<Line>, at: usize, inject_start: Optio
         match &s.as_ref().borrow().content {
             SegmentContent::Break(a, activate) => { if *activate { a.activate(); } },
             SegmentContent::Comment((a, _)) => { a.activate(); },
-            _ => unreachable!(),
+            _ => {},
         };
     }
     insert_line(line.borrow().lines.clone(), line.borrow().index + 1, new_segs);
@@ -119,6 +126,12 @@ pub(crate) fn insert_line(lines: Rc<RefCell<Lines>>, at: usize, segs: Vec<Rc<Ref
         }, None => { seg.line = Some(SegmentLine {line: new_line.clone(), seg_index: i}); } };
     }
     for (i, line) in lines.as_ref().borrow().lines.iter().enumerate().skip(at + 1) { line.borrow_mut().index = i; }
+    for (i, line) in lines.as_ref().borrow().lines.iter().enumerate() { 
+            assert_eq!(line.as_ref().borrow().index, i, "line index wrong; after insert at line {}", at);
+        for (j, seg) in line.as_ref().borrow().segs.iter().enumerate() {
+            assert_eq!(seg.as_ref().borrow().line.as_ref().unwrap().seg_index, j, "seg index wrong; on line {}, after insert at line {}", i, at);
+        }
+    }
 }
 
 pub(crate) struct Alignment_ {pub(crate) parent: Option<Alignment>, pub(crate) active: bool}
@@ -329,8 +342,14 @@ pub fn format_ast(
     let line = Rc::new(RefCell::new(Line {lines: lines.clone(), index: 0, segs: out.line}));
     lines.borrow_mut().lines.push(line.clone());
     for line in &lines.as_ref().borrow().lines {
-        for seg in &line.as_ref().borrow().segs {
-            seg.as_ref().borrow_mut().line = Some(SegmentLine {line: line.clone(), seg_index: 0});
+        for (j, seg) in line.as_ref().borrow().segs.iter().enumerate() {
+            seg.as_ref().borrow_mut().line = Some(SegmentLine {line: line.clone(), seg_index: j});
+        }
+    }
+    for (i, line) in lines.as_ref().borrow().lines.iter().enumerate() { 
+            assert_eq!(line.as_ref().borrow().index, i, "line index wrong; initial");
+        for (j, seg) in line.as_ref().borrow().segs.iter().enumerate() {
+            assert_eq!(seg.as_ref().borrow().line.as_ref().unwrap().seg_index, j, "seg index wrong; on line {}, initial", i);
         }
     }
 
@@ -352,7 +371,8 @@ pub fn format_ast(
             {
                 let lines = lines.as_ref().borrow();
                 let line = lines.lines.get(i).unwrap();
-                'segs : for (i, seg) in line.as_ref().borrow().segs.iter().enumerate() {
+                'segs: loop {
+for (i, seg) in line.as_ref().borrow().segs.iter().enumerate() {
                     if i == 0 && skip_first {
                         skip_first = false;
                         continue;
@@ -380,16 +400,15 @@ pub fn format_ast(
                             prev_comment = Some(c.0.clone());
                             break 'segs;
                         },
-                        (_, _) if prev_comment.is_some() => {
+                        (_, _) => {
+if let Some(a) = prev_comment.take() {
                             res =
                                 Some(
                                     (
                                         line.clone(),
                                         i,
-                                        prev_comment
-                                            .take()
-                                            .map(
-                                                |a| Rc::new(
+                                        
+                                                Some(Rc::new(
                                                     RefCell::new(
                                                         Segment {
                                                             node: synth_seg_node.clone(),
@@ -398,20 +417,22 @@ pub fn format_ast(
                                                             content: SegmentContent::Break(a, true),
                                                         },
                                                     ),
-                                                ),
-                                            ),
+                                                )),
                                     ),
                                 );
                             break 'segs;
+}
                         },
-                        _ => { },
                     };
                 }
+                            prev_comment = None;
+                    break;
+                }
             }
-            if let Some((line, i, insert_start)) = res {
-                split_line_at(&line, i, insert_start);
+            if let Some((line, at, insert_start)) = res {
+                split_line_at(&line, at, insert_start);
                 skip_first = true;
-            }
+            } 
             i += 1;
         }
     }
@@ -450,8 +471,6 @@ pub fn format_ast(
     let lines = lines.as_ref().borrow();
     for (line_i, line) in lines.lines.iter().enumerate() {
         let line = line.as_ref().borrow();
-
-        // first line always empty due to first break
         if line.segs.is_empty() {
             continue;
         }

@@ -66,6 +66,7 @@ pub(crate) fn append_attr(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
     sg: &mut SplitGroupBuilder,
+    bang: bool,
     attr: &Attribute,
 ) {
     append_comments(out, base_indent, sg, attr.pound_token.span.start());
@@ -73,7 +74,7 @@ pub(crate) fn append_attr(
         let mut sg = new_sg();
         let indent = base_indent.indent();
         let mut prefix = String::new();
-        prefix.write_str("#![").unwrap();
+        prefix.write_str(if bang { "#![" } else { "#[" }).unwrap();
         sg.seg(out, prefix);
         sg.child(build_path(out, &indent, &attr.path));
         append_macro_body(out, &indent, &mut sg, attr.tokens.clone());
@@ -97,7 +98,7 @@ pub(crate) fn append_statement_list_raw(
     for attr in attrs.unwrap_or(&vec![]) {
         match attr.style { syn::AttrStyle::Outer => { continue; }, syn::AttrStyle::Inner(_) => { } };
         if i > 0 { sg.split(out, base_indent.clone(), false); }
-        append_attr(out, base_indent, sg, attr);
+        append_attr(out, base_indent, sg, true, attr);
         sg.seg_unsplit(out, " ");
         previous_margin_group = MarginGroup::Attr;
         i += 1;
@@ -264,9 +265,9 @@ pub(crate) fn new_sg_outer_attrs(
     let mut sg = new_sg();
     for attr in attrs {
         match attr.style { syn::AttrStyle::Outer => { }, syn::AttrStyle::Inner(_) => { continue; } };
-        append_attr(out, base_indent, &mut sg, attr);
-        sg.split(out, base_indent.clone(), false);
+        append_attr(out, base_indent, &mut sg, false, attr);
         sg.seg_unsplit(out, " ");
+        sg.split(out, base_indent.clone(), false);
     }
     sg.child(child.make_segs(out, base_indent));
     sg.build()

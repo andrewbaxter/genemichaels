@@ -10,7 +10,7 @@ use crate::{
 };
 
 impl Formattable for File {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
+    fn make_segs(& self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
         fn build_inner(out: &mut MakeSegsState, base_indent: &Alignment, ast: &File) -> Rc<RefCell<SplitGroup>> {
             new_sg_outer_attrs(out, base_indent, &ast.attrs, |out: &mut MakeSegsState, base_indent: &Alignment| {
                 let mut sg = new_sg();

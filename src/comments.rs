@@ -18,13 +18,10 @@ impl Hash for HashLineColumn {
 pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Comment>>, TokenStream)> {
     let mut line_lookup = vec![];
     {
-        let mut remaining = source;
         let mut offset = 0usize;
-        while !remaining.is_empty() {
-            let rel_offset = remaining.find('\n').unwrap_or(remaining.len());
+        loop {
             line_lookup.push(offset);
-            remaining = &remaining[rel_offset + 1..];
-            offset += rel_offset + 1;
+            offset += match (&source[offset..]).find('\n') { Some(r) => r, None => { break; } } + 1;
         }
     }
 
@@ -37,10 +34,17 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
     }
 
     impl<'a> State<'a> {
-        fn to_offset(&self, loc: LineColumn) -> usize { self.line_lookup.get(loc.line - 1).unwrap() + loc.column }
+        fn to_offset(&self, loc: LineColumn) -> usize {
+            if loc.line == 0 { return 0usize; }
+            let line_start_offset = *self.line_lookup.get(loc.line - 1).unwrap();
+            line_start_offset +
+                (&self.source[line_start_offset..]).chars().take(loc.column).map(char::len_utf8).sum::<usize>()
+        }
 
         fn extract(&mut self, start: usize, end: LineColumn) {
-            let whole_text = &self.source[start .. self.to_offset(end)];
+            let end_offset = self.to_offset(end);
+            if end_offset < start { return; }
+            let whole_text = &self.source[start .. end_offset];
             let start_re = UnicodeRegex::new(r#"(?:(//)(/|!)?)|(?:(/\*)(\*|!)?)"#).unwrap();
             let block_event_re = UnicodeRegex::new(r#"((?:/\*)|(?:\*/))"#).unwrap();
 
@@ -158,7 +162,9 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
                     let subtokens = recurse(state, g.stream());
                     state.extract(state.last_offset, g.span_close().start());
                     state.last_offset = state.to_offset(g.span_close().end());
-                    out.push(proc_macro2::TokenTree::Group(Group::new(g.delimiter(), subtokens)));
+                    let mut new_g = Group::new(g.delimiter(), subtokens);
+                    new_g.set_span(g.span());
+                    out.push(proc_macro2::TokenTree::Group(new_g));
                 },
                 proc_macro2::TokenTree::Ident(g) => {
                     state.extract(state.last_offset, g.span().start());
@@ -169,7 +175,7 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
                     let offset = state.to_offset(g.span().start());
                     if g.as_char() == '#' && &state.source[offset .. offset + 1] == "/" {
                         
-                        // Syn converts doc comments into doc attrs, work around that here by detecting a mismatch between the token and the 
+                        // Syn converts doc comments into doc attrs, work around that here by detecting a mismatch between the token and the
                         // source (written /, token is #) and skipping all tokens within the fake doc attr range
                         loop {
                             let in_comment = ts.peek().map(|n| n.span().start() < g.span().end()).unwrap_or(false);
@@ -205,11 +211,12 @@ struct LineState_ {first_prefix: Option<String>, prefix: String, explicit_wrap: 
 impl LineState_ {
     fn flush_always(&mut self, state: &mut State, out: &mut String) {
         out.push_str(
-            &format!("{}{}{}{}",
+            &format!(
+                "{}{}{}{}",
                 if state.need_nl { "\n" } else { "" },
                 match &self.first_prefix.take() { Some(t) => t, None => &*self.prefix },
                 &state.line_buffer.trim_end(),
-                if self.explicit_wrap { " \\" } else { "" },
+                if self.explicit_wrap { " \\" } else { "" }
             ),
         );
         state.line_buffer.clear();
@@ -570,11 +577,12 @@ impl StackEl for StackBlock {
                         .write_unbreakable(
                             state,
                             out,
-                            &format!("```{}",
+                            &format!(
+                                "```{}",
                                 match &lang {
                                     pulldown_cmark::CodeBlockKind::Indented => "",
                                     pulldown_cmark::CodeBlockKind::Fenced(x) => x,
-                                },
+                                }
                             ),
                         );
                     StackRes::Push(Box::new(StackCodeBlock {line: self.line.zero_indent()}))
@@ -720,6 +728,7 @@ impl StackEl for StackCodeBlock {
             Event::HardBreak |
             Event::Rule |
             Event::TaskListMarker(_) => unreachable!(
+
             ),
         }
     }

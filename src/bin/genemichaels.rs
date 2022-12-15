@@ -28,10 +28,11 @@ fn main() {
             Err(e) => {
                 println!("{}", res.rendered);
                 return Err(
-                    anyhow!("Rendered document couldn't be re-parsed in verification step: {}:{}: {}",
+                    anyhow!(
+                        "Rendered document couldn't be re-parsed in verification step: {}:{}: {}",
                         e.span().start().line,
                         e.span().start().column,
-                        e,
+                        e
                     ),
                 );
             },
@@ -45,24 +46,31 @@ fn main() {
             root_splits: !args.dont_root_splits,
             split_comments: !args.dont_split_comments,
         };
-    if args.files.is_empty() { match es!({
-        if args.write { return Err(anyhow!("Can't update file when source is passed via stdin (no path specified)")); }
-        let mut source = Vec::new();
-        std::io::stdin().read_to_end(&mut source)?;
-        let out = process(&config, &String::from_utf8(source)?)?;
-        print!("{}", out);
-        Ok(())
-    }) { Ok(_) => { }, Err(e) => {
-        eprintln!("Error formatting stdin: {:?}", e);
-        process::exit(1);
-    } }; } else {
+    if args.files.is_empty() {
+        match es!(
+            {
+                if args.write {
+                    return Err(anyhow!("Can't update file when source is passed via stdin (no path specified)"));
+                }
+                let mut source = Vec::new();
+                std::io::stdin().read_to_end(&mut source)?;
+                let out = process(&config, &String::from_utf8(source)?)?;
+                print!("{}", out);
+                Ok(())
+            }
+        ) {
+            Ok(_) => { },
+            Err(e) => {
+                eprintln!("Error formatting stdin: {:?}", e);
+                process::exit(1);
+            },
+        };
+    } else {
         let mut failed = false;
         for file in &args.files { match es!({
+            if args.write { eprintln!("Formatting {}", &file.to_string_lossy()); }
             let out = process(&config, &String::from_utf8(fs::read(file)?)?)?;
-            if args.write {
-                eprintln!("Formatted {}", &file.to_string_lossy());
-                fs::write(&file, out.as_bytes())?;
-            } else { print!("{}", out); }
+            if args.write { fs::write(&file, out.as_bytes())?; } else { print!("{}", out); }
             Ok(())
         }) { Ok(_) => { }, Err(e) => {
             eprintln!("Error formatting {:?}: {:?}", file, e);
