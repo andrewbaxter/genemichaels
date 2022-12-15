@@ -361,9 +361,13 @@ impl Formattable for &Ident {
 
 pub struct FormatConfig {
     /// Try to wrap to this width
-    pub max_width: usize, 
+    pub max_width: usize,
     /// If a node is split, all parents of the node must also be split
-    pub root_splits: bool, pub split_brace_threshold: Option<usize>, pub split_attributes: bool}
+    pub root_splits: bool,
+    pub split_brace_threshold: Option<usize>,
+    pub split_attributes: bool,
+    pub comment_width: Option<usize>,
+}
 
 pub struct FormatRes {pub rendered: String, pub lost_comments: HashMap<HashLineColumn, Vec<Comment>>}
 
@@ -568,6 +572,7 @@ pub fn format_ast(
                         format_md(
                             &mut rendered,
                             config.max_width,
+                            config.comment_width,
                             &format!("{}//{} ", " ".repeat(b.get()), match comment.mode {
                                 CommentMode::Normal => "",
                                 CommentMode::DocInner => "!",

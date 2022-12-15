@@ -233,7 +233,13 @@ struct State {stack: Vec<Box<dyn StackEl>>, line_buffer: String, need_nl: bool}
 enum StackRes {Push(Box<dyn StackEl>), Keep, Pop}
 
 #[derive(Debug)]
-struct LineState_ {first_prefix: Option<String>, prefix: String, explicit_wrap: bool, max_width: usize}
+struct LineState_ {
+    first_prefix: Option<String>,
+    prefix: String,
+    explicit_wrap: bool,
+    max_width: usize,
+    rel_max_width: Option<usize>,
+}
 
 impl LineState_ {
     fn flush_always(&mut self, state: &mut State, out: &mut String) {
@@ -258,17 +264,35 @@ impl LineState_ {
             self.flush_always(state, out);
         }
     }
+
+    fn calc_max_width(&self) -> usize {
+        match self.rel_max_width {
+            Some(w) => self.prefix.len() + w,
+            None => self.max_width - if self.explicit_wrap {
+                2
+            } else {
+                0
+            },
+        }
+    }
 }
 
 struct LineState(Rc<RefCell<LineState_>>);
 
 impl LineState {
-    fn new(first_prefix: Option<String>, prefix: String, max_width: usize, explicit_wrap: bool) -> LineState {
+    fn new(
+        first_prefix: Option<String>,
+        prefix: String,
+        max_width: usize,
+        rel_max_width: Option<usize>,
+        explicit_wrap: bool,
+    ) -> LineState {
         LineState(Rc::new(RefCell::new(LineState_{
             first_prefix: first_prefix,
             prefix: prefix,
             explicit_wrap: explicit_wrap,
             max_width: max_width,
+            rel_max_width: rel_max_width,
         })))
     }
 
@@ -283,6 +307,7 @@ impl LineState {
             prefix: s.prefix.clone(),
             explicit_wrap: s.explicit_wrap,
             max_width: s.max_width,
+            rel_max_width: s.rel_max_width,
         })))
     }
 
@@ -298,16 +323,13 @@ impl LineState {
             prefix: format!("{}{}", s.prefix, prefix),
             explicit_wrap: s.explicit_wrap || explicit_wrap,
             max_width: s.max_width,
+            rel_max_width: s.rel_max_width,
         })))
     }
 
     fn write_breakable(&self, state: &mut State, out: &mut String, text: &str) {
         let mut s = self.0.as_ref().borrow_mut();
-        let max_width = s.max_width - if s.explicit_wrap {
-            2
-        } else {
-            0
-        };
+        let max_width = s.calc_max_width();
 
         // let segmenter = LineBreakSegmenter::try_new_unstable(&icu_testdata::unstable()).unwrap();
         let mut text = text;
@@ -360,11 +382,7 @@ impl LineState {
 
     fn write_unbreakable(&self, state: &mut State, out: &mut String, text: &str) {
         let mut s = self.0.as_ref().borrow_mut();
-        let max_width = s.max_width - if s.explicit_wrap {
-            2
-        } else {
-            0
-        };
+        let max_width = s.calc_max_width();
         if state.line_buffer.len() + text.len() > max_width {
             s.flush(state, out);
         }
@@ -766,14 +784,20 @@ impl StackEl for StackCodeBlock {
     }
 }
 
-pub(crate) fn format_md(out: &mut String, max_width: usize, prefix: &str, source: &str) {
+pub(crate) fn format_md(
+    out: &mut String,
+    max_width: usize,
+    rel_max_width: Option<usize>,
+    prefix: &str,
+    source: &str,
+) {
     let mut state = State{
         stack: vec![],
         line_buffer: String::new(),
         need_nl: false,
     };
     let start_state = StackBlock::new(&mut state, out, StackBlockArgs{
-        line: LineState::new(None, prefix.to_string(), max_width, false),
+        line: LineState::new(None, prefix.to_string(), max_width, rel_max_width, false),
         start_bound: None,
         end_bound: None,
     });
