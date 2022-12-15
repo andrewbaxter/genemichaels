@@ -209,6 +209,7 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
                             ts.next();
                         }
                     } else {
+                        state.extract(state.last_offset, g.span().start());
                         state.last_offset = state.to_offset(g.span().end());
                         out.push(proc_macro2::TokenTree::Punct(g));
                     }
@@ -424,8 +425,8 @@ fn push_strong(state: &mut State, out: &mut String, line: LineState, line_root: 
 
 fn push_strikethrough(state: &mut State, out: &mut String, line: LineState, line_root: bool) -> StackRes {
     StackRes::Push(StackInline::new(state, out, StackInlineArgs{
-        start_bound: Some("~".into()),
-        end_bound: Some("~".into()),
+        start_bound: Some("~~".into()),
+        end_bound: Some("~~".into()),
         line_state: line,
         line_root: line_root,
     }))
@@ -614,9 +615,11 @@ impl StackEl for StackBlock {
                         Some(index) => StackRes::Push(Box::new(StackNumberList{
                             count: index,
                             line: self.line.zero_indent(),
+                            first: true,
                         })),
                         None => StackRes::Push(Box::new(StackBulletList{
                             line: self.line.zero_indent(),
+                            first: true,
                         })),
                     }
                 },
@@ -684,34 +687,48 @@ impl StackEl for StackBlock {
     }
 }
 
-struct StackNumberList {count: u64, line: LineState}
+struct StackNumberList {count: u64, line: LineState, first: bool}
 
 impl StackEl for StackNumberList {
     fn handle(&mut self, state: &mut State, out: &mut String, e: Event) -> StackRes {
         let use_count = self.count;
         self.count += 1;
         match e {
-            Event::Start(pulldown_cmark::Tag::Item) => StackRes::Push(StackBlock::new(state, out, StackBlockArgs{
-                line: self.line.indent(Some(format!("{}. ", use_count)), "   ".into(), false),
-                start_bound: None,
-                end_bound: None,
-            })),
+            Event::Start(pulldown_cmark::Tag::Item) => {
+                if self.first {
+                    self.first = false;
+                } else {
+                    self.line.write_newline(state, out);
+                }
+                StackRes::Push(StackBlock::new(state, out, StackBlockArgs{
+                    line: self.line.indent(Some(format!("{}. ", use_count)), "   ".into(), false),
+                    start_bound: None,
+                    end_bound: None,
+                }))
+            },
             Event::End(_) => StackRes::Pop,
             _ => unreachable!(),
         }
     }
 }
 
-struct StackBulletList {line: LineState}
+struct StackBulletList {line: LineState, first: bool}
 
 impl StackEl for StackBulletList {
     fn handle(&mut self, state: &mut State, out: &mut String, e: Event) -> StackRes {
         match e {
-            Event::Start(pulldown_cmark::Tag::Item) => StackRes::Push(StackBlock::new(state, out, StackBlockArgs{
-                line: self.line.indent(Some("* ".into()), "   ".into(), false),
-                start_bound: None,
-                end_bound: None,
-            })),
+            Event::Start(pulldown_cmark::Tag::Item) => {
+                if self.first {
+                    self.first = false;
+                } else {
+                    self.line.write_newline(state, out);
+                }
+                StackRes::Push(StackBlock::new(state, out, StackBlockArgs{
+                    line: self.line.indent(Some("* ".into()), "   ".into(), false),
+                    start_bound: None,
+                    end_bound: None,
+                }))
+            },
             Event::End(_) => StackRes::Pop,
             _ => unreachable!(),
         }
