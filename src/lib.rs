@@ -637,7 +637,10 @@ pub fn format_ast(
                     }
                 },
                 SegmentContent::Comment((b, comments)) => {
-                    for comment in comments {
+                    for (i, comment) in comments.iter().enumerate() {
+                        if i > 0 {
+                            rendered.push_str("\n");
+                        }
                         format_md(
                             &mut rendered,
                             config.max_width,
