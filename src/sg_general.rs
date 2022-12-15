@@ -12,6 +12,7 @@ use crate::{
     MakeSegsState,
     SplitGroup,
     SplitGroupBuilder,
+    MarginGroup,
 };
 
 pub(crate) fn build_rev_pair(
@@ -63,23 +64,44 @@ pub(crate) fn new_sg_binary(
 pub(crate) fn append_statement_list_raw(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
-    node: &mut SplitGroupBuilder,
+    sg: &mut SplitGroupBuilder,
+    attrs: Option<&Vec<Attribute>>,
     block: &Vec<impl FormattableStmt>,
 ) {
-    if block.len() > 1 { node.initial_split(); }
-    node.seg_unsplit(out, " ");
+    if block.len() > 1 { sg.initial_split(); }
+    sg.seg_unsplit(out, " ");
     let mut previous_margin_group = crate::MarginGroup::None;
-    for (i, el) in block.iter().enumerate() {
+    let mut i = 0;
+    for attr in attrs.unwrap_or(&vec![]) {
+        match attr.style { syn::AttrStyle::Outer => { continue; }, syn::AttrStyle::Inner(_) => { } };
+        if i > 0 { sg.split(out, base_indent.clone(), false); }
+        append_comments(out, base_indent, sg, attr.pound_token.span.start());
+        sg.child({
+            let mut node = new_sg();
+            let mut prefix = String::new();
+            prefix.write_str("#![").unwrap();
+            node.seg(out, prefix);
+            node.child(build_path(out, base_indent, &attr.path));
+            append_macro_body(out, base_indent, &mut node, attr.tokens.clone());
+            node.seg(out, "]");
+            node.build()
+        });
+        sg.seg_unsplit(out, " ");
+        previous_margin_group = MarginGroup::Attr;
+        i += 1;
+    }
+    for el in block {
         let (new_margin_group, want_margin) = el.want_margin();
         if i > 0 {
             if previous_margin_group != new_margin_group || want_margin || has_comments(out, el) {
-                node.split(out, base_indent.clone(), true);
+                sg.split(out, base_indent.clone(), true);
             }
-            node.split(out, base_indent.clone(), true);
+            sg.split(out, base_indent.clone(), true);
         }
-        node.child((&el).make_segs(out, &base_indent));
-        node.seg_unsplit(out, " ");
+        sg.child((&el).make_segs(out, &base_indent));
+        sg.seg_unsplit(out, " ");
         previous_margin_group = new_margin_group;
+        i += 1;
     }
 }
 
@@ -88,13 +110,14 @@ pub(crate) fn append_bracketed_statement_list(
     base_indent: &Alignment,
     sg: &mut SplitGroupBuilder,
     prefix: &'static str,
-    block: &Vec<impl FormattableStmt>,
+    attrs: Option<&Vec<Attribute>>,
+    stmts: &Vec<impl FormattableStmt>,
     end: LineColumn,
 ) {
     sg.seg(out, prefix);
     let indent = base_indent.indent();
     sg.split(out, indent.clone(), true);
-    append_statement_list_raw(out, &indent, sg, block);
+    append_statement_list_raw(out, &indent, sg, attrs, stmts);
     append_comments(out, &indent, sg, end);
     sg.split(out, base_indent.clone(), false);
     sg.seg(out, "}");
@@ -112,7 +135,7 @@ pub(crate) fn new_sg_block(
 > {
     let mut sg = new_sg();
     append_comments(out, base_indent, &mut sg, start);
-    append_bracketed_statement_list(out, base_indent, &mut sg, prefix, block, end);
+    append_bracketed_statement_list(out, base_indent, &mut sg, prefix, None, block, end);
     sg.build()
 }
 
@@ -156,6 +179,7 @@ pub(crate) fn append_comma_bracketed_list<E: Formattable, T: >(
     end: LineColumn,
     suffix: &str,
 ) {
+    
     // node.add_comments(out, base_indent, prefix_start);
     sg.seg(out, prefix);
     let indent = base_indent.indent();
@@ -216,7 +240,7 @@ pub(crate) fn new_sg_comma_bracketed_list_ext<E: Formattable, T: >(
     sg.build()
 }
 
-pub(crate) fn new_sg_attrs(
+pub(crate) fn new_sg_outer_attrs(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
     attrs: &Vec<Attribute>,
@@ -227,13 +251,12 @@ pub(crate) fn new_sg_attrs(
     if attrs.is_empty() { return child.make_segs(out, base_indent); }
     let mut node = new_sg();
     for attr in attrs {
+        match attr.style { syn::AttrStyle::Outer => { }, syn::AttrStyle::Inner(_) => { continue; } };
         append_comments(out, base_indent, &mut node, attr.pound_token.span.start());
         node.child({
             let mut node = new_sg();
             let mut prefix = String::new();
-            prefix.write_str("#").unwrap();
-            match attr.style { syn::AttrStyle::Outer => { }, syn::AttrStyle::Inner(_) => { prefix.write_str("!").unwrap(); } };
-            prefix.write_str("[").unwrap();
+            prefix.write_str("#[").unwrap();
             node.seg(out, prefix);
             node.child(build_path(out, base_indent, &attr.path));
             append_macro_body(out, base_indent, &mut node, attr.tokens.clone());
@@ -250,28 +273,31 @@ pub(crate) fn new_sg_attrs(
 pub(crate) fn new_sg_macro(out: &mut MakeSegsState, base_indent: &Alignment, mac: &Macro, semi: bool) -> Rc<
     RefCell<SplitGroup>,
 > {
-    let mut node = new_sg();
-    node.child(build_path(out, base_indent, &mac.path));
-    node.seg(out, "!");
+    let mut sg = new_sg();
+    sg.child(build_path(out, base_indent, &mac.path));
+    sg.seg(out, "!");
     let indent = base_indent.indent();
     match mac.delimiter { syn::MacroDelimiter::Paren(_) => {
-        node.seg(out, "(");
-        append_macro_body(out, &indent, &mut node, mac.tokens.clone());
-        node.split(out, base_indent.clone(), false);
-        node.seg(out, ")");
+        sg.seg(out, "(");
+        sg.split(out, indent.clone(), true);
+        append_macro_body(out, &indent, &mut sg, mac.tokens.clone());
+        sg.split(out, base_indent.clone(), false);
+        sg.seg(out, ")");
     }, syn::MacroDelimiter::Brace(_) => {
-        node.seg(out, "{");
-        append_macro_body(out, &indent, &mut node, mac.tokens.clone());
-        node.split(out, base_indent.clone(), false);
-        node.seg(out, "}");
+        sg.seg(out, "{");
+        sg.split(out, indent.clone(), true);
+        append_macro_body(out, &indent, &mut sg, mac.tokens.clone());
+        sg.split(out, base_indent.clone(), false);
+        sg.seg(out, "}");
     }, syn::MacroDelimiter::Bracket(_) => {
-        node.seg(out, "[");
-        append_macro_body(out, &indent, &mut node, mac.tokens.clone());
-        node.split(out, base_indent.clone(), false);
-        node.seg(out, "]");
+        sg.seg(out, "[");
+        sg.split(out, indent.clone(), true);
+        append_macro_body(out, &indent, &mut sg, mac.tokens.clone());
+        sg.split(out, base_indent.clone(), false);
+        sg.seg(out, "]");
     } }
-    if semi { node.seg(out, ";"); }
-    node.build()
+    if semi { sg.seg(out, ";"); }
+    sg.build()
 }
 
 pub(crate) fn append_macro_body(
@@ -281,10 +307,14 @@ pub(crate) fn append_macro_body(
     tokens: TokenStream,
 ) {
     if let Ok(exprs) = syn::parse2::<ExprCall>(quote!{f(# tokens)}) {
-        append_inline_list_raw(out, base_indent, sg, ",", true, &exprs.args);
+        println!("0 macro parsed as call: {}", tokens);
+        append_inline_list_raw(out, base_indent, sg, ",", false, &exprs.args);
     } else if let Ok(block) = syn::parse2::<Block>(quote!{{# tokens}}) {
-        append_statement_list_raw(out, base_indent, sg, &block.stmts);
+        println!("0 macro parsed as block: {}", tokens);
+        append_statement_list_raw(out, base_indent, sg, None, &block.stmts);
     } else {
+        println!("0 macro unknown: {}", tokens);
+
         #[derive(PartialEq)]
         enum ConsecMode {
             // Start, joining punct (.)
@@ -295,7 +325,6 @@ pub(crate) fn append_macro_body(
             Punct,
         }
 
-        let mut mode = ConsecMode::StartJoin;
         let mut substreams = vec![];
         let mut top = vec![];
         for t in tokens {
@@ -309,13 +338,21 @@ pub(crate) fn append_macro_body(
         if !top.is_empty() { substreams.push((top, None)); }
         let substreams_len = substreams.len();
         for (i, sub) in substreams.into_iter().enumerate() {
-            sg.split(out, base_indent.clone(), true);
+            if i > 0 { sg.split(out, base_indent.clone(), true); }
             let tokens = TokenStream::from_iter(sub.0);
             if let Ok(exprs) = syn::parse2::<ExprCall>(quote!{f(# tokens)}) {
-                append_inline_list_raw(out, base_indent, sg, ",", true, &exprs.args);
+                println!("macro parsed as call: {}", tokens);
+                append_inline_list_raw(out, base_indent, sg, ",", false, &exprs.args);
             } else if let Ok(block) = syn::parse2::<Block>(quote!{{# tokens}}) {
-                append_statement_list_raw(out, base_indent, sg, &block.stmts);
+                println!("macro parsed as block: {}", tokens);
+                append_statement_list_raw(out, base_indent, sg, None, &block.stmts);
             } else {
+                match syn::parse2::<Block>(quote!{{# tokens}}) {
+                    Ok(_) => { },
+                    Err(e) => println!("macro unknown, for each err: {:?}", e),
+                };
+                println!("macro unknown, for each: {}", tokens);
+                let mut mode = ConsecMode::StartJoin;
                 for t in tokens {
                     match t {
                         proc_macro2::TokenTree::Group(g) => {
@@ -326,6 +363,7 @@ pub(crate) fn append_macro_body(
                                     match g.delimiter() {
                                         proc_macro2::Delimiter::Parenthesis => {
                                             sg.seg(out, "(");
+                                            sg.split(out, indent.clone(), true);
                                             append_macro_body(out, &indent, &mut sg, g.stream());
                                             sg.split(out, base_indent.clone(), false);
                                             sg.seg(out, ")");
@@ -333,17 +371,20 @@ pub(crate) fn append_macro_body(
                                         proc_macro2::Delimiter::Brace => {
                                             match mode { ConsecMode::StartJoin => { }, _ => { sg.seg(out, " "); } }
                                             sg.seg(out, "{");
+                                            sg.split(out, indent.clone(), true);
                                             append_macro_body(out, &indent, &mut sg, g.stream());
                                             sg.split(out, base_indent.clone(), false);
                                             sg.seg(out, "}");
                                         },
                                         proc_macro2::Delimiter::Bracket => {
                                             sg.seg(out, "[");
+                                            sg.split(out, indent.clone(), true);
                                             append_macro_body(out, &indent, &mut sg, g.stream());
                                             sg.split(out, base_indent.clone(), false);
                                             sg.seg(out, "]");
                                         },
                                         proc_macro2::Delimiter::None => {
+                                            
                                             // TODO needs verification
                                             append_macro_body(
                                                 out,
@@ -359,21 +400,37 @@ pub(crate) fn append_macro_body(
                             mode = ConsecMode::IdentLit;
                         },
                         proc_macro2::TokenTree::Ident(i) => {
-                            match mode { ConsecMode::StartJoin => { }, ConsecMode::IdentLit | ConsecMode::Punct => { sg.seg(out, " "); } }
+                            match mode {
+                                ConsecMode::StartJoin => { },
+                                ConsecMode::IdentLit | ConsecMode::Punct => { sg.seg(out, " "); },
+                            }
                             sg.seg(out, &i.to_string());
                             mode = ConsecMode::IdentLit;
                         },
-                        proc_macro2::TokenTree::Punct(p) => match p.as_char() { '\'' => {
-                            match mode { ConsecMode::StartJoin => { }, ConsecMode::IdentLit | ConsecMode::Punct => { sg.seg(out, " "); } }
-                            sg.seg(out, &p.to_string());
-                            mode = ConsecMode::StartJoin;
-                        }, _ => {
-                            match mode { ConsecMode::StartJoin => { }, ConsecMode::IdentLit => { sg.seg(out, " "); }, ConsecMode::Punct => { } }
-                            sg.seg(out, &p.to_string());
-                            mode = ConsecMode::Punct;
-                        } },
+                        proc_macro2::TokenTree::Punct(p) => match p.as_char() {
+                            '\'' => {
+                                match mode {
+                                    ConsecMode::StartJoin => { },
+                                    ConsecMode::IdentLit | ConsecMode::Punct => { sg.seg(out, " "); },
+                                }
+                                sg.seg(out, &p.to_string());
+                                mode = ConsecMode::StartJoin;
+                            },
+                            _ => {
+                                match mode {
+                                    ConsecMode::StartJoin => { },
+                                    ConsecMode::IdentLit => { sg.seg(out, " "); },
+                                    ConsecMode::Punct => { },
+                                }
+                                sg.seg(out, &p.to_string());
+                                mode = ConsecMode::Punct;
+                            },
+                        },
                         proc_macro2::TokenTree::Literal(l) => {
-                            match mode { ConsecMode::StartJoin => { }, ConsecMode::IdentLit | ConsecMode::Punct => { sg.seg(out, " "); } }
+                            match mode {
+                                ConsecMode::StartJoin => { },
+                                ConsecMode::IdentLit | ConsecMode::Punct => { sg.seg(out, " "); },
+                            }
                             sg.seg(out, &l.to_string());
                             mode = ConsecMode::IdentLit;
                         },

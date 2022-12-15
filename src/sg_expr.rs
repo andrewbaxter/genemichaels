@@ -1,6 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 use quote::ToTokens;
-use syn::{punctuated::Punctuated, token::Comma, Expr, ExprAwait, ExprClosure, ExprField, ExprMethodCall};
+use syn::{Expr, ExprAwait, ExprClosure, ExprField, ExprMethodCall};
 use crate::{
     new_sg,
     new_sg_lit,
@@ -9,7 +9,7 @@ use crate::{
         append_bracketed_statement_list,
         append_comments,
         build_rev_pair,
-        new_sg_attrs,
+        new_sg_outer_attrs,
         new_sg_binary,
         new_sg_block,
         new_sg_comma_bracketed_list,
@@ -23,9 +23,16 @@ use crate::{
     TrivialLineColMath,
 };
 
-#[derive(Clone)] enum Dotted<'a> {Await(&'a ExprAwait), Field(&'a ExprField), Method(&'a ExprMethodCall), 
+#[derive(Clone)]
+enum Dotted<'a> {
+    Await(&'a ExprAwait),
+    Field(&'a ExprField),
+    Method(&'a ExprMethodCall),
     // only if base is dotted
-    Try(Box<Dotted<'a>>)}
+    Try(
+        Box<Dotted<'a>>,
+    ),
+}
 
 enum DottedRes<'a> {Dotted(Dotted<'a>), Leaf(&'a Expr)}
 
@@ -141,7 +148,7 @@ impl Formattable for Expr {
 impl Formattable for &Expr {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
         match self {
-            Expr::Array(e) => new_sg_attrs(
+            Expr::Array(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
@@ -158,7 +165,7 @@ impl Formattable for &Expr {
                     )
                 },
             ),
-            Expr::Assign(e) => new_sg_attrs(
+            Expr::Assign(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
@@ -166,7 +173,7 @@ impl Formattable for &Expr {
                     new_sg_binary(out, base_indent, e.left.as_ref(), " =", e.right.as_ref())
                 },
             ),
-            Expr::AssignOp(e) => new_sg_attrs(
+            Expr::AssignOp(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
@@ -180,7 +187,7 @@ impl Formattable for &Expr {
                     )
                 },
             ),
-            Expr::Async(e) => new_sg_attrs(
+            Expr::Async(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
@@ -206,7 +213,7 @@ impl Formattable for &Expr {
                     }
                 },
             ),
-            Expr::Await(e) => new_sg_attrs(
+            Expr::Await(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
@@ -214,7 +221,7 @@ impl Formattable for &Expr {
                     new_sg_dotted(out, base_indent, Dotted::Await(e))
                 },
             ),
-            Expr::Binary(e) => new_sg_attrs(
+            Expr::Binary(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
@@ -228,7 +235,7 @@ impl Formattable for &Expr {
                     )
                 },
             ),
-            Expr::Block(e) => new_sg_attrs(
+            Expr::Block(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
@@ -243,33 +250,35 @@ impl Formattable for &Expr {
                     )
                 },
             ),
-            Expr::Box(e) => new_sg_attrs(
+            Expr::Box(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut node = new_sg();
-                    node.seg(out, "box ");
-                    node.child(e.expr.make_segs(out, base_indent));
-                    node.build()
+                    let mut sg = new_sg();
+                    append_comments(out, base_indent, &mut sg, e.box_token.span.start());
+                    sg.seg(out, "box ");
+                    sg.child(e.expr.make_segs(out, base_indent));
+                    sg.build()
                 },
             ),
-            Expr::Break(e) => new_sg_attrs(
+            Expr::Break(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut node = new_sg();
-                    node.seg(out, "break");
-                    if let Some(l) = &e.label { node.seg(out, &format!(" '{}", l.ident)) }
+                    let mut sg = new_sg();
+                    append_comments(out, base_indent, &mut sg, e.break_token.span.start());
+                    sg.seg(out, "break");
+                    if let Some(l) = &e.label { sg.seg(out, &format!(" '{}", l.ident)) }
                     if let Some(e) = &e.expr {
-                        node.seg(out, " ");
-                        node.child(e.make_segs(out, base_indent));
+                        sg.seg(out, " ");
+                        sg.child(e.make_segs(out, base_indent));
                     }
-                    node.build()
+                    sg.build()
                 },
             ),
-            Expr::Call(e) => new_sg_attrs(
+            Expr::Call(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
@@ -286,7 +295,7 @@ impl Formattable for &Expr {
                     )
                 },
             ),
-            Expr::Cast(e) => new_sg_attrs(
+            Expr::Cast(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
@@ -294,7 +303,7 @@ impl Formattable for &Expr {
                     new_sg_binary(out, base_indent, e.expr.as_ref(), " as", e.ty.as_ref())
                 },
             ),
-            Expr::Closure(e) => new_sg_attrs(
+            Expr::Closure(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
@@ -358,7 +367,7 @@ impl Formattable for &Expr {
                     }
                 },
             ),
-            Expr::Continue(e) => new_sg_attrs(
+            Expr::Continue(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
@@ -373,7 +382,7 @@ impl Formattable for &Expr {
                     node.build()
                 },
             ),
-            Expr::Field(e) => new_sg_attrs(
+            Expr::Field(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
@@ -381,43 +390,51 @@ impl Formattable for &Expr {
                     new_sg_dotted(out, base_indent, Dotted::Field(e))
                 },
             ),
-            Expr::ForLoop(e) => new_sg_attrs(
+            Expr::ForLoop(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut node = new_sg();
-                    node.child({
-                        let mut node = new_sg();
-                        node.child({
-                            let mut node = new_sg();
-                            if let Some(l) = &e.label { node.seg(out, &format!("{} ", l.to_token_stream().to_string())); }
-                            node.seg(out, "for ");
-                            node.child(e.pat.make_segs(out, base_indent));
-                            node.build()
-                        });
-                        node.seg(out, " in ");
-                        node.child(e.expr.make_segs(out, base_indent));
-                        node.build()
-                    });
+                    let mut sg = new_sg();
+                    sg.child(
+                        {
+                            let mut sg = new_sg();
+                            sg.child(
+                                {
+                                    let mut sg = new_sg();
+                                    if let Some(l) = &e.label {
+                                        sg.seg(out, &format!("{} ", l.to_token_stream().to_string()));
+                                    }
+                                    append_comments(out, base_indent, &mut sg, e.for_token.span.start());
+                                    sg.seg(out, "for ");
+                                    sg.child(e.pat.make_segs(out, base_indent));
+                                    sg.build()
+                                },
+                            );
+                            sg.seg(out, " in ");
+                            sg.child(e.expr.make_segs(out, base_indent));
+                            sg.build()
+                        },
+                    );
                     append_bracketed_statement_list(
                         out,
                         base_indent,
-                        &mut node,
+                        &mut sg,
                         " {",
+                        Some(&e.attrs),
                         &e.body.stmts,
                         e.body.brace_token.span.end().prev(),
                     );
-                    node.build()
+                    sg.build()
                 },
             ),
-            Expr::Group(e) => new_sg_attrs(
+            Expr::Group(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| { e.expr.make_segs(out, base_indent) },
             ),
-            Expr::If(e) => new_sg_attrs(
+            Expr::If(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
@@ -438,6 +455,7 @@ impl Formattable for &Expr {
                                 base_indent,
                                 &mut sg,
                                 " {",
+                                Some(&e.attrs),
                                 &e.then_branch.stmts,
                                 e.then_branch.brace_token.span.end().prev(),
                             );
@@ -452,7 +470,7 @@ impl Formattable for &Expr {
                     sg.build()
                 },
             ),
-            Expr::Index(e) => new_sg_attrs(
+            Expr::Index(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
@@ -465,7 +483,7 @@ impl Formattable for &Expr {
                     sg.build()
                 },
             ),
-            Expr::Let(e) => new_sg_attrs(
+            Expr::Let(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
@@ -477,7 +495,7 @@ impl Formattable for &Expr {
                     node.build()
                 },
             ),
-            Expr::Lit(e) => new_sg_attrs(
+            Expr::Lit(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
@@ -488,7 +506,7 @@ impl Formattable for &Expr {
                     node.build()
                 },
             ),
-            Expr::Loop(e) => new_sg_attrs(
+            Expr::Loop(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
@@ -504,19 +522,20 @@ impl Formattable for &Expr {
                         base_indent,
                         &mut sg,
                         "loop {",
+                        Some(&e.attrs),
                         &e.body.stmts,
                         e.body.brace_token.span.end().prev(),
                     );
                     sg.build()
                 },
             ),
-            Expr::Macro(e) => new_sg_attrs(
+            Expr::Macro(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| { new_sg_macro(out, base_indent, &e.mac, false) },
             ),
-            Expr::Match(e) => new_sg_attrs(
+            Expr::Match(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
@@ -540,6 +559,7 @@ impl Formattable for &Expr {
                                         } else { arm.pat.make_segs(out, &indent) }
                                     },
                                 );
+                                append_comments(out, base_indent, &mut sg, arm.fat_arrow_token.spans[0].start());
                                 sg.seg(out, " => ");
                                 sg.child(arm.body.make_segs(out, &indent));
                                 let out = sg.build();
@@ -551,11 +571,12 @@ impl Formattable for &Expr {
                         sg.seg_unsplit(out, " ");
                     }
                     sg.split(out, base_indent.clone(), false);
+                    append_comments(out, base_indent, &mut sg, e.brace_token.span.end().prev());
                     sg.seg(out, "}");
                     sg.build()
                 },
             ),
-            Expr::MethodCall(e) => new_sg_attrs(
+            Expr::MethodCall(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
@@ -563,26 +584,21 @@ impl Formattable for &Expr {
                     new_sg_dotted(out, base_indent, Dotted::Method(e))
                 },
             ),
-            Expr::Paren(e) => new_sg_attrs(
+            Expr::Paren(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut exprs: Punctuated<&Expr, Comma> = Punctuated::new();
-                    exprs.push_value(e.expr.as_ref());
-                    new_sg_comma_bracketed_list(
-                        out,
-                        base_indent,
-                        None::<Expr>,
-                        e.paren_token.span.start(),
-                        "(",
-                        &exprs,
-                        e.paren_token.span.end().prev(),
-                        ")",
-                    )
+                    let mut sg = new_sg();
+                    append_comments(out, base_indent, &mut sg, e.paren_token.span.start());
+                    sg.seg(out, "(");
+                    sg.child(e.expr.make_segs(out, base_indent));
+                    append_comments(out, base_indent, &mut sg, e.paren_token.span.end().prev());
+                    sg.seg(out, ")");
+                    sg.build()
                 },
             ),
-            Expr::Path(e) => new_sg_attrs(
+            Expr::Path(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
@@ -590,26 +606,41 @@ impl Formattable for &Expr {
                     build_extended_path(out, base_indent, &e.qself, &e.path)
                 },
             ),
-            Expr::Range(e) => new_sg_attrs(
+            Expr::Range(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let tok = match e.limits { syn::RangeLimits::HalfOpen(_) => "..", syn::RangeLimits::Closed(_) => "..=" };
-                    match (&e.from, &e.to) { (None, None) => unreachable!(), (None, Some(r)) => {
-                        let mut node = new_sg();
-                        node.seg(out, tok);
-                        node.child(r.as_ref().make_segs(out, base_indent));
-                        node.build()
-                    }, (Some(l), None) => {
-                        let mut node = new_sg();
-                        node.child(l.as_ref().make_segs(out, base_indent));
-                        node.seg(out, tok);
-                        node.build()
-                    }, (Some(l), Some(r)) => new_sg_binary(out, base_indent, l.as_ref(), &format!(" {}", tok), r.as_ref()) }
+                    let (tok, tok_loc) =
+                        match e.limits {
+                            syn::RangeLimits::HalfOpen(x) => ("..", x.spans[0].start()),
+                            syn::RangeLimits::Closed(x) => ("..=", x.spans[0].start()),
+                        };
+                    match (&e.from, &e.to) {
+                        (None, None) => new_sg_lit(out, Some((base_indent, tok_loc)), tok),
+                        (None, Some(r)) => {
+                            let mut node = new_sg();
+                            node.seg(out, tok);
+                            node.child(r.as_ref().make_segs(out, base_indent));
+                            node.build()
+                        },
+                        (Some(l), None) => {
+                            let mut node = new_sg();
+                            node.child(l.as_ref().make_segs(out, base_indent));
+                            node.seg(out, tok);
+                            node.build()
+                        },
+                        (Some(l), Some(r)) => new_sg_binary(
+                            out,
+                            base_indent,
+                            l.as_ref(),
+                            &format!(" {}", tok),
+                            r.as_ref(),
+                        ),
+                    }
                 },
             ),
-            Expr::Reference(e) => new_sg_attrs(
+            Expr::Reference(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
@@ -617,7 +648,7 @@ impl Formattable for &Expr {
                     build_ref(out, base_indent, e.and_token.span.start(), e.mutability.is_some(), e.expr.as_ref())
                 },
             ),
-            Expr::Repeat(e) => new_sg_attrs(
+            Expr::Repeat(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
@@ -625,7 +656,7 @@ impl Formattable for &Expr {
                     build_array_type(out, base_indent, e.bracket_token.span.start(), e.expr.as_ref(), e.len.as_ref())
                 },
             ),
-            Expr::Return(e) => new_sg_attrs(
+            Expr::Return(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
@@ -640,40 +671,41 @@ impl Formattable for &Expr {
                     sg.build()
                 },
             ),
-            Expr::Struct(e) => new_sg_attrs(
+            Expr::Struct(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut node = new_sg();
-                    node.child(build_path(out, base_indent, &e.path));
-                    node.seg(out, " {");
+                    let mut sg = new_sg();
+                    sg.child(build_path(out, base_indent, &e.path));
+                    sg.seg(out, " {");
                     let indent = base_indent.indent();
                     for (i, pair) in e.fields.pairs().enumerate() {
                         if i > 0 {
-                            node.seg(out, ",");
-                            node.seg_unsplit(out, " ");
+                            sg.seg(out, ",");
+                            sg.seg_unsplit(out, " ");
                         }
-                        node.split(out, indent.clone(), true);
-                        match &pair.value().member {
-                            syn::Member::Named(n) => { node.seg(out, &format!("{}: ", n)); },
-                            syn::Member::Unnamed(_) => unreachable!(),
-                        };
-                        node.child(pair.value().expr.make_segs(out, &indent));
+                        sg.split(out, indent.clone(), true);
+                        match &pair.value().member { syn::Member::Named(n) => {
+                            append_comments(out, &indent, &mut sg, n.span().start());
+                            sg.seg(out, &format!("{}: ", n));
+                        }, syn::Member::Unnamed(_) => unreachable!() };
+                        sg.child(pair.value().expr.make_segs(out, &indent));
                     }
                     if let Some(rem) = &e.rest {
-                        node.seg(out, ",");
-                        node.seg_unsplit(out, " ");
-                        node.split(out, indent.clone(), true);
-                        node.seg(out, "..");
-                        node.child(rem.make_segs(out, &indent));
-                    } else { node.seg_split(out, ","); }
-                    node.split(out, base_indent.clone(), false);
-                    node.seg(out, "}");
-                    node.build()
+                        sg.seg(out, ",");
+                        sg.seg_unsplit(out, " ");
+                        sg.split(out, indent.clone(), true);
+                        sg.seg(out, "..");
+                        sg.child(rem.make_segs(out, &indent));
+                    } else { sg.seg_split(out, ","); }
+                    sg.split(out, base_indent.clone(), false);
+                    append_comments(out, base_indent, &mut sg, e.brace_token.span.end().prev());
+                    sg.seg(out, "}");
+                    sg.build()
                 },
             ),
-            Expr::Try(e) => new_sg_attrs(
+            Expr::Try(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
@@ -687,7 +719,7 @@ impl Formattable for &Expr {
                     },
                 },
             ),
-            Expr::TryBlock(e) => new_sg_attrs(
+            Expr::TryBlock(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
@@ -700,13 +732,14 @@ impl Formattable for &Expr {
                         base_indent,
                         &mut sg,
                         " {",
+                        Some(&e.attrs),
                         &e.block.stmts,
                         e.block.brace_token.span.end().prev(),
                     );
                     sg.build()
                 },
             ),
-            Expr::Tuple(e) => new_sg_attrs(
+            Expr::Tuple(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
@@ -723,7 +756,7 @@ impl Formattable for &Expr {
                     )
                 },
             ),
-            Expr::Type(e) => new_sg_attrs(
+            Expr::Type(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
@@ -731,18 +764,24 @@ impl Formattable for &Expr {
                     new_sg_binary(out, base_indent, e.expr.as_ref(), ":", e.ty.as_ref())
                 },
             ),
-            Expr::Unary(e) => new_sg_attrs(
+            Expr::Unary(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut node = new_sg();
-                    node.seg(out, &e.op.to_token_stream().to_string());
-                    node.child(e.expr.make_segs(out, base_indent));
-                    node.build()
+                    let mut sg = new_sg();
+                    append_comments(
+                        out,
+                        base_indent,
+                        &mut sg,
+                        e.op.to_token_stream().into_iter().next().unwrap().span().start(),
+                    );
+                    sg.seg(out, &e.op.to_token_stream().to_string());
+                    sg.child(e.expr.make_segs(out, base_indent));
+                    sg.build()
                 },
             ),
-            Expr::Unsafe(e) => new_sg_attrs(
+            Expr::Unsafe(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
@@ -755,6 +794,7 @@ impl Formattable for &Expr {
                         base_indent,
                         &mut sg,
                         " {",
+                        Some(&e.attrs),
                         &e.block.stmts,
                         e.block.brace_token.span.end().prev(),
                     );
@@ -766,7 +806,7 @@ impl Formattable for &Expr {
                 node.seg(out, &e.to_string());
                 node.build()
             },
-            Expr::While(e) => new_sg_attrs(
+            Expr::While(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
@@ -779,11 +819,19 @@ impl Formattable for &Expr {
                     append_comments(out, base_indent, &mut sg, e.while_token.span.start());
                     sg.seg(out, "while ");
                     sg.child(e.cond.make_segs(out, base_indent));
-                    append_bracketed_statement_list(out, base_indent, &mut sg, " {", &e.body.stmts, e.body.brace_token.span.end().prev());
+                    append_bracketed_statement_list(
+                        out,
+                        base_indent,
+                        &mut sg,
+                        " {",
+                        Some(&e.attrs),
+                        &e.body.stmts,
+                        e.body.brace_token.span.end().prev(),
+                    );
                     sg.build()
                 },
             ),
-            Expr::Yield(e) => new_sg_attrs(
+            Expr::Yield(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,

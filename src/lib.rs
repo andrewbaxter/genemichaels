@@ -262,7 +262,7 @@ pub(crate) fn new_sg_lit(
     sg.build()
 }
 
-#[derive(PartialEq)] pub(crate) enum MarginGroup {BlockDef, Import, None}
+#[derive(PartialEq)] pub(crate) enum MarginGroup {Attr, BlockDef, Import, None}
 
 pub(crate) trait FormattableStmt: ToTokens + Formattable { fn want_margin(&self) -> (MarginGroup, bool); }
 

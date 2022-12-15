@@ -6,7 +6,7 @@ use crate::{
     sg_general::{
         append_binary,
         append_inline_list_raw,
-        new_sg_attrs,
+        new_sg_outer_attrs,
         new_sg_binary,
         new_sg_comma_bracketed_list,
         new_sg_comma_bracketed_list_ext,
@@ -23,7 +23,7 @@ use crate::{
 impl Formattable for &Pat {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
         match self {
-            Pat::Box(x) => new_sg_attrs(
+            Pat::Box(x) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &x.attrs,
@@ -34,7 +34,7 @@ impl Formattable for &Pat {
                     node.build()
                 },
             ),
-            Pat::Ident(x) => new_sg_attrs(
+            Pat::Ident(x) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &x.attrs,
@@ -42,7 +42,7 @@ impl Formattable for &Pat {
                     let mut prefix = String::new();
                     let mut start = None;
                     if let Some(y) = x.by_ref {
-                        prefix.write_str("const ").unwrap();
+                        prefix.write_str("ref ").unwrap();
                         start = Some(y.span.start());
                     }
                     if let Some(y) = x.mutability {
@@ -64,19 +64,19 @@ impl Formattable for &Pat {
                     } else { new_sg_lit(out, start.map(|s| (base_indent, s)), prefix) }
                 },
             ),
-            Pat::Lit(x) => new_sg_attrs(
+            Pat::Lit(x) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &x.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| { x.expr.as_ref().make_segs(out, base_indent) },
             ),
-            Pat::Macro(x) => new_sg_attrs(
+            Pat::Macro(x) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &x.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| { new_sg_macro(out, base_indent, &x.mac, false) },
             ),
-            Pat::Or(x) => new_sg_attrs(
+            Pat::Or(x) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &x.attrs,
@@ -87,7 +87,7 @@ impl Formattable for &Pat {
                     node.build()
                 },
             ),
-            Pat::Path(x) => new_sg_attrs(
+            Pat::Path(x) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &x.attrs,
@@ -95,7 +95,7 @@ impl Formattable for &Pat {
                     build_extended_path(out, base_indent, &x.qself, &x.path)
                 },
             ),
-            Pat::Range(x) => new_sg_attrs(
+            Pat::Range(x) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &x.attrs,
@@ -112,7 +112,7 @@ impl Formattable for &Pat {
                     )
                 },
             ),
-            Pat::Reference(x) => new_sg_attrs(
+            Pat::Reference(x) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &x.attrs,
@@ -120,7 +120,7 @@ impl Formattable for &Pat {
                     build_ref(out, base_indent, x.and_token.span.start(), x.mutability.is_some(), x.pat.as_ref())
                 },
             ),
-            Pat::Rest(x) => new_sg_attrs(
+            Pat::Rest(x) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &x.attrs,
@@ -128,7 +128,7 @@ impl Formattable for &Pat {
                     new_sg_lit(out, Some((base_indent, x.dot2_token.spans[0].start())), "..")
                 },
             ),
-            Pat::Slice(x) => new_sg_attrs(
+            Pat::Slice(x) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &x.attrs,
@@ -145,7 +145,7 @@ impl Formattable for &Pat {
                     )
                 },
             ),
-            Pat::Struct(x) => new_sg_attrs(
+            Pat::Struct(x) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &x.attrs,
@@ -177,7 +177,7 @@ impl Formattable for &Pat {
                     }
                 },
             ),
-            Pat::Tuple(x) => new_sg_attrs(
+            Pat::Tuple(x) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &x.attrs,
@@ -194,7 +194,7 @@ impl Formattable for &Pat {
                     )
                 },
             ),
-            Pat::TupleStruct(x) => new_sg_attrs(
+            Pat::TupleStruct(x) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &x.attrs,
@@ -211,7 +211,7 @@ impl Formattable for &Pat {
                     )
                 },
             ),
-            Pat::Type(x) => new_sg_attrs(
+            Pat::Type(x) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &x.attrs,
@@ -220,7 +220,7 @@ impl Formattable for &Pat {
                 },
             ),
             Pat::Verbatim(x) => new_sg_lit(out, None, x),
-            Pat::Wild(x) => new_sg_attrs(
+            Pat::Wild(x) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &x.attrs,
@@ -241,11 +241,19 @@ impl Formattable for Pat {
 
 impl Formattable for FieldPat {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
-        new_sg_attrs(out, base_indent, &self.attrs, |out: &mut MakeSegsState, base_indent: &Alignment| {
-            let mut sg = new_sg();
-            match &self.member { syn::Member::Named(x) => sg.seg(out, x), syn::Member::Unnamed(x) => sg.seg(out, x.index) };
-            append_binary(out, base_indent, &mut sg, ":", self.pat.as_ref());
-            sg.build()
-        })
+        new_sg_outer_attrs(
+            out,
+            base_indent,
+            &self.attrs,
+            |out: &mut MakeSegsState, base_indent: &Alignment| {
+                let mut sg = new_sg();
+                match &self.member {
+                    syn::Member::Named(x) => sg.seg(out, x),
+                    syn::Member::Unnamed(x) => sg.seg(out, x.index),
+                };
+                append_binary(out, base_indent, &mut sg, ":", self.pat.as_ref());
+                sg.build()
+            },
+        )
     }
 }

@@ -37,7 +37,7 @@ There's one main function at the moment:
 
 This formats macros.
 
-It assumes your macros look and act mostly like normal rust constructs (especially regarding whitespace and trailing commas). If this isn't the case, you should fix the macros or use `rustfmt` instead.
+It assumes your macros look and act mostly like normal rust constructs (especially regarding whitespace and trailing commas). If the macro looks like normal rust, but doesn't act like normal rust, the macro is broken, not the formatter.
 
 ## How it works
 
