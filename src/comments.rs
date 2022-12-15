@@ -21,9 +21,9 @@ pub(crate) struct CommentExtractor<'a> {
 }
 
 impl<'a> CommentExtractor<'a> {
-    pub(crate) fn advance_to(&mut self, loc: LineColumn) -> &str {
+    pub(crate) fn locate_forward(&self, loc: LineColumn) -> usize {
         if loc.line < self.last_loc.line || (loc.line == self.last_loc.line && loc.column < self.last_loc.column) {
-            return "";
+            return self.last_offset;
         }
         let mut offset = self.last_offset;
         let mut col = self.last_loc.column;
@@ -32,6 +32,11 @@ impl<'a> CommentExtractor<'a> {
             col = 0;
         }
         offset += self.source[offset..].chars().take(loc.column - col).map(char::len_utf8).sum::<usize>();
+        offset
+    }
+
+    pub(crate) fn advance_to(&mut self, loc: LineColumn) -> &str {
+        let offset = self.locate_forward(loc);
         let out = &self.source[self.last_offset .. offset];
         self.last_offset = offset;
         self.last_loc = loc;

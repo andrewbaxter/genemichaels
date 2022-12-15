@@ -1,9 +1,9 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use comments::{format_md, HashLineColumn};
-use proc_macro2::{Ident, LineColumn, TokenStream};
+use proc_macro2::{Ident, LineColumn, TokenStream, Group};
 use quote::ToTokens;
 use sg_general::append_comments;
-use std::{borrow::Borrow, cell::RefCell, collections::HashMap, rc::Rc};
+use std::{borrow::Borrow, cell::RefCell, collections::HashMap, rc::Rc, str::FromStr};
 use syn::File;
 use crate::{comments::CommentExtractor};
 
@@ -297,8 +297,7 @@ pub struct FormatConfig {
 pub struct FormatRes {pub rendered: String, pub lost_comments: HashMap<HashLineColumn, Vec<Comment>>}
 
 pub fn format_str(source: &str, config: &FormatConfig) -> Result<FormatRes> {
-    let ast: File = syn::parse_file(source)?;
-
+    
     // Extract comments
     let mut comment_extractor =
         CommentExtractor {
@@ -308,27 +307,52 @@ pub fn format_str(source: &str, config: &FormatConfig) -> Result<FormatRes> {
             comments: HashMap::new(),
         };
 
-    fn recurse(comment_extractor: &mut CommentExtractor, ts: TokenStream) {
-        for t in ts { match t { proc_macro2::TokenTree::Group(g) => {
-            comment_extractor.extract_to(g.span_open().start());
-            comment_extractor.advance_to(g.span_open().end());
-            recurse(comment_extractor, g.stream());
-            comment_extractor.extract_to(g.span_close().start());
-            comment_extractor.advance_to(g.span_close().end());
-        }, proc_macro2::TokenTree::Ident(g) => {
-            comment_extractor.extract_to(g.span().start());
-            comment_extractor.advance_to(g.span().end());
-        }, proc_macro2::TokenTree::Punct(g) => {
-            comment_extractor.extract_to(g.span().start());
-            comment_extractor.advance_to(g.span().end());
-        }, proc_macro2::TokenTree::Literal(g) => {
-            comment_extractor.extract_to(g.span().start());
-            comment_extractor.advance_to(g.span().end());
-        } } }
+    fn recurse(comment_extractor: &mut CommentExtractor, ts: TokenStream) -> TokenStream {
+        let mut out = vec![];
+        let mut ts = ts.into_iter().peekable();
+        while let Some(t) = ts.next() {
+            match t {
+                proc_macro2::TokenTree::Group(g) => {
+                    comment_extractor.extract_to(g.span_open().start());
+                    comment_extractor.advance_to(g.span_open().end());
+                    let subtokens = recurse(comment_extractor, g.stream());
+                    comment_extractor.extract_to(g.span_close().start());
+                    comment_extractor.advance_to(g.span_close().end());
+                    out.push(proc_macro2::TokenTree::Group(Group::new(g.delimiter(), subtokens)));
+                },
+                proc_macro2::TokenTree::Ident(g) => {
+                    comment_extractor.extract_to(g.span().start());
+                    comment_extractor.advance_to(g.span().end());
+                    out.push(proc_macro2::TokenTree::Ident(g));
+                },
+                proc_macro2::TokenTree::Punct(g) => {
+                    let offset = comment_extractor.locate_forward(g.span().start());
+                    if g.as_char() == '#' && &comment_extractor.source[offset .. offset + 1] == "/" {
+                        
+                        // Syn converts doc comments into doc attrs, work around that here by detecting a mismatch between the token and the 
+                        // source (written /, token is #) and skipping all tokens within the fake doc attr range
+                        loop {
+                            let in_comment = ts.peek().map(|n| n.span().start() < g.span().end()).unwrap_or(false);
+                            if !in_comment { break; }
+                            ts.next();
+                        }
+                    } else {
+                        comment_extractor.advance_to(g.span().end());
+                        out.push(proc_macro2::TokenTree::Punct(g));
+                    }
+                },
+                proc_macro2::TokenTree::Literal(g) => {
+                    comment_extractor.extract_to(g.span().start());
+                    comment_extractor.advance_to(g.span().end());
+                    out.push(proc_macro2::TokenTree::Literal(g));
+                },
+            }
+        }
+        TokenStream::from_iter(out)
     }
 
-    recurse(&mut comment_extractor, ast.to_token_stream());
-    format_ast(ast, config, comment_extractor.comments)
+    let tokens = recurse(&mut comment_extractor, TokenStream::from_str(source).map_err(|e| anyhow!("{:?}", e))?);
+    format_ast(syn::parse2::<File>(tokens)?, config, comment_extractor.comments)
 }
 
 pub fn format_ast(

@@ -13,6 +13,7 @@ use crate::{
     SplitGroup,
     SplitGroupBuilder,
     MarginGroup,
+    TrivialLineColMath,
 };
 
 pub(crate) fn build_rev_pair(
@@ -307,14 +308,10 @@ pub(crate) fn append_macro_body(
     tokens: TokenStream,
 ) {
     if let Ok(exprs) = syn::parse2::<ExprCall>(quote!{f(# tokens)}) {
-        println!("0 macro parsed as call: {}", tokens);
         append_inline_list_raw(out, base_indent, sg, ",", false, &exprs.args);
     } else if let Ok(block) = syn::parse2::<Block>(quote!{{# tokens}}) {
-        println!("0 macro parsed as block: {}", tokens);
         append_statement_list_raw(out, base_indent, sg, None, &block.stmts);
     } else {
-        println!("0 macro unknown: {}", tokens);
-
         #[derive(PartialEq)]
         enum ConsecMode {
             // Start, joining punct (.)
@@ -341,21 +338,15 @@ pub(crate) fn append_macro_body(
             if i > 0 { sg.split(out, base_indent.clone(), true); }
             let tokens = TokenStream::from_iter(sub.0);
             if let Ok(exprs) = syn::parse2::<ExprCall>(quote!{f(# tokens)}) {
-                println!("macro parsed as call: {}", tokens);
                 append_inline_list_raw(out, base_indent, sg, ",", false, &exprs.args);
             } else if let Ok(block) = syn::parse2::<Block>(quote!{{# tokens}}) {
-                println!("macro parsed as block: {}", tokens);
                 append_statement_list_raw(out, base_indent, sg, None, &block.stmts);
             } else {
-                match syn::parse2::<Block>(quote!{{# tokens}}) {
-                    Ok(_) => { },
-                    Err(e) => println!("macro unknown, for each err: {:?}", e),
-                };
-                println!("macro unknown, for each: {}", tokens);
                 let mut mode = ConsecMode::StartJoin;
                 for t in tokens {
                     match t {
                         proc_macro2::TokenTree::Group(g) => {
+                            append_comments(out, base_indent, sg, g.span_open().start());
                             sg.child(
                                 {
                                     let mut sg = new_sg();
@@ -366,6 +357,7 @@ pub(crate) fn append_macro_body(
                                             sg.split(out, indent.clone(), true);
                                             append_macro_body(out, &indent, &mut sg, g.stream());
                                             sg.split(out, base_indent.clone(), false);
+                                            append_comments(out, base_indent, &mut sg, g.span_close().start());
                                             sg.seg(out, ")");
                                         },
                                         proc_macro2::Delimiter::Brace => {
@@ -374,6 +366,7 @@ pub(crate) fn append_macro_body(
                                             sg.split(out, indent.clone(), true);
                                             append_macro_body(out, &indent, &mut sg, g.stream());
                                             sg.split(out, base_indent.clone(), false);
+                                            append_comments(out, base_indent, &mut sg, g.span_close().start());
                                             sg.seg(out, "}");
                                         },
                                         proc_macro2::Delimiter::Bracket => {
@@ -381,6 +374,7 @@ pub(crate) fn append_macro_body(
                                             sg.split(out, indent.clone(), true);
                                             append_macro_body(out, &indent, &mut sg, g.stream());
                                             sg.split(out, base_indent.clone(), false);
+                                            append_comments(out, base_indent, &mut sg, g.span_close().start());
                                             sg.seg(out, "]");
                                         },
                                         proc_macro2::Delimiter::None => {
@@ -404,6 +398,7 @@ pub(crate) fn append_macro_body(
                                 ConsecMode::StartJoin => { },
                                 ConsecMode::IdentLit | ConsecMode::Punct => { sg.seg(out, " "); },
                             }
+                            append_comments(out, base_indent, sg, i.span().start());
                             sg.seg(out, &i.to_string());
                             mode = ConsecMode::IdentLit;
                         },
@@ -413,6 +408,7 @@ pub(crate) fn append_macro_body(
                                     ConsecMode::StartJoin => { },
                                     ConsecMode::IdentLit | ConsecMode::Punct => { sg.seg(out, " "); },
                                 }
+                                append_comments(out, base_indent, sg, p.span().start());
                                 sg.seg(out, &p.to_string());
                                 mode = ConsecMode::StartJoin;
                             },
@@ -422,6 +418,7 @@ pub(crate) fn append_macro_body(
                                     ConsecMode::IdentLit => { sg.seg(out, " "); },
                                     ConsecMode::Punct => { },
                                 }
+                                append_comments(out, base_indent, sg, p.span().start());
                                 sg.seg(out, &p.to_string());
                                 mode = ConsecMode::Punct;
                             },
@@ -431,6 +428,7 @@ pub(crate) fn append_macro_body(
                                 ConsecMode::StartJoin => { },
                                 ConsecMode::IdentLit | ConsecMode::Punct => { sg.seg(out, " "); },
                             }
+                            append_comments(out, base_indent, sg, l.span().start());
                             sg.seg(out, &l.to_string());
                             mode = ConsecMode::IdentLit;
                         },
