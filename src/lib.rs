@@ -40,7 +40,7 @@ pub struct SplitGroup {
     pub(crate) segments: Vec<Rc<RefCell<Segment>>>,
 }
 
-#[derive(Debug)] pub(crate) enum SegmentMode {All, Unsplit, Split}
+#[derive(Debug, Clone, Copy)] pub(crate) enum SegmentMode {All, Unsplit, Split}
 
 pub(crate) struct SegmentLine {pub(crate) line: Rc<RefCell<Line>>, pub(crate) seg_index: usize}
 
@@ -524,44 +524,54 @@ pub fn format_ast(
     // Render
     let mut rendered = String::new();
     let lines = lines.as_ref().borrow();
-    for (line_i, line) in lines.lines.iter().enumerate() {
+    'lineloop: for (line_i, line) in lines.lines.iter().enumerate() {
         let line = line.as_ref().borrow();
+        let segs = line.segs.iter().filter_map(|seg| {
+            if {
+                let seg = seg.as_ref().borrow();
+                let node = seg.node.as_ref().borrow();
+                match (&seg.mode, node.split) {
+                    (SegmentMode::All, _) => true,
+                    (SegmentMode::Unsplit, true) => false,
+                    (SegmentMode::Unsplit, false) => true,
+                    (SegmentMode::Split, true) => true,
+                    (SegmentMode::Split, false) => false,
+                }
+            } {
+                Some(seg.clone())
+            } else {
+                None
+            }
+        }).collect::<Vec<Rc<RefCell<Segment>>>>();
         if line.segs.is_empty() {
             continue;
         }
-
-        // since comments are always new lines we end up with duped newlines sometimes if there's a (break), (comment) on consec
-        // lines skip the break
-        if line.segs.len() == 1 &&
-            lines
-                .lines
-                .get(line_i + 1)
-                .and_then(|l| l.as_ref().borrow().segs.iter().next().map(|l| l.clone()))
-                .map(|l| match &l.as_ref().borrow().content {
-                    SegmentContent::Comment(_) => true,
-                    _ => false,
-                })
-                .unwrap_or(false) {
-            continue;
-        }
-        for seg in &line.segs {
+        for seg in &segs {
             let seg = seg.as_ref().borrow();
-            match (&seg.mode, seg.node.as_ref().borrow().split) {
-                (SegmentMode::All, _) => { },
-                (SegmentMode::Unsplit, true) => continue,
-                (SegmentMode::Unsplit, false) => { },
-                (SegmentMode::Split, true) => { },
-                (SegmentMode::Split, false) => continue,
-            };
             match &seg.content {
                 SegmentContent::Text(t) => {
                     rendered.push_str(&t);
                 },
                 SegmentContent::Break(b, activate) => {
+                    
+                    // since comments are always new lines we end up with duped newlines sometimes if there's a (break), (comment) on consec
+                    // lines. skip the break
+                    if segs.len() == 1 &&
+                        lines
+                            .lines
+                            .get(line_i + 1)
+                            .and_then(|l| l.as_ref().borrow().segs.iter().next().map(|l| l.clone()))
+                            .map(|l| match &l.as_ref().borrow().content {
+                                SegmentContent::Comment(_) => true,
+                                _ => false,
+                            })
+                            .unwrap_or(false) {
+                        continue 'lineloop;
+                    }
                     if *activate {
                         b.activate();
                     }
-                    if line.segs.len() > 1 {
+                    if segs.len() > 1 {
                         
                         // if empty line (=just break), don't write indent
                         rendered.push_str(&" ".repeat(b.get()));
