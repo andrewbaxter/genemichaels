@@ -21,7 +21,7 @@ use std::rc::Rc;
 use std::str::FromStr;
 use structre::UnicodeRegex;
 
-#[derive(PartialEq, Eq, Debug)] 
+#[derive(PartialEq, Eq, Debug)]
 pub struct HashLineColumn(pub LineColumn);
 
 impl Hash for HashLineColumn {
@@ -297,7 +297,7 @@ enum StackRes {
     Pop,
 }
 
-#[derive(Debug)] 
+#[derive(Debug)]
 struct LineState_ {
     first_prefix: Option<String>,
     prefix: String,
@@ -325,7 +325,7 @@ impl LineState_ {
     }
 
     fn flush(&mut self, state: &mut State, out: &mut String) {
-        if !state.line_buffer.is_empty() {
+        if !state.line_buffer.trim().is_empty() {
             self.flush_always(state, out);
         }
     }
@@ -434,6 +434,10 @@ impl LineState {
                 text = &text[text.len()..];
             }
         }
+    }
+
+    fn flush_always(&self, state: &mut State, out: &mut String) {
+        self.0.as_ref().borrow_mut().flush_always(state, out);
     }
 
     fn flush(&self, state: &mut State, out: &mut String) {
@@ -607,7 +611,10 @@ impl StackEl for StackInline {
                 self.line.write_whitespace(state, out, " ");
                 StackRes::Keep
             },
-            Event::Html(_) => unreachable!(),
+            Event::Html(x) => {
+                self.line.write_unbreakable(state, out, &x);
+                StackRes::Keep
+            },
             Event::FootnoteReference(_) => unreachable!(),
             Event::Rule => unreachable!(),
             Event::TaskListMarker(_) => unreachable!(),
@@ -678,14 +685,14 @@ impl StackEl for StackBlock {
                         end_bound: None,
                         line_state: self
                             .line
-                            .indent(Some("#".repeat(level as i32 as usize).into()), "  ".into(), true),
+                            .indent(Some(format!("{} ", "#".repeat(level as i32 as usize))), "  ".into(), true),
                         line_root: true,
                     }))
                 },
                 pulldown_cmark::Tag::BlockQuote => {
                     self.block_ev(state, out);
                     StackRes::Push(StackBlock::new(state, out, StackBlockArgs{
-                        line: self.line.indent(None, ">".into(), false),
+                        line: self.line.indent(None, "> ".into(), false),
                         start_bound: None,
                         end_bound: None,
                     }))
@@ -696,6 +703,7 @@ impl StackEl for StackBlock {
                         pulldown_cmark::CodeBlockKind::Indented => "",
                         pulldown_cmark::CodeBlockKind::Fenced(x) => x,
                     }));
+                    self.line.flush(state, out);
                     StackRes::Push(Box::new(StackCodeBlock{ line: self.line.zero_indent() }))
                 },
                 pulldown_cmark::Tag::List(ordered) => {
@@ -738,7 +746,10 @@ impl StackEl for StackBlock {
                     self.inline_ev();
                     push_strikethrough(state, out, self.line.share(), true)
                 },
-                pulldown_cmark::Tag::Item => unreachable!(),
+                pulldown_cmark::Tag::Item => {
+                    // What is this... this feels like a bug.
+                    push_bullet_item(state, out, &self.line)
+                },
                 pulldown_cmark::Tag::TableHead => unreachable!(),
                 pulldown_cmark::Tag::TableRow => unreachable!(),
                 pulldown_cmark::Tag::TableCell => unreachable!(),
@@ -767,7 +778,11 @@ impl StackEl for StackBlock {
             Event::SoftBreak => {
                 StackRes::Keep
             },
-            Event::Html(_) => unreachable!(),
+            Event::Html(x) => {
+                self.inline_ev();
+                self.line.write_unbreakable(state, out, &x);
+                StackRes::Keep
+            },
             Event::FootnoteReference(_) => unreachable!(),
             Event::HardBreak => unreachable!(),
             Event::Rule => unreachable!(),
@@ -782,22 +797,71 @@ struct StackNumberList {
     first: bool,
 }
 
+impl StackNumberList {
+    fn indent(&mut self, use_count: u64) -> LineState {
+        self.line.indent(Some(format!("{}. ", use_count)), "   ".into(), false)
+    }
+}
+
 impl StackEl for StackNumberList {
     fn handle(&mut self, state: &mut State, out: &mut String, e: Event) -> StackRes {
         let use_count = self.count;
         self.count += 1;
         match e {
-            Event::Start(pulldown_cmark::Tag::Item) => {
+            Event::Start(e) => {
+                match e {
+                    pulldown_cmark::Tag::Item => {
+                        if self.first {
+                            self.first = false;
+                        } else {
+                            self.line.write_newline(state, out);
+                        }
+                        StackRes::Push(StackBlock::new(state, out, StackBlockArgs{
+                            line: self.indent(use_count),
+                            start_bound: None,
+                            end_bound: None,
+                        }))
+                    },
+                    pulldown_cmark::Tag::Link(_, url, title) => {
+                        push_link(state, out, self.indent(use_count), true, &url, &title)
+                    },
+                    pulldown_cmark::Tag::Paragraph => unreachable!(),
+                    pulldown_cmark::Tag::Heading(_, _, _) => unreachable!(),
+                    pulldown_cmark::Tag::BlockQuote => unreachable!(),
+                    pulldown_cmark::Tag::CodeBlock(_) => unreachable!(),
+                    pulldown_cmark::Tag::List(_) => unreachable!(),
+                    pulldown_cmark::Tag::FootnoteDefinition(_) => unreachable!(),
+                    pulldown_cmark::Tag::Table(_) => unreachable!(),
+                    pulldown_cmark::Tag::TableHead => unreachable!(),
+                    pulldown_cmark::Tag::TableRow => unreachable!(),
+                    pulldown_cmark::Tag::TableCell => unreachable!(),
+                    pulldown_cmark::Tag::Emphasis => unreachable!(),
+                    pulldown_cmark::Tag::Strong => unreachable!(),
+                    pulldown_cmark::Tag::Strikethrough => unreachable!(),
+                    pulldown_cmark::Tag::Image(_, _, _) => unreachable!(),
+                }
+            },
+            Event::Text(t) => {
                 if self.first {
                     self.first = false;
                 } else {
                     self.line.write_newline(state, out);
                 }
-                StackRes::Push(StackBlock::new(state, out, StackBlockArgs{
-                    line: self.line.indent(Some(format!("{}. ", use_count)), "   ".into(), false),
-                    start_bound: None,
-                    end_bound: None,
-                }))
+                let line = self.indent(use_count);
+                line.write_breakable(state, out, &t);
+                line.flush(state, out);
+                StackRes::Keep
+            },
+            Event::Code(x) => {
+                if self.first {
+                    self.first = false;
+                } else {
+                    self.line.write_newline(state, out);
+                }
+                let line = self.indent(use_count);
+                line.write_unbreakable(state, out, &format!("`{}`", x));
+                line.flush(state, out);
+                StackRes::Keep
             },
             Event::End(_) => StackRes::Pop,
             _ => unreachable!(),
@@ -810,23 +874,78 @@ struct StackBulletList {
     first: bool,
 }
 
+impl StackBulletList {
+    fn indent(&mut self) -> LineState {
+        bullet_indent(&self.line)
+    }
+}
+
+fn bullet_indent(line: &LineState) -> LineState {
+    line.indent(Some("* ".into()), "   ".into(), false)
+}
+
+fn push_bullet_item(state: &mut State, out: &mut String, line: &LineState) -> StackRes {
+    StackRes::Push(StackBlock::new(state, out, StackBlockArgs{
+        line: bullet_indent(line),
+        start_bound: None,
+        end_bound: None,
+    }))
+}
+
 impl StackEl for StackBulletList {
     fn handle(&mut self, state: &mut State, out: &mut String, e: Event) -> StackRes {
         match e {
-            Event::Start(pulldown_cmark::Tag::Item) => {
+            Event::Start(e) => match e {
+                pulldown_cmark::Tag::Item => {
+                    if self.first {
+                        self.first = false;
+                    } else {
+                        self.line.write_newline(state, out);
+                    }
+                    push_bullet_item(state, out, &self.line)
+                },
+                pulldown_cmark::Tag::Link(_, url, title) => {
+                    push_link(state, out, self.indent(), true, &url, &title)
+                },
+                pulldown_cmark::Tag::Paragraph => unreachable!(),
+                pulldown_cmark::Tag::Heading(_, _, _) => unreachable!(),
+                pulldown_cmark::Tag::BlockQuote => unreachable!(),
+                pulldown_cmark::Tag::CodeBlock(_) => unreachable!(),
+                pulldown_cmark::Tag::List(_) => unreachable!(),
+                pulldown_cmark::Tag::FootnoteDefinition(_) => unreachable!(),
+                pulldown_cmark::Tag::Table(_) => unreachable!(),
+                pulldown_cmark::Tag::TableHead => unreachable!(),
+                pulldown_cmark::Tag::TableRow => unreachable!(),
+                pulldown_cmark::Tag::TableCell => unreachable!(),
+                pulldown_cmark::Tag::Emphasis => unreachable!(),
+                pulldown_cmark::Tag::Strong => unreachable!(),
+                pulldown_cmark::Tag::Strikethrough => unreachable!(),
+                pulldown_cmark::Tag::Image(_, _, _) => unreachable!(),
+            },
+            Event::End(_) => StackRes::Pop,
+            Event::Text(t) => {
                 if self.first {
                     self.first = false;
                 } else {
                     self.line.write_newline(state, out);
                 }
-                StackRes::Push(StackBlock::new(state, out, StackBlockArgs{
-                    line: self.line.indent(Some("* ".into()), "   ".into(), false),
-                    start_bound: None,
-                    end_bound: None,
-                }))
+                let line = self.indent();
+                line.write_breakable(state, out, &t);
+                line.flush(state, out);
+                StackRes::Keep
             },
-            Event::End(_) => StackRes::Pop,
-            _ => unreachable!(),
+            Event::Code(x) => {
+                if self.first {
+                    self.first = false;
+                } else {
+                    self.line.write_newline(state, out);
+                }
+                let line = self.indent();
+                line.write_unbreakable(state, out, &format!("`{}`", x));
+                line.flush(state, out);
+                StackRes::Keep
+            },
+            x => unreachable!("non-item in list: {:?}", x),
         }
     }
 }
@@ -841,7 +960,7 @@ impl StackEl for StackCodeBlock {
             Event::Text(t) => {
                 for l in t.lines() {
                     self.line.write_unbreakable(state, out, l);
-                    self.line.flush(state, out);
+                    self.line.flush_always(state, out);
                 }
                 StackRes::Keep
             },
@@ -883,7 +1002,7 @@ pub(crate) fn format_md(
     });
     state.stack.push(start_state);
     for e in pulldown_cmark::Parser::new(source) {
-        let mut top = state.stack.pop().unwrap();
+        let mut top = state.stack.pop().expect("markdown parsing blew up on comments");
         match top.handle(&mut state, out, e) {
             StackRes::Push(e) => {
                 state.stack.push(top);

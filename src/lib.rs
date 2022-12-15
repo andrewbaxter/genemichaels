@@ -312,19 +312,6 @@ impl SplitGroupBuilder {
         })));
     }
 
-    pub(crate) fn seg_unsplit_if(&mut self, out: &mut MakeSegsState, always: bool, text: impl ToString) {
-        self.add(out, Rc::new(RefCell::new(Segment{
-            node: self.node.clone(),
-            line: None,
-            mode: if always {
-                SegmentMode::All
-            } else {
-                SegmentMode::Unsplit
-            },
-            content: SegmentContent::Text(text.to_string()),
-        })));
-    }
-
     pub(crate) fn split_if(&mut self, out: &mut MakeSegsState, alignment: Alignment, always: bool, activate: bool) {
         self.add(out, Rc::new(RefCell::new(Segment{
             node: self.node.clone(),

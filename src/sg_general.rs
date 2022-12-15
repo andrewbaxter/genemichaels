@@ -129,7 +129,9 @@ pub(crate) fn append_statement_list_raw(
             sg.split_if(out, base_indent.clone(), out.split_attributes, false);
         }
         append_attr(out, base_indent, sg, true, attr);
-        sg.seg_unsplit_if(out, !out.split_attributes, " ");
+        if !out.split_attributes {
+            sg.seg_unsplit(out, " ");
+        }
         previous_margin_group = MarginGroup::Attr;
         i += 1;
     }
@@ -312,7 +314,9 @@ pub(crate) fn new_sg_outer_attrs(
             },
         };
         append_attr(out, base_indent, &mut sg, false, attr);
-        sg.seg_unsplit_if(out, !out.split_attributes, " ");
+        if !out.split_attributes {
+            sg.seg_unsplit(out, " ");
+        }
         sg.split_if(out, base_indent.clone(), out.split_attributes, false);
     }
     sg.child(child.make_segs(out, base_indent));
