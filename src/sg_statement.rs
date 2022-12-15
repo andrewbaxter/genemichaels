@@ -15,7 +15,7 @@ use crate::{
         new_sg_comma_bracketed_list_ext,
         new_sg_macro,
     },
-    sg_type::{append_path, build_path, build_generics_part_b, build_generics_part_a, build_generics},
+    sg_type::{append_path, build_path, build_generics_part_b, build_generics_part_a, append_generics},
     Alignment,
     Formattable,
     FormattableStmt,
@@ -24,6 +24,7 @@ use crate::{
     SplitGroup,
     SplitGroupBuilder,
     TrivialLineColMath,
+    check_split_brace_threshold,
 };
 use quote::ToTokens;
 use std::{cell::RefCell, rc::Rc};
@@ -56,20 +57,20 @@ fn append_vis(out: &mut MakeSegsState, base_indent: &Alignment, node: &mut Split
         syn::Visibility::Restricted(r) => {
             append_comments(out, base_indent, node, r.pub_token.span.start());
             node.seg(out, "pub(");
-            if r.in_token.is_some() { node.seg(out, "in "); }
-            node.child(
-                {
-                    let mut node = new_sg();
-                    append_path(
-                        out,
-                        &mut node,
-                        base_indent,
-                        r.path.leading_colon.map(|t| Some(t.spans[0].start())),
-                        r.path.segments.pairs(),
-                    );
-                    node.build()
-                },
-            );
+            if r.in_token.is_some() {
+                node.seg(out, "in ");
+            }
+            node.child({
+                let mut node = new_sg();
+                append_path(
+                    out,
+                    &mut node,
+                    base_indent,
+                    r.path.leading_colon.map(|t| Some(t.spans[0].start())),
+                    r.path.segments.pairs(),
+                );
+                node.build()
+            });
             node.seg(out, ") ");
         },
         syn::Visibility::Inherited => { },
@@ -94,13 +95,17 @@ fn append_sig(out: &mut MakeSegsState, base_indent: &Alignment, sg: &mut SplitGr
         if let Some(abi) = &sig.abi {
             append_comments(out, base_indent, sg, abi.extern_token.span.start());
             prefix.push_str("extern ");
-            if let Some(name) = &abi.name { prefix.push_str(&name.to_token_stream().to_string()); }
+            if let Some(name) = &abi.name {
+                prefix.push_str(&name.to_token_stream().to_string());
+            }
         }
         append_comments(out, base_indent, sg, sig.fn_token.span.start());
         prefix.push_str("fn ");
         prefix.push_str(&sig.ident.to_string());
         sg.seg(out, &prefix);
-        if !sig.generics.params.is_empty() { sg.child(build_generics_part_a(out, base_indent, &sig.generics)); }
+        if !sig.generics.params.is_empty() {
+            sg.child(build_generics_part_a(out, base_indent, &sig.generics));
+        }
         if let Some(v) = &sig.variadic {
             sg.child(
                 new_sg_comma_bracketed_list_ext(
@@ -130,10 +135,13 @@ fn append_sig(out: &mut MakeSegsState, base_indent: &Alignment, sg: &mut SplitGr
                 ),
             );
         }
-        match &sig.output { ReturnType::Default => { }, ReturnType::Type(_, t) => {
-            sg.seg(out, " -> ");
-            sg.child(t.make_segs(out, base_indent));
-        } }
+        match &sig.output {
+            ReturnType::Default => { },
+            ReturnType::Type(_, t) => {
+                sg.seg(out, " -> ");
+                sg.child(t.make_segs(out, base_indent));
+            },
+        }
     }
 
     if let Some(wh) = &sig.generics.where_clause {
@@ -142,7 +150,9 @@ fn append_sig(out: &mut MakeSegsState, base_indent: &Alignment, sg: &mut SplitGr
             build_base(out, base_indent, &mut sg, sig);
             sg.build()
         }, wh))
-    } else { build_base(out, base_indent, sg, sig) }
+    } else {
+        build_base(out, base_indent, sg, sig)
+    }
 }
 
 impl FormattableStmt for Stmt {
@@ -164,7 +174,9 @@ impl Formattable for Stmt {
                 append_comments(out, base_indent, &mut sg, l.let_token.span.start());
                 sg.seg(out, "let ");
                 sg.child(l.pat.make_segs(out, base_indent));
-                if let Some(init) = &l.init { append_binary(out, base_indent, &mut sg, " =", init.1.as_ref()); }
+                if let Some(init) = &l.init {
+                    append_binary(out, base_indent, &mut sg, " =", init.1.as_ref());
+                }
                 sg.seg(out, ";");
                 sg.build()
             },
@@ -180,7 +192,11 @@ impl Formattable for Stmt {
     }
 }
 
-impl FormattableStmt for ForeignItem { fn want_margin(&self) -> (MarginGroup, bool) { (MarginGroup::None, false) } }
+impl FormattableStmt for ForeignItem {
+    fn want_margin(&self) -> (MarginGroup, bool) {
+        (MarginGroup::None, false)
+    }
+}
 
 impl Formattable for ForeignItem {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
@@ -328,7 +344,7 @@ impl Formattable for ImplItem {
                     prefix.push_str("type ");
                     prefix.push_str(&x.ident.to_string());
                     sg.seg(out, &prefix);
-                    sg.child(build_generics(out, base_indent, &x.generics));
+                    append_generics(out, base_indent, &mut sg, &x.generics);
                     append_binary(out, base_indent, &mut sg, " =", &x.ty);
                     sg.seg(out, ";");
                     sg.build()
@@ -370,29 +386,25 @@ impl Formattable for TraitItem {
                 &x.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut node = new_sg();
-                    node.child(
-                        {
-                            let build_base = |out: &mut MakeSegsState, base_indent: &Alignment| {
-                                let mut sg = new_sg();
-                                append_comments(out, base_indent, &mut sg, x.const_token.span.start());
-                                let mut prefix = String::new();
-                                prefix.push_str("const ");
-                                prefix.push_str(&x.ident.to_string());
-                                sg.seg(out, &prefix);
-                                append_binary(out, base_indent, &mut sg, ":", &x.ty);
-                                sg.build()
-                            };
-                            if let Some(d) = &x.default {
-                                new_sg_binary(
-                                    out,
-                                    base_indent,
-                                    |out: &mut MakeSegsState, base_indent: &Alignment| { build_base(out, base_indent) },
-                                    " =",
-                                    &d.1,
-                                )
-                            } else { build_base(out, base_indent) }
-                        },
-                    );
+                    node.child({
+                        let build_base = |out: &mut MakeSegsState, base_indent: &Alignment| {
+                            let mut sg = new_sg();
+                            append_comments(out, base_indent, &mut sg, x.const_token.span.start());
+                            let mut prefix = String::new();
+                            prefix.push_str("const ");
+                            prefix.push_str(&x.ident.to_string());
+                            sg.seg(out, &prefix);
+                            append_binary(out, base_indent, &mut sg, ":", &x.ty);
+                            sg.build()
+                        };
+                        if let Some(d) = &x.default {
+                            new_sg_binary(out, base_indent, |out: &mut MakeSegsState, base_indent: &Alignment| {
+                                build_base(out, base_indent)
+                            }, " =", &d.1)
+                        } else {
+                            build_base(out, base_indent)
+                        }
+                    });
                     node.seg(out, ";");
                     node.build()
                 },
@@ -429,45 +441,42 @@ impl Formattable for TraitItem {
                 base_indent,
                 &x.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let build_base =
-                        |out: &mut MakeSegsState, base_indent: &Alignment| {
-                            let mut sg = new_sg();
-                            append_comments(out, base_indent, &mut sg, x.type_token.span.start());
-                            let mut prefix = String::new();
-                            prefix.push_str("type ");
-                            prefix.push_str(&x.ident.to_string());
-                            sg.seg(out, &prefix);
-                            if !x.generics.params.is_empty() { sg.child(build_generics(out, base_indent, &x.generics)); }
-                            append_binary(
+                    let build_base = |out: &mut MakeSegsState, base_indent: &Alignment| {
+                        let mut sg = new_sg();
+                        append_comments(out, base_indent, &mut sg, x.type_token.span.start());
+                        let mut prefix = String::new();
+                        prefix.push_str("type ");
+                        prefix.push_str(&x.ident.to_string());
+                        sg.seg(out, &prefix);
+                        append_generics(out, base_indent, &mut sg, &x.generics);
+                        append_binary(
+                            out,
+                            base_indent,
+                            &mut sg,
+                            ":",
+                            |out: &mut MakeSegsState, base_indent: &Alignment| {
+                                let mut node = new_sg();
+                                append_inline_list(out, base_indent, &mut node, " +", false, &x.bounds);
+                                node.build()
+                            },
+                        );
+                        sg.build()
+                    };
+                    let mut node = new_sg();
+                    node.child({
+                        match &x.default {
+                            Some(d) => new_sg_binary(
                                 out,
                                 base_indent,
-                                &mut sg,
-                                ":",
                                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                                    let mut node = new_sg();
-                                    append_inline_list(out, base_indent, &mut node, " +", false, &x.bounds);
-                                    node.build()
+                                    build_base(out, base_indent)
                                 },
-                            );
-                            sg.build()
-                        };
-                    let mut node = new_sg();
-                    node.child(
-                        {
-                            match &x.default {
-                                Some(d) => new_sg_binary(
-                                    out,
-                                    base_indent,
-                                    |out: &mut MakeSegsState, base_indent: &Alignment| {
-                                        build_base(out, base_indent)
-                                    },
-                                    " =",
-                                    &d.1,
-                                ),
-                                None => build_base(out, base_indent),
-                            }
-                        },
-                    );
+                                " =",
+                                &d.1,
+                            ),
+                            None => build_base(out, base_indent),
+                        }
+                    });
                     node.seg(out, ";");
                     node.build()
                 },
@@ -497,16 +506,16 @@ impl FormattableStmt for Item {
             Item::Impl(_) => (MarginGroup::BlockDef, true),
             Item::Macro(_) => (MarginGroup::BlockDef, true),
             Item::Macro2(_) => (MarginGroup::BlockDef, true),
-            Item::Mod(m) => (MarginGroup::BlockDef, match &m.content { Some(_) => true, None => false }),
+            Item::Mod(m) => (MarginGroup::BlockDef, match &m.content {
+                Some(_) => true,
+                None => false,
+            }),
             Item::Static(_) => (MarginGroup::None, false),
-            Item::Struct(s) => (
-                MarginGroup::BlockDef,
-                match &s.fields {
-                    syn::Fields::Named(_) => true,
-                    syn::Fields::Unnamed(_) => true,
-                    syn::Fields::Unit => false,
-                },
-            ),
+            Item::Struct(s) => (MarginGroup::BlockDef, match &s.fields {
+                syn::Fields::Named(_) => true,
+                syn::Fields::Unnamed(_) => true,
+                syn::Fields::Unit => false,
+            }),
             Item::Trait(_) => (MarginGroup::BlockDef, true),
             Item::TraitAlias(_) => (MarginGroup::None, false),
             Item::Type(_) => (MarginGroup::None, false),
@@ -544,11 +553,14 @@ impl Formattable for Item {
                 &x.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg();
+                    if check_split_brace_threshold(out, x.variants.len()) {
+                        sg.initial_split();
+                    }
                     append_vis(out, base_indent, &mut sg, &x.vis);
                     append_comments(out, base_indent, &mut sg, x.enum_token.span.start());
                     sg.seg(out, "enum ");
                     sg.seg(out, &x.ident.to_string());
-                    if !x.generics.params.is_empty() { sg.child(build_generics(out, base_indent, &x.generics)); }
+                    append_generics(out, base_indent, &mut sg, &x.generics);
                     append_comma_bracketed_list(
                         out,
                         base_indent,
@@ -609,10 +621,11 @@ impl Formattable for Item {
                     let mut sg = new_sg();
 
                     // extern token missing?
-                    let mut prefix =
-                        String::new();
+                    let mut prefix = String::new();
                     prefix.push_str("extern ");
-                    if let Some(name) = &x.abi.name { prefix.push_str(&name.to_token_stream().to_string()); }
+                    if let Some(name) = &x.abi.name {
+                        prefix.push_str(&name.to_token_stream().to_string());
+                    }
                     sg.seg(out, &prefix);
                     append_bracketed_statement_list(
                         out,
@@ -652,7 +665,9 @@ impl Formattable for Item {
                         }
                         sg.seg(out, " ");
                         if let Some((bang, base, _)) = &x.trait_ {
-                            if bang.is_some() { sg.seg(out, "!"); }
+                            if bang.is_some() {
+                                sg.seg(out, "!");
+                            }
                             sg.child(build_path(out, base_indent, &base));
                             sg.seg(out, " for ");
                         }
@@ -670,7 +685,9 @@ impl Formattable for Item {
                                 wh,
                             ),
                         );
-                    } else { sg.child(build_base(out, base_indent, x)); }
+                    } else {
+                        sg.child(build_base(out, base_indent, x));
+                    }
                     append_bracketed_statement_list(
                         out,
                         base_indent,
@@ -691,26 +708,32 @@ impl Formattable for Item {
                     let mut sg = new_sg();
                     sg.child(build_path(out, base_indent, &x.mac.path));
                     sg.seg(out, "!");
-                    if let Some(n) = &x.ident { sg.seg(out, &format!(" {}", n)); }
+                    if let Some(n) = &x.ident {
+                        sg.seg(out, &format!(" {}", n));
+                    }
                     let indent = base_indent.indent();
-                    match &x.mac.delimiter { syn::MacroDelimiter::Paren(_) => {
-                        sg.seg(out, "(");
-                        append_macro_body(out, &indent, &mut sg, x.mac.tokens.to_token_stream());
-                        sg.split(out, base_indent.clone(), false);
-                        sg.seg(out, ")");
-                    }, syn::MacroDelimiter::Brace(_) => {
-                        sg.seg(out, "{");
-                        append_macro_body(out, &indent, &mut sg, x.mac.tokens.to_token_stream());
-                        sg.split(out, base_indent.clone(), false);
-                        sg.seg(out, "}");
-                    }, syn::MacroDelimiter::Bracket(_) => {
-                        sg.seg(out, "[");
-                        append_macro_body(out, &indent, &mut sg, x.mac.tokens.to_token_stream());
-                        sg.split(out, base_indent.clone(), false);
-                        sg.seg(out, "]");
-                    } }
+                    match &x.mac.delimiter {
+                        syn::MacroDelimiter::Paren(_) => {
+                            sg.seg(out, "(");
+                            append_macro_body(out, &indent, &mut sg, x.mac.tokens.to_token_stream());
+                            sg.split(out, base_indent.clone(), false);
+                            sg.seg(out, ")");
+                        },
+                        syn::MacroDelimiter::Brace(_) => {
+                            sg.seg(out, "{");
+                            append_macro_body(out, &indent, &mut sg, x.mac.tokens.to_token_stream());
+                            sg.split(out, base_indent.clone(), false);
+                            sg.seg(out, "}");
+                        },
+                        syn::MacroDelimiter::Bracket(_) => {
+                            sg.seg(out, "[");
+                            append_macro_body(out, &indent, &mut sg, x.mac.tokens.to_token_stream());
+                            sg.split(out, base_indent.clone(), false);
+                            sg.seg(out, "]");
+                        },
+                    }
                     if x.semi_token.is_some() {
-                    sg.seg(out, ";");
+                        sg.seg(out, ";");
                     }
                     sg.build()
                 },
@@ -749,7 +772,9 @@ impl Formattable for Item {
                             &content.1,
                             content.0.span.end().prev(),
                         );
-                    } else { sg.seg(out, ";"); }
+                    } else {
+                        sg.seg(out, ";");
+                    }
                     sg.build()
                 },
             ),
@@ -780,9 +805,12 @@ impl Formattable for Item {
                     append_comments(out, base_indent, &mut sg, x.struct_token.span.start());
                     sg.seg(out, "struct ");
                     sg.seg(out, &x.ident.to_string());
-                    if !x.generics.params.is_empty() { sg.child(build_generics(out, base_indent, &x.generics)); }
+                    append_generics(out, base_indent, &mut sg, &x.generics);
                     match &x.fields {
                         syn::Fields::Named(s) => {
+                            if check_split_brace_threshold(out, s.named.len()) {
+                                sg.initial_split();
+                            }
                             append_comma_bracketed_list(
                                 out,
                                 base_indent,
@@ -805,7 +833,9 @@ impl Formattable for Item {
                             );
                             sg.seg(out, ";");
                         },
-                        syn::Fields::Unit => { sg.seg(out, ";"); },
+                        syn::Fields::Unit => {
+                            sg.seg(out, ";");
+                        },
                     }
                     sg.build()
                 },
@@ -830,7 +860,7 @@ impl Formattable for Item {
                     prefix.push_str("trait ");
                     prefix.push_str(&x.ident.to_string());
                     sg.seg(out, &prefix);
-                    if !x.generics.params.is_empty() { sg.child(build_generics(out, base_indent, &x.generics)); }
+                    append_generics(out, base_indent, &mut sg, &x.generics);
                     if x.colon_token.is_some() {
                         sg.seg(out, ": ");
                         append_inline_list(out, base_indent, &mut sg, " +", false, &x.supertraits);
@@ -860,7 +890,7 @@ impl Formattable for Item {
                     prefix.push_str("trait ");
                     prefix.push_str(&x.ident.to_string());
                     sg.seg(out, &prefix);
-                    if !x.generics.params.is_empty() { sg.child(build_generics(out, base_indent, &x.generics)); }
+                    append_generics(out, base_indent, &mut sg, &x.generics);
                     append_binary(out, base_indent, &mut sg, " =", |out: &mut MakeSegsState, base_indent: &Alignment| {
                         let mut node = new_sg();
                         append_inline_list(out, base_indent, &mut node, " +", false, &x.bounds);
@@ -882,7 +912,7 @@ impl Formattable for Item {
                     prefix.push_str("type ");
                     prefix.push_str(&x.ident.to_string());
                     sg.seg(out, &prefix);
-                    if !x.generics.params.is_empty() { sg.child(build_generics(out, base_indent, &x.generics)); }
+                    append_generics(out, base_indent, &mut sg, &x.generics);
                     append_binary(out, base_indent, &mut sg, " =", x.ty.as_ref());
                     sg.seg(out, ";");
                     sg.build()
@@ -894,11 +924,14 @@ impl Formattable for Item {
                 &x.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg();
+                    if check_split_brace_threshold(out, x.fields.named.len()) {
+                        sg.initial_split();
+                    }
                     append_vis(out, base_indent, &mut sg, &x.vis);
                     append_comments(out, base_indent, &mut sg, x.union_token.span.start());
                     sg.seg(out, "union ");
                     sg.seg(out, &x.ident.to_string());
-                    if !x.generics.params.is_empty() { sg.child(build_generics(out, base_indent, &x.generics)); }
+                    append_generics(out, base_indent, &mut sg, &x.generics);
                     append_comma_bracketed_list(
                         out,
                         base_indent,
@@ -920,7 +953,9 @@ impl Formattable for Item {
                     append_vis(out, base_indent, &mut sg, &x.vis);
                     append_comments(out, base_indent, &mut sg, x.use_token.span.start());
                     sg.seg(out, "use ");
-                    if x.leading_colon.is_some() { sg.seg(out, "::"); }
+                    if x.leading_colon.is_some() {
+                        sg.seg(out, "::");
+                    }
                     sg.child(x.tree.make_segs(out, base_indent));
                     sg.seg(out, ";");
                     sg.build()
@@ -938,43 +973,43 @@ impl Formattable for Item {
 
 impl Formattable for Variant {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
-        new_sg_outer_attrs(
-            out,
-            base_indent,
-            &self.attrs,
-            |out: &mut MakeSegsState, base_indent: &Alignment| {
-                let mut sg = new_sg();
-                append_comments(out, base_indent, &mut sg, self.ident.span().start());
-                sg.seg(out, &self.ident);
-                match &self.fields {
-                    syn::Fields::Named(s) => {
-                        append_comma_bracketed_list(
-                            out,
-                            base_indent,
-                            &mut sg,
-                            " {",
-                            &s.named,
-                            s.brace_token.span.end().prev(),
-                            "}",
-                        );
-                    },
-                    syn::Fields::Unnamed(t) => {
-                        append_comma_bracketed_list(
-                            out,
-                            base_indent,
-                            &mut sg,
-                            "(",
-                            &t.unnamed,
-                            t.paren_token.span.end().prev(),
-                            ")",
-                        );
-                    },
-                    syn::Fields::Unit => { },
-                }
-                if let Some(e) = &self.discriminant { append_binary(out, base_indent, &mut sg, " = ", &e.1); }
-                sg.build()
-            },
-        )
+        new_sg_outer_attrs(out, base_indent, &self.attrs, |out: &mut MakeSegsState, base_indent: &Alignment| {
+            let mut sg = new_sg();
+            append_comments(out, base_indent, &mut sg, self.ident.span().start());
+            sg.seg(out, &self.ident);
+            match &self.fields {
+                syn::Fields::Named(s) => {
+                    if check_split_brace_threshold(out, s.named.len()) {
+                        sg.initial_split();
+                    }
+                    append_comma_bracketed_list(
+                        out,
+                        base_indent,
+                        &mut sg,
+                        " {",
+                        &s.named,
+                        s.brace_token.span.end().prev(),
+                        "}",
+                    );
+                },
+                syn::Fields::Unnamed(t) => {
+                    append_comma_bracketed_list(
+                        out,
+                        base_indent,
+                        &mut sg,
+                        "(",
+                        &t.unnamed,
+                        t.paren_token.span.end().prev(),
+                        ")",
+                    );
+                },
+                syn::Fields::Unit => { },
+            }
+            if let Some(e) = &self.discriminant {
+                append_binary(out, base_indent, &mut sg, " =", &e.1);
+            }
+            sg.build()
+        })
     }
 }
 
@@ -1011,8 +1046,13 @@ impl Formattable for &UseTree {
                 append_comments(out, base_indent, &mut sg, x.rename.span().start());
                 sg.seg(out, format!("{} as {}", x.ident, x.rename));
             },
-            syn::UseTree::Glob(_) => { sg.seg(out, "*"); },
+            syn::UseTree::Glob(_) => {
+                sg.seg(out, "*");
+            },
             syn::UseTree::Group(x) => {
+                if check_split_brace_threshold(out, x.items.len()) {
+                    sg.initial_split();
+                }
                 append_comma_bracketed_list(
                     out,
                     base_indent,

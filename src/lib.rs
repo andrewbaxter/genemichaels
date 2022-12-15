@@ -22,11 +22,13 @@ pub(crate) trait TrivialLineColMath {
     fn prev(&self) -> LineColumn;
 }
 
-impl TrivialLineColMath for LineColumn { fn prev(&self) -> LineColumn {
-    let mut out = self.clone();
-    out.column -= 1;
-    out
-} }
+impl TrivialLineColMath for LineColumn {
+    fn prev(&self) -> LineColumn {
+        let mut out = self.clone();
+        out.column -= 1;
+        out
+    }
+}
 
 #[derive(PartialEq, Clone, Copy, Debug)] pub enum CommentMode {Normal, DocInner, DocOuter}
 
@@ -69,6 +71,12 @@ pub(crate) struct Lines {pub(crate) lines: Vec<Rc<RefCell<Line>>>}
 pub struct MakeSegsState {
     pub(crate) line: Vec<Rc<RefCell<Segment>>>,
     pub(crate) comments: HashMap<HashLineColumn, Vec<Comment>>,
+    pub(crate) split_brace_threshold: Option<usize>,
+    split_attributes: bool,
+}
+
+pub(crate) fn check_split_brace_threshold(out: &MakeSegsState, count: usize) -> bool {
+    return out.split_brace_threshold.map(|t| count >= t).unwrap_or(false)
 }
 
 pub(crate) fn line_length(line: &RefCell<Line>) -> usize {
@@ -77,7 +85,9 @@ pub(crate) fn line_length(line: &RefCell<Line>) -> usize {
         match &seg.as_ref().borrow().content {
             SegmentContent::Text(t) => out += t.len(),
             SegmentContent::Break(b, _) => {
-                if seg.as_ref().borrow().node.as_ref().borrow().split { out += b.get(); }
+                if seg.as_ref().borrow().node.as_ref().borrow().split {
+                    out += b.get();
+                }
             },
             SegmentContent::Comment(_) => { },
         };
@@ -90,24 +100,40 @@ pub(crate) fn split_group(node: &RefCell<SplitGroup>) {
     for seg in &node.borrow().segments {
         let res = {
             let seg = seg.as_ref().borrow();
-            match (&seg.mode, &seg.content) { (SegmentMode::Split, SegmentContent::Break(_, _)) => {
-                let line = seg.borrow().line.as_ref().unwrap();
-                Some((line.line.clone(), line.seg_index))
-            }, _ => None }
+            match (&seg.mode, &seg.content) {
+                (SegmentMode::Split, SegmentContent::Break(_, _)) => {
+                    let line = seg.borrow().line.as_ref().unwrap();
+                    Some((line.line.clone(), line.seg_index))
+                },
+                _ => None,
+            }
         };
-        match res { Some((line, index)) => { split_line_at(&line, index, None); }, None => { } };
+        match res {
+            Some((line, index)) => {
+                split_line_at(&line, index, None);
+            },
+            None => { },
+        };
     }
 }
 
 pub(crate) fn split_line_at(line: &RefCell<Line>, at: usize, inject_start: Option<Rc<RefCell<Segment>>>) {
     let mut new_segs = vec![];
-    if let Some(s) = inject_start { new_segs.push(s); }
+    if let Some(s) = inject_start {
+        new_segs.push(s);
+    }
     new_segs.extend(line.borrow_mut().segs.split_off(at));
     {
         let s = new_segs.get(0).unwrap();
         match &s.as_ref().borrow().content {
-            SegmentContent::Break(a, activate) => { if *activate { a.activate(); } },
-            SegmentContent::Comment((a, _)) => { a.activate(); },
+            SegmentContent::Break(a, activate) => {
+                if *activate {
+                    a.activate();
+                }
+            },
+            SegmentContent::Comment((a, _)) => {
+                a.activate();
+            },
             _ => { },
         };
     }
@@ -115,16 +141,30 @@ pub(crate) fn split_line_at(line: &RefCell<Line>, at: usize, inject_start: Optio
 }
 
 pub(crate) fn insert_line(lines: Rc<RefCell<Lines>>, at: usize, segs: Vec<Rc<RefCell<Segment>>>) {
-    let new_line = Rc::new(RefCell::new(Line {lines: lines.clone(), index: at, segs: segs}));
+    let new_line = Rc::new(RefCell::new(Line{
+        lines: lines.clone(),
+        index: at,
+        segs: segs,
+    }));
     lines.borrow_mut().lines.insert(at, new_line.clone());
     for (i, seg) in new_line.as_ref().borrow().segs.iter().enumerate() {
         let mut seg = seg.as_ref().borrow_mut();
-        match seg.line.as_mut() { Some(l) => {
-            l.seg_index = i;
-            l.line = new_line.clone();
-        }, None => { seg.line = Some(SegmentLine {line: new_line.clone(), seg_index: i}); } };
+        match seg.line.as_mut() {
+            Some(l) => {
+                l.seg_index = i;
+                l.line = new_line.clone();
+            },
+            None => {
+                seg.line = Some(SegmentLine{
+                    line: new_line.clone(),
+                    seg_index: i,
+                });
+            },
+        };
     }
-    for (i, line) in lines.as_ref().borrow().lines.iter().enumerate().skip(at + 1) { line.borrow_mut().index = i; }
+    for (i, line) in lines.as_ref().borrow().lines.iter().enumerate().skip(at + 1) {
+        line.borrow_mut().index = i;
+    }
     for (i, line) in lines.as_ref().borrow().lines.iter().enumerate() {
         assert_eq!(line.as_ref().borrow().index, i, "line index wrong; after insert at line {}", at);
         for (j, seg) in line.as_ref().borrow().segs.iter().enumerate() {
@@ -144,12 +184,17 @@ pub(crate) struct Alignment_ {pub(crate) parent: Option<Alignment>, pub(crate) a
 #[derive(Clone)] pub struct Alignment(Rc<RefCell<Alignment_>>);
 
 impl std::fmt::Debug for Alignment {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { "(align)".fmt(f) }
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        "(align)".fmt(f)
+    }
 }
 
 impl Alignment {
     pub(crate) fn indent(&self) -> Alignment {
-        Alignment(Rc::new(RefCell::new(Alignment_ {parent: Some(self.clone()), active: false})))
+        Alignment(Rc::new(RefCell::new(Alignment_{
+            parent: Some(self.clone()),
+            active: false,
+        })))
     }
 
     pub(crate) fn activate(&self) -> usize {
@@ -158,8 +203,17 @@ impl Alignment {
     }
 
     pub(crate) fn get(&self) -> usize {
-        let parent = match &self.0.as_ref().borrow().parent { Some(p) => p.get(), None => { return 0usize; } };
-        if self.0.as_ref().borrow().active { 4usize + parent } else { parent }
+        let parent = match &self.0.as_ref().borrow().parent {
+            Some(p) => p.get(),
+            None => {
+                return 0usize;
+            },
+        };
+        if self.0.as_ref().borrow().active {
+            4usize + parent
+        } else {
+            parent
+        }
     }
 }
 
@@ -175,9 +229,13 @@ impl SplitGroupBuilder {
         out_segs.line.push(seg);
     }
 
-    pub(crate) fn initial_split(&mut self) { self.node.as_ref().borrow_mut().split = true; }
+    pub(crate) fn initial_split(&mut self) {
+        self.node.as_ref().borrow_mut().split = true;
+    }
 
-    pub(crate) fn child(&mut self, child: Rc<RefCell<SplitGroup>>) { self.children.push(child); }
+    pub(crate) fn child(&mut self, child: Rc<RefCell<SplitGroup>>) {
+        self.children.push(child);
+    }
 
     pub(crate) fn build(self) -> Rc<RefCell<SplitGroup>> {
         let mut n1 = self.node.borrow_mut();
@@ -188,89 +246,71 @@ impl SplitGroupBuilder {
     }
 
     pub(crate) fn seg(&mut self, out: &mut MakeSegsState, text: impl ToString) {
-        self.add(
-            out,
-            Rc::new(
-                RefCell::new(
-                    Segment {
-                        node: self.node.clone(),
-                        line: None,
-                        mode: SegmentMode::All,
-                        content: SegmentContent::Text(text.to_string()),
-                    },
-                ),
-            ),
-        );
+        self.add(out, Rc::new(RefCell::new(Segment{
+            node: self.node.clone(),
+            line: None,
+            mode: SegmentMode::All,
+            content: SegmentContent::Text(text.to_string()),
+        })));
     }
 
     pub(crate) fn seg_split(&mut self, out: &mut MakeSegsState, text: impl ToString) {
-        self.add(
-            out,
-            Rc::new(
-                RefCell::new(
-                    Segment {
-                        node: self.node.clone(),
-                        line: None,
-                        mode: SegmentMode::Split,
-                        content: SegmentContent::Text(text.to_string()),
-                    },
-                ),
-            ),
-        );
+        self.add(out, Rc::new(RefCell::new(Segment{
+            node: self.node.clone(),
+            line: None,
+            mode: SegmentMode::Split,
+            content: SegmentContent::Text(text.to_string()),
+        })));
     }
 
     pub(crate) fn seg_unsplit(&mut self, out: &mut MakeSegsState, text: impl ToString) {
-        self.add(
-            out,
-            Rc::new(
-                RefCell::new(
-                    Segment {
-                        node: self.node.clone(),
-                        line: None,
-                        mode: SegmentMode::Unsplit,
-                        content: SegmentContent::Text(text.to_string()),
-                    },
-                ),
-            ),
-        );
+        self.add(out, Rc::new(RefCell::new(Segment{
+            node: self.node.clone(),
+            line: None,
+            mode: SegmentMode::Unsplit,
+            content: SegmentContent::Text(text.to_string()),
+        })));
+    }
+
+    pub(crate) fn split_if(&mut self, out: &mut MakeSegsState, alignment: Alignment, always: bool, activate: bool) {
+        self.add(out, Rc::new(RefCell::new(Segment{
+            node: self.node.clone(),
+            line: None,
+            mode: if always {
+                SegmentMode::All
+            } else {
+                SegmentMode::Split
+            },
+            content: SegmentContent::Break(alignment, activate),
+        })));
     }
 
     pub(crate) fn split(&mut self, out: &mut MakeSegsState, alignment: Alignment, activate: bool) {
-        self.add(
-            out,
-            Rc::new(
-                RefCell::new(
-                    Segment {
-                        node: self.node.clone(),
-                        line: None,
-                        mode: SegmentMode::Split,
-                        content: SegmentContent::Break(alignment, activate),
-                    },
-                ),
-            ),
-        );
+        self.add(out, Rc::new(RefCell::new(Segment{
+            node: self.node.clone(),
+            line: None,
+            mode: SegmentMode::Split,
+            content: SegmentContent::Break(alignment, activate),
+        })));
     }
 
     pub(crate) fn split_always(&mut self, out: &mut MakeSegsState, alignment: Alignment, activate: bool) {
-        self.add(
-            out,
-            Rc::new(
-                RefCell::new(
-                    Segment {
-                        node: self.node.clone(),
-                        line: None,
-                        mode: SegmentMode::All,
-                        content: SegmentContent::Break(alignment, activate),
-                    },
-                ),
-            ),
-        );
+        self.add(out, Rc::new(RefCell::new(Segment{
+            node: self.node.clone(),
+            line: None,
+            mode: SegmentMode::All,
+            content: SegmentContent::Break(alignment, activate),
+        })));
     }
 }
 
 pub(crate) fn new_sg() -> SplitGroupBuilder {
-    SplitGroupBuilder {
-        node: Rc::new(RefCell::new(SplitGroup {split: false, segments: vec![], children: vec![]})),
+    SplitGroupBuilder{
+        node: Rc::new(RefCell::new(SplitGroup{
+            split: false,
+            segments: vec![],
+            children: vec![],
+        })),
         segs: vec![],
         children: vec![],
     }
@@ -284,14 +324,18 @@ pub(crate) fn new_sg_lit(
     RefCell<SplitGroup>,
 > {
     let mut sg = new_sg();
-    if let Some(loc) = start { append_comments(out, loc.0, &mut sg, loc.1); }
+    if let Some(loc) = start {
+        append_comments(out, loc.0, &mut sg, loc.1);
+    }
     sg.seg(out, text.to_string());
     sg.build()
 }
 
 #[derive(PartialEq)] pub(crate) enum MarginGroup {Attr, BlockDef, Import, None}
 
-pub(crate) trait FormattableStmt: ToTokens + Formattable { fn want_margin(&self) -> (MarginGroup, bool); }
+pub(crate) trait FormattableStmt: ToTokens + Formattable {
+    fn want_margin(&self) -> (MarginGroup, bool);
+}
 
 pub trait Formattable {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>>;
@@ -317,10 +361,9 @@ impl Formattable for &Ident {
 
 pub struct FormatConfig {
     /// Try to wrap to this width
-    pub max_width: usize,
+    pub max_width: usize, 
     /// If a node is split, all parents of the node must also be split
-    pub root_splits: bool,
-}
+    pub root_splits: bool, pub split_brace_threshold: Option<usize>, pub split_attributes: bool}
 
 pub struct FormatRes {pub rendered: String, pub lost_comments: HashMap<HashLineColumn, Vec<Comment>>}
 
@@ -340,16 +383,32 @@ pub fn format_ast(
 > {
     
     // Build text
-    let mut out =
-        MakeSegsState {line: vec![], comments: comments};
-    let base_indent = Alignment(Rc::new(RefCell::new(Alignment_ {parent: None, active: false})));
+    let mut out = MakeSegsState{
+        line: vec![],
+        comments: comments,
+        split_brace_threshold: config.split_brace_threshold,
+        split_attributes: config.split_attributes,
+    };
+    let base_indent = Alignment(Rc::new(RefCell::new(Alignment_{
+        parent: None,
+        active: false,
+    })));
     let root = ast.make_segs(&mut out, &base_indent);
-    let lines = Rc::new(RefCell::new(Lines {lines: vec![]}));
-    let line = Rc::new(RefCell::new(Line {lines: lines.clone(), index: 0, segs: out.line}));
+    let lines = Rc::new(RefCell::new(Lines{
+        lines: vec![],
+    }));
+    let line = Rc::new(RefCell::new(Line{
+        lines: lines.clone(),
+        index: 0,
+        segs: out.line,
+    }));
     lines.borrow_mut().lines.push(line.clone());
     for line in &lines.as_ref().borrow().lines {
         for (j, seg) in line.as_ref().borrow().segs.iter().enumerate() {
-            seg.as_ref().borrow_mut().line = Some(SegmentLine {line: line.clone(), seg_index: j});
+            seg.as_ref().borrow_mut().line = Some(SegmentLine{
+                line: line.clone(),
+                seg_index: j,
+            });
         }
     }
     for (i, line) in lines.as_ref().borrow().lines.iter().enumerate() {
@@ -387,17 +446,14 @@ pub fn format_ast(
                         }
                         let seg = seg.as_ref().borrow();
                         let node = seg.node.as_ref().borrow();
-                        match (
-                            &seg.content,
-                            match (&seg.mode, node.split) {
-                                (SegmentMode::All, true) => true,
-                                (SegmentMode::All, false) => true,
-                                (SegmentMode::Unsplit, true) => false,
-                                (SegmentMode::Unsplit, false) => true,
-                                (SegmentMode::Split, true) => true,
-                                (SegmentMode::Split, false) => false,
-                            },
-                        ) {
+                        match (&seg.content, match (&seg.mode, node.split) {
+                            (SegmentMode::All, true) => true,
+                            (SegmentMode::All, false) => true,
+                            (SegmentMode::Unsplit, true) => false,
+                            (SegmentMode::Unsplit, false) => true,
+                            (SegmentMode::Split, true) => true,
+                            (SegmentMode::Split, false) => false,
+                        }) {
                             (SegmentContent::Break(_, _), true) => {
                                 res = Some((line.clone(), i, None));
                                 prev_comment = None;
@@ -410,25 +466,12 @@ pub fn format_ast(
                             },
                             (_, _) => {
                                 if let Some(a) = prev_comment.take() {
-                                    res =
-                                        Some(
-                                            (
-                                                line.clone(),
-                                                i,
-                                                Some(
-                                                    Rc::new(
-                                                        RefCell::new(
-                                                            Segment {
-                                                                node: synth_seg_node.clone(),
-                                                                line: None,
-                                                                mode: SegmentMode::All,
-                                                                content: SegmentContent::Break(a, true),
-                                                            },
-                                                        ),
-                                                    ),
-                                                ),
-                                            ),
-                                        );
+                                    res = Some((line.clone(), i, Some(Rc::new(RefCell::new(Segment{
+                                        node: synth_seg_node.clone(),
+                                        line: None,
+                                        mode: SegmentMode::All,
+                                        content: SegmentContent::Break(a, true),
+                                    })))));
                                     break 'segs;
                                 }
                             },
@@ -458,25 +501,30 @@ pub fn format_ast(
                 break;
             }
         }
-        if split { split_group(node); }
+        if split {
+            split_group(node);
+        }
         let mut split_from_child = false;
         for child in &node.borrow().children {
             let new_split_from_child = recurse(config, child.as_ref());
             split_from_child = split_from_child || new_split_from_child;
         }
-        if !split && split_from_child { split_group(node); }
+        if !split && split_from_child {
+            split_group(node);
+        }
         config.root_splits && (split || split_from_child)
     }
 
     recurse(config, root.as_ref());
 
     // Render
-    let mut rendered =
-        String::new();
+    let mut rendered = String::new();
     let lines = lines.as_ref().borrow();
     for (line_i, line) in lines.lines.iter().enumerate() {
         let line = line.as_ref().borrow();
-        if line.segs.is_empty() { continue; }
+        if line.segs.is_empty() {
+            continue;
+        }
 
         // since comments are always new lines we end up with duped newlines sometimes if there's a (break), (comment) on consec
         // lines skip the break
@@ -485,7 +533,10 @@ pub fn format_ast(
                 .lines
                 .get(line_i + 1)
                 .and_then(|l| l.as_ref().borrow().segs.iter().next().map(|l| l.clone()))
-                .map(|l| match &l.as_ref().borrow().content { SegmentContent::Comment(_) => true, _ => false })
+                .map(|l| match &l.as_ref().borrow().content {
+                    SegmentContent::Comment(_) => true,
+                    _ => false,
+                })
                 .unwrap_or(false) {
             continue;
         }
@@ -499,9 +550,13 @@ pub fn format_ast(
                 (SegmentMode::Split, false) => continue,
             };
             match &seg.content {
-                SegmentContent::Text(t) => { rendered.push_str(&t); },
+                SegmentContent::Text(t) => {
+                    rendered.push_str(&t);
+                },
                 SegmentContent::Break(b, activate) => {
-                    if *activate { b.activate(); }
+                    if *activate {
+                        b.activate();
+                    }
                     if line.segs.len() > 1 {
                         
                         // if empty line (=just break), don't write indent
@@ -513,15 +568,11 @@ pub fn format_ast(
                         format_md(
                             &mut rendered,
                             config.max_width,
-                            &format!(
-                                "{}//{} ",
-                                " ".repeat(b.get()),
-                                match comment.mode {
-                                    CommentMode::Normal => "",
-                                    CommentMode::DocInner => "!",
-                                    CommentMode::DocOuter => "/",
-                                }
-                            ),
+                            &format!("{}//{} ", " ".repeat(b.get()), match comment.mode {
+                                CommentMode::Normal => "",
+                                CommentMode::DocInner => "!",
+                                CommentMode::DocOuter => "/",
+                            }),
                             &comment.lines,
                         );
                     }
@@ -530,5 +581,8 @@ pub fn format_ast(
         }
         rendered.push_str("\n");
     }
-    Ok(FormatRes {rendered: rendered, lost_comments: out.comments})
+    Ok(FormatRes{
+        rendered: rendered,
+        lost_comments: out.comments,
+    })
 }
