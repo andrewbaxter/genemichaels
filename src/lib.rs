@@ -1,9 +1,22 @@
-use anyhow::{Result};
-use comments::{format_md, HashLineColumn};
-use proc_macro2::{Ident, LineColumn};
+use anyhow::{
+    Result,
+};
+use comments::{
+    format_md,
+    HashLineColumn,
+};
+use proc_macro2::{
+    Ident,
+    LineColumn,
+};
 use quote::ToTokens;
 use sg_general::append_comments;
-use std::{borrow::Borrow, cell::RefCell, collections::HashMap, rc::Rc};
+use std::{
+    borrow::Borrow,
+    cell::RefCell,
+    collections::HashMap,
+    rc::Rc,
+};
 use syn::File;
 
 pub(crate) mod comments;
@@ -16,9 +29,9 @@ pub(crate) mod sg_root;
 pub mod utils;
 
 pub(crate) trait TrivialLineColMath {
-    
-    // syn doesn't provide end token spans often, in which case the start span covers everything.  This is a dumb method to
-    // take the end of that and move back one char to hopefully get the start of the end token.
+    // syn doesn't provide end token spans often, in which case the start span covers
+    // everything.  This is a dumb method to take the end of that and move back one char to
+    // hopefully get the start of the end token.
     fn prev(&self) -> LineColumn;
 }
 
@@ -30,9 +43,18 @@ impl TrivialLineColMath for LineColumn {
     }
 }
 
-#[derive(PartialEq, Clone, Copy, Debug)] pub enum CommentMode {Normal, DocInner, DocOuter}
+#[derive(PartialEq, Clone, Copy, Debug)] 
+pub enum CommentMode {
+    Normal,
+    DocInner,
+    DocOuter,
+}
 
-#[derive(Debug)] pub struct Comment {pub(crate) mode: CommentMode, pub(crate) lines: String}
+#[derive(Debug)] 
+pub struct Comment {
+    pub(crate) mode: CommentMode,
+    pub(crate) lines: String,
+}
 
 pub struct SplitGroup {
     pub(crate) children: Vec<Rc<RefCell<SplitGroup>>>,
@@ -40,12 +62,24 @@ pub struct SplitGroup {
     pub(crate) segments: Vec<Rc<RefCell<Segment>>>,
 }
 
-#[derive(Debug, Clone, Copy)] pub(crate) enum SegmentMode {All, Unsplit, Split}
+#[derive(Debug, Clone, Copy)] 
+pub(crate) enum SegmentMode {
+    All,
+    Unsplit,
+    Split,
+}
 
-pub(crate) struct SegmentLine {pub(crate) line: Rc<RefCell<Line>>, pub(crate) seg_index: usize}
+pub(crate) struct SegmentLine {
+    pub(crate) line: Rc<RefCell<Line>>,
+    pub(crate) seg_index: usize,
+}
 
-#[derive(Debug)]
-pub(crate) enum SegmentContent {Text(String), Comment((Alignment, Vec<Comment>)), Break(Alignment, bool)}
+#[derive(Debug)] 
+pub(crate) enum SegmentContent {
+    Text(String),
+    Comment((Alignment, Vec<Comment>)),
+    Break(Alignment, bool),
+}
 
 pub(crate) struct Segment {
     pub(crate) node: Rc<RefCell<SplitGroup>>,
@@ -66,7 +100,9 @@ pub(crate) struct Line {
     pub(crate) segs: Vec<Rc<RefCell<Segment>>>,
 }
 
-pub(crate) struct Lines {pub(crate) lines: Vec<Rc<RefCell<Line>>>}
+pub(crate) struct Lines {
+    pub(crate) lines: Vec<Rc<RefCell<Line>>>,
+}
 
 pub struct MakeSegsState {
     pub(crate) line: Vec<Rc<RefCell<Segment>>>,
@@ -179,9 +215,13 @@ pub(crate) fn insert_line(lines: Rc<RefCell<Lines>>, at: usize, segs: Vec<Rc<Ref
     }
 }
 
-pub(crate) struct Alignment_ {pub(crate) parent: Option<Alignment>, pub(crate) active: bool}
+pub(crate) struct Alignment_ {
+    pub(crate) parent: Option<Alignment>,
+    pub(crate) active: bool,
+}
 
-#[derive(Clone)] pub struct Alignment(Rc<RefCell<Alignment_>>);
+#[derive(Clone)] 
+pub struct Alignment(Rc<RefCell<Alignment_>>);
 
 impl std::fmt::Debug for Alignment {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -272,6 +312,19 @@ impl SplitGroupBuilder {
         })));
     }
 
+    pub(crate) fn seg_unsplit_if(&mut self, out: &mut MakeSegsState, always: bool, text: impl ToString) {
+        self.add(out, Rc::new(RefCell::new(Segment{
+            node: self.node.clone(),
+            line: None,
+            mode: if always {
+                SegmentMode::All
+            } else {
+                SegmentMode::Unsplit
+            },
+            content: SegmentContent::Text(text.to_string()),
+        })));
+    }
+
     pub(crate) fn split_if(&mut self, out: &mut MakeSegsState, alignment: Alignment, always: bool, activate: bool) {
         self.add(out, Rc::new(RefCell::new(Segment{
             node: self.node.clone(),
@@ -331,7 +384,13 @@ pub(crate) fn new_sg_lit(
     sg.build()
 }
 
-#[derive(PartialEq)] pub(crate) enum MarginGroup {Attr, BlockDef, Import, None}
+#[derive(PartialEq)] 
+pub(crate) enum MarginGroup {
+    Attr,
+    BlockDef,
+    Import,
+    None,
+}
 
 pub(crate) trait FormattableStmt: ToTokens + Formattable {
     fn want_margin(&self) -> (MarginGroup, bool);
@@ -369,7 +428,10 @@ pub struct FormatConfig {
     pub comment_width: Option<usize>,
 }
 
-pub struct FormatRes {pub rendered: String, pub lost_comments: HashMap<HashLineColumn, Vec<Comment>>}
+pub struct FormatRes {
+    pub rendered: String,
+    pub lost_comments: HashMap<HashLineColumn, Vec<Comment>>,
+}
 
 pub use comments::extract_comments;
 
@@ -385,7 +447,6 @@ pub fn format_ast(
 ) -> Result<
     FormatRes,
 > {
-    
     // Build text
     let mut out = MakeSegsState{
         line: vec![],
@@ -398,9 +459,7 @@ pub fn format_ast(
         active: false,
     })));
     let root = ast.make_segs(&mut out, &base_indent);
-    let lines = Rc::new(RefCell::new(Lines{
-        lines: vec![],
-    }));
+    let lines = Rc::new(RefCell::new(Lines{ lines: vec![] }));
     let line = Rc::new(RefCell::new(Line{
         lines: lines.clone(),
         index: 0,
@@ -428,9 +487,11 @@ pub fn format_ast(
     }
 
     // Do initial splits
-    // 
+    //
     // * initially split nodes
+    //
     // * always split break segments
+    //
     // * comments segments
     {
         let synth_seg_node = new_sg().build();
@@ -553,9 +614,8 @@ pub fn format_ast(
                     rendered.push_str(&t);
                 },
                 SegmentContent::Break(b, activate) => {
-                    
-                    // since comments are always new lines we end up with duped newlines sometimes if there's a (break), (comment) on consec
-                    // lines. skip the break
+                    // since comments are always new lines we end up with duped newlines sometimes if there's a (break),
+                    // (comment) on consec lines. skip the break
                     if segs.len() == 1 &&
                         lines
                             .lines
@@ -572,7 +632,6 @@ pub fn format_ast(
                         b.activate();
                     }
                     if segs.len() > 1 {
-                        
                         // if empty line (=just break), don't write indent
                         rendered.push_str(&" ".repeat(b.get()));
                     }

@@ -1,7 +1,23 @@
-use std::{cell::RefCell, fmt::Write, rc::Rc};
-use proc_macro2::{LineColumn, TokenStream};
-use quote::{quote, ToTokens};
-use syn::{punctuated::Punctuated, Attribute, Block, ExprCall, Macro};
+use std::{
+    cell::RefCell,
+    fmt::Write,
+    rc::Rc,
+};
+use proc_macro2::{
+    LineColumn,
+    TokenStream,
+};
+use quote::{
+    quote,
+    ToTokens,
+};
+use syn::{
+    punctuated::Punctuated,
+    Attribute,
+    Block,
+    ExprCall,
+    Macro,
+};
 use crate::{
     comments::HashLineColumn,
     new_sg,
@@ -113,7 +129,7 @@ pub(crate) fn append_statement_list_raw(
             sg.split_if(out, base_indent.clone(), out.split_attributes, false);
         }
         append_attr(out, base_indent, sg, true, attr);
-        sg.seg_unsplit(out, " ");
+        sg.seg_unsplit_if(out, !out.split_attributes, " ");
         previous_margin_group = MarginGroup::Attr;
         i += 1;
     }
@@ -212,7 +228,6 @@ pub(crate) fn append_comma_bracketed_list<E: Formattable, T: >(
     end: LineColumn,
     suffix: &str,
 ) {
-    
     // node.add_comments(out, base_indent, prefix_start);
     sg.seg(out, prefix);
     let indent = base_indent.indent();
@@ -297,7 +312,7 @@ pub(crate) fn new_sg_outer_attrs(
             },
         };
         append_attr(out, base_indent, &mut sg, false, attr);
-        sg.seg_unsplit(out, " ");
+        sg.seg_unsplit_if(out, !out.split_attributes, " ");
         sg.split_if(out, base_indent.clone(), out.split_attributes, false);
     }
     sg.child(child.make_segs(out, base_indent));
@@ -354,13 +369,15 @@ pub(crate) fn append_macro_body(
     } else if let Ok(block) = syn::parse2::<Block>(quote!{{# tokens}}) {
         append_statement_list_raw(out, base_indent, sg, None, &block.stmts);
     } else {
-        #[derive(PartialEq)] enum ConsecMode {
+        #[derive(PartialEq)] 
+        enum ConsecMode {
             // Start, joining punct (.)
-            StartJoin, 
+            StartJoin,
             // Idents, literals
-            IdentLit, 
+            IdentLit,
             // Other punctuation
-            Punct}
+            Punct,
+        }
 
         let mut substreams = vec![];
         let mut top = vec![];
@@ -431,7 +448,6 @@ pub(crate) fn append_macro_body(
                                         sg.seg(out, "]");
                                     },
                                     proc_macro2::Delimiter::None => {
-                                        
                                         // TODO needs verification
                                         append_macro_body(out, &indent, &mut sg, g.stream());
                                     },

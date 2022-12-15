@@ -1,15 +1,28 @@
-use anyhow::{anyhow, Result};
-use crate::{Comment, CommentMode};
-use proc_macro2::{LineColumn, TokenStream, Group};
+use anyhow::{
+    anyhow,
+    Result,
+};
+use crate::{
+    Comment,
+    CommentMode,
+};
+use proc_macro2::{
+    LineColumn,
+    TokenStream,
+    Group,
+};
 use pulldown_cmark::Event;
 use std::cell::RefCell;
-use std::collections::{HashMap};
+use std::collections::{
+    HashMap,
+};
 use std::hash::Hash;
 use std::rc::Rc;
 use std::str::FromStr;
 use structre::UnicodeRegex;
 
-#[derive(PartialEq, Eq, Debug)] pub struct HashLineColumn(pub LineColumn);
+#[derive(PartialEq, Eq, Debug)] 
+pub struct HashLineColumn(pub LineColumn);
 
 impl Hash for HashLineColumn {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
@@ -32,9 +45,16 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
         }
     }
 
-    struct State<'a> {source: &'a str, 
+    struct State<'a> {
+        source: &'a str,
         // starting offset of each line
-        line_lookup: Vec<usize>, comments: HashMap<HashLineColumn, Vec<Comment>>, last_offset: usize}
+        line_lookup: Vec<usize>,
+        comments: HashMap<HashLineColumn, Vec<Comment>>,
+        line_start: Option<LineColumn>,
+        last_offset: usize,
+        start_re: Option<UnicodeRegex>,
+        block_event_re: Option<UnicodeRegex>,
+    }
 
     impl<'a> State<'a> {
         fn to_offset(&self, loc: LineColumn) -> usize {
@@ -46,16 +66,19 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
                 (&self.source[line_start_offset..]).chars().take(loc.column).map(char::len_utf8).sum::<usize>()
         }
 
-        fn extract(&mut self, start: usize, end: LineColumn) {
-            let end_offset = self.to_offset(end);
-            if end_offset < start {
-                return;
-            }
-            let whole_text = &self.source[start .. end_offset];
-            let start_re = UnicodeRegex::new(r#"(?:(//)(/|!)?)|(?:(/\*)(\*|!)?)"#).unwrap();
-            let block_event_re = UnicodeRegex::new(r#"((?:/\*)|(?:\*/))"#).unwrap();
+        fn add_comments(&mut self, end: LineColumn, whole_text: &str) {
+            let start_re =
+                &self
+                    .start_re
+                    .get_or_insert_with(|| UnicodeRegex::new(r#"(?:(//)(/|!)?)|(?:(/\*)(\*|!)?)"#).unwrap());
+            let block_event_re =
+                &self.block_event_re.get_or_insert_with(|| UnicodeRegex::new(r#"((?:/\*)|(?:\*/))"#).unwrap());
 
-            struct CommentBuffer {out: Vec<Comment>, mode: CommentMode, lines: Vec<String>}
+            struct CommentBuffer {
+                out: Vec<Comment>,
+                mode: CommentMode,
+                lines: Vec<String>,
+            }
 
             impl CommentBuffer {
                 fn flush(&mut self) {
@@ -165,6 +188,38 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
                 self.comments.insert(HashLineColumn(end), buffer.out);
             }
         }
+
+        fn extract(&mut self, mut start: usize, end: LineColumn) {
+            // Transpose line-end comments to line-start
+            if if let Some(previous_start) = &self.line_start {
+                if end.line > previous_start.line {
+                    let eol = match (&self.source[start..]).find('\n') {
+                        Some(n) => start + n,
+                        None => self.source.len(),
+                    };
+                    let text = &self.source[start .. eol];
+                    if text.trim_start().starts_with("//") {
+                        self.add_comments(previous_start.clone(), text);
+                    }
+                    start = eol;
+                    true
+                } else {
+                    false
+                }
+            } else {
+                true
+            } {
+                self.line_start = Some(end);
+            }
+
+            // Do normal comment extraction
+            let end_offset = self.to_offset(end);
+            if end_offset < start {
+                return;
+            }
+            let whole_text = &self.source[start .. end_offset];
+            self.add_comments(end, whole_text);
+        }
     }
 
     // Extract comments
@@ -173,6 +228,9 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
         line_lookup: line_lookup,
         comments: HashMap::new(),
         last_offset: 0usize,
+        line_start: None,
+        start_re: None,
+        block_event_re: None,
     };
 
     fn recurse(state: &mut State, ts: TokenStream) -> TokenStream {
@@ -198,9 +256,8 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
                 proc_macro2::TokenTree::Punct(g) => {
                     let offset = state.to_offset(g.span().start());
                     if g.as_char() == '#' && &state.source[offset .. offset + 1] == "/" {
-                        
-                        // Syn converts doc comments into doc attrs, work around that here by detecting a mismatch between the token and the
-                        // source (written /, token is #) and skipping all tokens within the fake doc attr range
+                        // Syn converts doc comments into doc attrs, work around that here by detecting a mismatch between the token
+                        // and the source (written /, token is #) and skipping all tokens within the fake doc attr range
                         loop {
                             let in_comment = ts.peek().map(|n| n.span().start() < g.span().end()).unwrap_or(false);
                             if !in_comment {
@@ -228,11 +285,19 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
     Ok((state.comments, tokens))
 }
 
-struct State {stack: Vec<Box<dyn StackEl>>, line_buffer: String, need_nl: bool}
+struct State {
+    stack: Vec<Box<dyn StackEl>>,
+    line_buffer: String,
+    need_nl: bool,
+}
 
-enum StackRes {Push(Box<dyn StackEl>), Keep, Pop}
+enum StackRes {
+    Push(Box<dyn StackEl>),
+    Keep,
+    Pop,
+}
 
-#[derive(Debug)]
+#[derive(Debug)] 
 struct LineState_ {
     first_prefix: Option<String>,
     prefix: String,
@@ -338,7 +403,6 @@ impl LineState {
         }
         while !text.is_empty() {
             if state.line_buffer.len() + text.len() > max_width {
-                
                 // match segmenter .segment_str(&text)
                 match text
                     .char_indices()
@@ -347,7 +411,6 @@ impl LineState {
                     .take_while(|b| state.line_buffer.len() + *b < max_width)
                     .last() {
                     Some(b) => {
-                        
                         // Doesn't fit, but can split to get within line
                         state.line_buffer.push_str(&text[..b].trim_end());
                         s.flush(state, out);
@@ -355,11 +418,9 @@ impl LineState {
                     },
                     None => {
                         if !state.line_buffer.is_empty() {
-                            
                             // Doesn't fit, can't split, but stuff in buffer - flush that first
                             s.flush(state, out);
                         } else {
-                            
                             // Doesn't fit, can't split, but buffer empty - just write it
                             state.line_buffer.push_str(text.trim_end());
                             s.flush(state, out);
@@ -368,7 +429,6 @@ impl LineState {
                     },
                 }
             } else {
-                
                 // Fits
                 state.line_buffer.push_str(text);
                 text = &text[text.len()..];
@@ -470,7 +530,11 @@ trait StackEl {
     fn handle(&mut self, state: &mut State, out: &mut String, e: Event) -> StackRes;
 }
 
-struct StackInline {end_bound: Option<String>, line: LineState, line_root: bool}
+struct StackInline {
+    end_bound: Option<String>,
+    line: LineState,
+    line_root: bool,
+}
 
 struct StackInlineArgs {
     start_bound: Option<String>,
@@ -551,9 +615,18 @@ impl StackEl for StackInline {
     }
 }
 
-struct StackBlock {line: LineState, first: bool, was_inline: bool, end_bound: Option<&'static str>}
+struct StackBlock {
+    line: LineState,
+    first: bool,
+    was_inline: bool,
+    end_bound: Option<&'static str>,
+}
 
-struct StackBlockArgs {line: LineState, start_bound: Option<String>, end_bound: Option<&'static str>}
+struct StackBlockArgs {
+    line: LineState,
+    start_bound: Option<String>,
+    end_bound: Option<&'static str>,
+}
 
 impl StackBlock {
     fn new(state: &mut State, out: &mut String, args: StackBlockArgs) -> Box<dyn StackEl> {
@@ -623,9 +696,7 @@ impl StackEl for StackBlock {
                         pulldown_cmark::CodeBlockKind::Indented => "",
                         pulldown_cmark::CodeBlockKind::Fenced(x) => x,
                     }));
-                    StackRes::Push(Box::new(StackCodeBlock{
-                        line: self.line.zero_indent(),
-                    }))
+                    StackRes::Push(Box::new(StackCodeBlock{ line: self.line.zero_indent() }))
                 },
                 pulldown_cmark::Tag::List(ordered) => {
                     self.block_ev(state, out);
@@ -705,7 +776,11 @@ impl StackEl for StackBlock {
     }
 }
 
-struct StackNumberList {count: u64, line: LineState, first: bool}
+struct StackNumberList {
+    count: u64,
+    line: LineState,
+    first: bool,
+}
 
 impl StackEl for StackNumberList {
     fn handle(&mut self, state: &mut State, out: &mut String, e: Event) -> StackRes {
@@ -730,7 +805,10 @@ impl StackEl for StackNumberList {
     }
 }
 
-struct StackBulletList {line: LineState, first: bool}
+struct StackBulletList {
+    line: LineState,
+    first: bool,
+}
 
 impl StackEl for StackBulletList {
     fn handle(&mut self, state: &mut State, out: &mut String, e: Event) -> StackRes {
@@ -753,7 +831,9 @@ impl StackEl for StackBulletList {
     }
 }
 
-struct StackCodeBlock {line: LineState}
+struct StackCodeBlock {
+    line: LineState,
+}
 
 impl StackEl for StackCodeBlock {
     fn handle(&mut self, state: &mut State, out: &mut String, e: Event) -> StackRes {
