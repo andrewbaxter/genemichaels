@@ -396,26 +396,20 @@ impl Formattable for &Expr {
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg();
-                    sg.child(
-                        {
+                    sg.child({
+                        let mut sg = new_sg();
+                        sg.child({
                             let mut sg = new_sg();
-                            sg.child(
-                                {
-                                    let mut sg = new_sg();
-                                    if let Some(l) = &e.label {
-                                        sg.seg(out, &format!("{} ", l.to_token_stream().to_string()));
-                                    }
-                                    append_comments(out, base_indent, &mut sg, e.for_token.span.start());
-                                    sg.seg(out, "for ");
-                                    sg.child(e.pat.make_segs(out, base_indent));
-                                    sg.build()
-                                },
-                            );
-                            sg.seg(out, " in ");
-                            sg.child(e.expr.make_segs(out, base_indent));
+                            if let Some(l) = &e.label { sg.seg(out, &format!("{}: ", l.name)); }
+                            append_comments(out, base_indent, &mut sg, e.for_token.span.start());
+                            sg.seg(out, "for ");
+                            sg.child(e.pat.make_segs(out, base_indent));
                             sg.build()
-                        },
-                    );
+                        });
+                        sg.seg(out, " in ");
+                        sg.child(e.expr.make_segs(out, base_indent));
+                        sg.build()
+                    });
                     append_bracketed_statement_list(
                         out,
                         base_indent,

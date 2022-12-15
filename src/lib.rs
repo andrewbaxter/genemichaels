@@ -43,6 +43,7 @@ pub(crate) enum SegmentMode {All, Unsplit, Split}
 
 pub(crate) struct SegmentLine {pub(crate) line: Rc<RefCell<Line>>, pub(crate) seg_index: usize}
 
+#[derive(Debug)]
 pub(crate) enum SegmentContent {Text(String), Comment((Alignment, Vec<Comment>)), Break(Alignment, bool)}
 
 pub(crate) struct Segment {
@@ -89,17 +90,21 @@ pub(crate) fn split_group(node: &RefCell<SplitGroup>) {
                 Some((line.line.clone(), line.seg_index))
             }, _ => None }
         };
-        match res { Some((line, index)) => { split_line_at(&line, index); }, None => { } };
+        match res { Some((line, index)) => { split_line_at(&line, index, None); }, None => { } };
     }
 }
 
-pub(crate) fn split_line_at(line: &RefCell<Line>, at: usize) {
-    let new_segs = line.borrow_mut().segs.split_off(at);
-    if let Some(s) = new_segs.get(0) {
+pub(crate) fn split_line_at(line: &RefCell<Line>, at: usize, inject_start: Option<Rc<RefCell<Segment>>>) {
+    let mut new_segs = vec![];
+    if let Some(s) = inject_start { new_segs.push(s); }
+    new_segs.extend(line.borrow_mut().segs.split_off(at));
+    {
+        let s = new_segs.get(0).unwrap();
         match &s.as_ref().borrow().content {
-            SegmentContent::Break(a, activate) if *activate => { a.activate(); },
-            _ => { },
-        }
+            SegmentContent::Break(a, activate) => { if *activate { a.activate(); } },
+            SegmentContent::Comment((a, _)) => { a.activate(); },
+            _ => unreachable!(),
+        };
     }
     insert_line(line.borrow().lines.clone(), line.borrow().index + 1, new_segs);
 }
@@ -109,9 +114,10 @@ pub(crate) fn insert_line(lines: Rc<RefCell<Lines>>, at: usize, segs: Vec<Rc<Ref
     lines.borrow_mut().lines.insert(at, new_line.clone());
     for (i, seg) in new_line.as_ref().borrow().segs.iter().enumerate() {
         let mut seg = seg.as_ref().borrow_mut();
-        let mut line = seg.line.as_mut().unwrap();
-        line.seg_index = i;
-        line.line = new_line.clone();
+        match seg.line.as_mut() { Some(l) => {
+            l.seg_index = i;
+            l.line = new_line.clone();
+        }, None => { seg.line = Some(SegmentLine {line: new_line.clone(), seg_index: i}); } };
     }
     for (i, line) in lines.as_ref().borrow().lines.iter().enumerate().skip(at + 1) { line.borrow_mut().index = i; }
 }
@@ -119,6 +125,10 @@ pub(crate) fn insert_line(lines: Rc<RefCell<Lines>>, at: usize, segs: Vec<Rc<Ref
 pub(crate) struct Alignment_ {pub(crate) parent: Option<Alignment>, pub(crate) active: bool}
 
 #[derive(Clone)] pub struct Alignment(Rc<RefCell<Alignment_>>);
+
+impl std::fmt::Debug for Alignment {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { "(align)".fmt(f) }
+}
 
 impl Alignment {
     pub(crate) fn indent(&self) -> Alignment {
@@ -386,8 +396,10 @@ pub fn format_ast(
     // * comments segments
     //    
     {
+        let synth_seg_node = new_sg().build();
         let mut i = 0usize;
         let mut skip_first = false;
+        let mut prev_comment = None;
         while i < lines.as_ref().borrow().lines.len() {
             let mut res = None;
             {
@@ -411,16 +423,46 @@ pub fn format_ast(
                             (SegmentMode::Split, false) => false,
                         },
                     ) {
-                        (SegmentContent::Break(_, _), true) | (SegmentContent::Comment(_), _) => {
-                            res = Some((line.clone(), i));
+                        (SegmentContent::Break(_, _), true) => {
+                            res = Some((line.clone(), i, None));
+                            prev_comment = None;
+                            break 'segs;
+                        },
+                        (SegmentContent::Comment(c), _) => {
+                            res = Some((line.clone(), i, None));
+                            prev_comment = Some(c.0.clone());
+                            break 'segs;
+                        },
+                        (_, _) if prev_comment.is_some() => {
+                            res =
+                                Some(
+                                    (
+                                        line.clone(),
+                                        i,
+                                        prev_comment
+                                            .take()
+                                            .map(
+                                                |a| Rc::new(
+                                                    RefCell::new(
+                                                        Segment {
+                                                            node: synth_seg_node.clone(),
+                                                            line: None,
+                                                            mode: SegmentMode::All,
+                                                            content: SegmentContent::Break(a, true),
+                                                        },
+                                                    ),
+                                                ),
+                                            ),
+                                    ),
+                                );
                             break 'segs;
                         },
                         _ => { },
                     };
                 }
             }
-            if let Some((line, i)) = res {
-                split_line_at(&line, i);
+            if let Some((line, i, insert_start)) = res {
+                split_line_at(&line, i, insert_start);
                 skip_first = true;
             }
             i += 1;
