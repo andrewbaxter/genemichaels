@@ -13,7 +13,6 @@ fn main() {
         #[arg(short, long, help = "Modify the file in place rather than print to stdout")] write: bool,
         #[arg(long, help = "By default, if any node is split all parents will be split too; this disables that")]
         dont_root_splits: bool,
-        #[arg(long, help = "Don't initially split any node with comments")] dont_split_comments: bool,
     }
 
     let args = Args::parse();
@@ -40,12 +39,7 @@ fn main() {
         Ok(res.rendered)
     }
 
-    let config =
-        FormatConfig {
-            max_width: args.line_length,
-            root_splits: !args.dont_root_splits,
-            split_comments: !args.dont_split_comments,
-        };
+    let config = FormatConfig {max_width: args.line_length, root_splits: !args.dont_root_splits};
     if args.files.is_empty() {
         match es!(
             {

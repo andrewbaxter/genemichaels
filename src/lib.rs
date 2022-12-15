@@ -17,7 +17,7 @@ pub mod utils;
 
 pub(crate) trait TrivialLineColMath {
     
-    // syn doesn't provide end token spans often, in which case the start span covers everything.  This is a dumb method to 
+    // syn doesn't provide end token spans often, in which case the start span covers everything.  This is a dumb method to
     // take the end of that and move back one char to hopefully get the start of the end token.
     fn prev(&self) -> LineColumn;
 }
@@ -38,8 +38,7 @@ pub struct SplitGroup {
     pub(crate) segments: Vec<Rc<RefCell<Segment>>>,
 }
 
-#[derive(Debug)]
-pub(crate) enum SegmentMode {All, Unsplit, Split}
+#[derive(Debug)] pub(crate) enum SegmentMode {All, Unsplit, Split}
 
 pub(crate) struct SegmentLine {pub(crate) line: Rc<RefCell<Line>>, pub(crate) seg_index: usize}
 
@@ -109,7 +108,7 @@ pub(crate) fn split_line_at(line: &RefCell<Line>, at: usize, inject_start: Optio
         match &s.as_ref().borrow().content {
             SegmentContent::Break(a, activate) => { if *activate { a.activate(); } },
             SegmentContent::Comment((a, _)) => { a.activate(); },
-            _ => {},
+            _ => { },
         };
     }
     insert_line(line.borrow().lines.clone(), line.borrow().index + 1, new_segs);
@@ -126,10 +125,16 @@ pub(crate) fn insert_line(lines: Rc<RefCell<Lines>>, at: usize, segs: Vec<Rc<Ref
         }, None => { seg.line = Some(SegmentLine {line: new_line.clone(), seg_index: i}); } };
     }
     for (i, line) in lines.as_ref().borrow().lines.iter().enumerate().skip(at + 1) { line.borrow_mut().index = i; }
-    for (i, line) in lines.as_ref().borrow().lines.iter().enumerate() { 
-            assert_eq!(line.as_ref().borrow().index, i, "line index wrong; after insert at line {}", at);
+    for (i, line) in lines.as_ref().borrow().lines.iter().enumerate() {
+        assert_eq!(line.as_ref().borrow().index, i, "line index wrong; after insert at line {}", at);
         for (j, seg) in line.as_ref().borrow().segs.iter().enumerate() {
-            assert_eq!(seg.as_ref().borrow().line.as_ref().unwrap().seg_index, j, "seg index wrong; on line {}, after insert at line {}", i, at);
+            assert_eq!(
+                seg.as_ref().borrow().line.as_ref().unwrap().seg_index,
+                j,
+                "seg index wrong; on line {}, after insert at line {}",
+                i,
+                at
+            );
         }
     }
 }
@@ -311,9 +316,10 @@ impl Formattable for &Ident {
 }
 
 pub struct FormatConfig {
-    #[doc= " Try to wrap to this width"] pub max_width: usize,
-    #[doc= " If a node is split, all parents of the node must also be split"] pub root_splits: bool,
-    #[doc= " If a node has comments, split it"] pub split_comments: bool,
+    /// Try to wrap to this width
+    pub max_width: usize,
+    /// If a node is split, all parents of the node must also be split
+    pub root_splits: bool,
 }
 
 pub struct FormatRes {pub rendered: String, pub lost_comments: HashMap<HashLineColumn, Vec<Comment>>}
@@ -346,21 +352,23 @@ pub fn format_ast(
             seg.as_ref().borrow_mut().line = Some(SegmentLine {line: line.clone(), seg_index: j});
         }
     }
-    for (i, line) in lines.as_ref().borrow().lines.iter().enumerate() { 
-            assert_eq!(line.as_ref().borrow().index, i, "line index wrong; initial");
+    for (i, line) in lines.as_ref().borrow().lines.iter().enumerate() {
+        assert_eq!(line.as_ref().borrow().index, i, "line index wrong; initial");
         for (j, seg) in line.as_ref().borrow().segs.iter().enumerate() {
-            assert_eq!(seg.as_ref().borrow().line.as_ref().unwrap().seg_index, j, "seg index wrong; on line {}, initial", i);
+            assert_eq!(
+                seg.as_ref().borrow().line.as_ref().unwrap().seg_index,
+                j,
+                "seg index wrong; on line {}, initial",
+                i
+            );
         }
     }
 
     // Do initial splits
     // 
     // * initially split nodes
-    //    
     // * always split break segments
-    //    
     // * comments segments
-    //    
     {
         let synth_seg_node = new_sg().build();
         let mut i = 0usize;
@@ -371,68 +379,69 @@ pub fn format_ast(
             {
                 let lines = lines.as_ref().borrow();
                 let line = lines.lines.get(i).unwrap();
-                'segs: loop {
-for (i, seg) in line.as_ref().borrow().segs.iter().enumerate() {
-                    if i == 0 && skip_first {
-                        skip_first = false;
-                        continue;
-                    }
-                    let seg = seg.as_ref().borrow();
-                    let node = seg.node.as_ref().borrow();
-                    match (
-                        &seg.content,
-                        match (&seg.mode, node.split) {
-                            (SegmentMode::All, true) => true,
-                            (SegmentMode::All, false) => true,
-                            (SegmentMode::Unsplit, true) => false,
-                            (SegmentMode::Unsplit, false) => true,
-                            (SegmentMode::Split, true) => true,
-                            (SegmentMode::Split, false) => false,
-                        },
-                    ) {
-                        (SegmentContent::Break(_, _), true) => {
-                            res = Some((line.clone(), i, None));
-                            prev_comment = None;
-                            break 'segs;
-                        },
-                        (SegmentContent::Comment(c), _) => {
-                            res = Some((line.clone(), i, None));
-                            prev_comment = Some(c.0.clone());
-                            break 'segs;
-                        },
-                        (_, _) => {
-if let Some(a) = prev_comment.take() {
-                            res =
-                                Some(
-                                    (
-                                        line.clone(),
-                                        i,
-                                        
-                                                Some(Rc::new(
-                                                    RefCell::new(
-                                                        Segment {
-                                                            node: synth_seg_node.clone(),
-                                                            line: None,
-                                                            mode: SegmentMode::All,
-                                                            content: SegmentContent::Break(a, true),
-                                                        },
+                'segs : loop {
+                    for (i, seg) in line.as_ref().borrow().segs.iter().enumerate() {
+                        if i == 0 && skip_first {
+                            skip_first = false;
+                            continue;
+                        }
+                        let seg = seg.as_ref().borrow();
+                        let node = seg.node.as_ref().borrow();
+                        match (
+                            &seg.content,
+                            match (&seg.mode, node.split) {
+                                (SegmentMode::All, true) => true,
+                                (SegmentMode::All, false) => true,
+                                (SegmentMode::Unsplit, true) => false,
+                                (SegmentMode::Unsplit, false) => true,
+                                (SegmentMode::Split, true) => true,
+                                (SegmentMode::Split, false) => false,
+                            },
+                        ) {
+                            (SegmentContent::Break(_, _), true) => {
+                                res = Some((line.clone(), i, None));
+                                prev_comment = None;
+                                break 'segs;
+                            },
+                            (SegmentContent::Comment(c), _) => {
+                                res = Some((line.clone(), i, None));
+                                prev_comment = Some(c.0.clone());
+                                break 'segs;
+                            },
+                            (_, _) => {
+                                if let Some(a) = prev_comment.take() {
+                                    res =
+                                        Some(
+                                            (
+                                                line.clone(),
+                                                i,
+                                                Some(
+                                                    Rc::new(
+                                                        RefCell::new(
+                                                            Segment {
+                                                                node: synth_seg_node.clone(),
+                                                                line: None,
+                                                                mode: SegmentMode::All,
+                                                                content: SegmentContent::Break(a, true),
+                                                            },
+                                                        ),
                                                     ),
-                                                )),
-                                    ),
-                                );
-                            break 'segs;
-}
-                        },
-                    };
-                }
-                            prev_comment = None;
+                                                ),
+                                            ),
+                                        );
+                                    break 'segs;
+                                }
+                            },
+                        };
+                    }
+                    prev_comment = None;
                     break;
                 }
             }
             if let Some((line, at, insert_start)) = res {
                 split_line_at(&line, at, insert_start);
                 skip_first = true;
-            } 
+            }
             i += 1;
         }
     }
@@ -442,10 +451,6 @@ if let Some(a) = prev_comment.take() {
         let mut split = false;
         for seg in &node.borrow().segments {
             let seg = seg.as_ref().borrow();
-            match &seg.content { SegmentContent::Comment(_) if config.split_comments => {
-                split = true;
-                break;
-            }, _ => { } };
             let line = seg.line.as_ref().unwrap();
             let len = line_length(&line.line.as_ref());
             if len > config.max_width {
@@ -471,11 +476,9 @@ if let Some(a) = prev_comment.take() {
     let lines = lines.as_ref().borrow();
     for (line_i, line) in lines.lines.iter().enumerate() {
         let line = line.as_ref().borrow();
-        if line.segs.is_empty() {
-            continue;
-        }
+        if line.segs.is_empty() { continue; }
 
-        // since comments are always new lines we end up with duped newlines sometimes if there's a (break), (comment) on consec 
+        // since comments are always new lines we end up with duped newlines sometimes if there's a (break), (comment) on consec
         // lines skip the break
         if line.segs.len() == 1 &&
             lines
@@ -510,13 +513,14 @@ if let Some(a) = prev_comment.take() {
                         format_md(
                             &mut rendered,
                             config.max_width,
-                            &format!("{}//{} ",
+                            &format!(
+                                "{}//{} ",
                                 " ".repeat(b.get()),
                                 match comment.mode {
                                     CommentMode::Normal => "",
                                     CommentMode::DocInner => "!",
                                     CommentMode::DocOuter => "/",
-                                },
+                                }
                             ),
                             &comment.lines,
                         );
