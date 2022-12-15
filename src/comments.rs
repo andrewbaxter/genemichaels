@@ -1,10 +1,12 @@
+use anyhow::{anyhow, Result};
 use crate::{Comment, CommentMode};
-use proc_macro2::LineColumn;
+use proc_macro2::{LineColumn, TokenStream, Group};
 use pulldown_cmark::Event;
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap};
 use std::hash::Hash;
 use std::rc::Rc;
+use std::str::FromStr;
 use structre::UnicodeRegex;
 
 #[derive(PartialEq, Eq, Debug)] pub struct HashLineColumn(pub LineColumn);
@@ -13,138 +15,184 @@ impl Hash for HashLineColumn {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) { (self.0.line, self.0.column).hash(state); }
 }
 
-pub(crate) struct CommentExtractor<'a> {
-    pub(crate) source: &'a str,
-    pub(crate) last_loc: LineColumn,
-    pub(crate) last_offset: usize,
-    pub(crate) comments: HashMap<HashLineColumn, Vec<Comment>>,
-}
-
-impl<'a> CommentExtractor<'a> {
-    pub(crate) fn locate_forward(&self, loc: LineColumn) -> usize {
-        if loc.line < self.last_loc.line || (loc.line == self.last_loc.line && loc.column < self.last_loc.column) {
-            return self.last_offset;
+pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Comment>>, TokenStream)> {
+    let mut line_lookup = vec![];
+    {
+        let mut remaining = source;
+        let mut offset = 0usize;
+        while !remaining.is_empty() {
+            let rel_offset = remaining.find('\n').unwrap_or(remaining.len());
+            line_lookup.push(offset);
+            remaining = &remaining[rel_offset + 1..];
+            offset += rel_offset + 1;
         }
-        let mut offset = self.last_offset;
-        let mut col = self.last_loc.column;
-        for _ in self.last_loc.line .. loc.line {
-            offset += self.source[offset..].find('\n').unwrap() + 1;
-            col = 0;
-        }
-        offset += self.source[offset..].chars().take(loc.column - col).map(char::len_utf8).sum::<usize>();
-        offset
     }
 
-    pub(crate) fn advance_to(&mut self, loc: LineColumn) -> &str {
-        let offset = self.locate_forward(loc);
-        let out = &self.source[self.last_offset .. offset];
-        self.last_offset = offset;
-        self.last_loc = loc;
-        out
+    struct State<'a> {
+        source: &'a str,
+        // starting offset of each line
+        line_lookup: Vec<usize>,
+        comments: HashMap<HashLineColumn, Vec<Comment>>,
+        last_offset: usize,
     }
 
-    pub(crate) fn extract_to(&mut self, loc: LineColumn) {
-        let whole_text = self.advance_to(loc);
-        let start_re = UnicodeRegex::new(r#"(?:(//)(/|!)?)|(?:(/\*)(\*|!)?)"#).unwrap();
-        let block_event_re = UnicodeRegex::new(r#"((?:/\*)|(?:\*/))"#).unwrap();
+    impl<'a> State<'a> {
+        fn to_offset(&self, loc: LineColumn) -> usize { self.line_lookup.get(loc.line - 1).unwrap() + loc.column }
 
-        struct CommentBuffer {out: Vec<Comment>, mode: CommentMode, lines: Vec<String>}
+        fn extract(&mut self, start: usize, end: LineColumn) {
+            let whole_text = &self.source[start .. self.to_offset(end)];
+            let start_re = UnicodeRegex::new(r#"(?:(//)(/|!)?)|(?:(/\*)(\*|!)?)"#).unwrap();
+            let block_event_re = UnicodeRegex::new(r#"((?:/\*)|(?:\*/))"#).unwrap();
 
-        impl CommentBuffer {
-            fn flush(&mut self) {
-                if self.lines.is_empty() { return; }
-                self.out.push(Comment {mode: self.mode, lines: self.lines.split_off(0).join("\n")});
+            struct CommentBuffer {out: Vec<Comment>, mode: CommentMode, lines: Vec<String>}
+
+            impl CommentBuffer {
+                fn flush(&mut self) {
+                    if self.lines.is_empty() { return; }
+                    self.out.push(Comment {mode: self.mode, lines: self.lines.split_off(0).join("\n")});
+                }
+
+                fn add(&mut self, mode: CommentMode, line: &str) {
+                    if self.mode != mode && !self.lines.is_empty() { self.flush(); }
+                    self.mode = mode;
+                    self.lines.push(line.to_string());
+                }
             }
 
-            fn add(&mut self, mode: CommentMode, line: &str) {
-                if self.mode != mode && !self.lines.is_empty() { self.flush(); }
-                self.mode = mode;
-                self.lines.push(line.to_string());
-            }
-        }
-
-        let mut buffer = CommentBuffer {out: vec![], mode: CommentMode::Normal, lines: vec![]};
-        let mut text = whole_text;
-        'comment_loop : loop {
-            match start_re.captures(text) {
-                Some(found_start) => {
-                    let start_prefix_match = found_start.get(1).or(found_start.get(3)).unwrap();
-                    match start_prefix_match.as_str() {
-                        "//" => {
-                            let mode =
-                                {
-                                    let start_suffix_match = found_start.get(2);
-                                    let (mode, match_end) =
-                                        match start_suffix_match {
-                                            Some(start_suffix_match) => (
-                                                match start_suffix_match.as_str() {
-                                                    "/" => CommentMode::DocOuter,
-                                                    "!" => CommentMode::DocInner,
-                                                    _ => unreachable!(),
-                                                },
-                                                start_suffix_match.end(),
-                                            ),
-                                            None => (CommentMode::Normal, start_prefix_match.end()),
-                                        };
-                                    text = &text[match_end..];
-                                    mode
-                                };
-                            let (line, next_start) =
-                                match text.find('\n') {
-                                    Some(line_end) => (&text[..line_end], line_end + 1),
-                                    None => (text, text.len()),
-                                };
-                            buffer.add(mode, line);
-                            assert_ne!(next_start, 0);
-                            text = &text[next_start..];
-                        },
-                        "/*" => {
-                            let mode =
-                                {
-                                    let start_suffix_match = found_start.get(2);
-                                    let (mode, match_end) =
-                                        match start_suffix_match {
-                                            Some(start_suffix_match) => (
-                                                match start_suffix_match.as_str() {
-                                                    "*" => CommentMode::DocOuter,
-                                                    "!" => CommentMode::DocInner,
-                                                    _ => unreachable!(),
-                                                },
-                                                start_suffix_match.end(),
-                                            ),
-                                            None => (CommentMode::Normal, start_prefix_match.end()),
-                                        };
-                                    text = &text[match_end..];
-                                    mode
-                                };
-                            let mut nesting = 1;
-                            let mut search_end_at = 0usize;
-                            let (lines, next_start) = loop {
-                                let found_event = block_event_re.captures(&text[search_end_at..]).unwrap().get(1).unwrap();
-                                let event_start = search_end_at + found_event.start();
-                                search_end_at = search_end_at + found_event.end();
-                                match found_event.as_str() { "/*" => { nesting += 1; }, "*/" => {
-                                    nesting -= 1;
-                                    if nesting == 0 { break (&text[..event_start], search_end_at); }
-                                }, _ => unreachable!() }
-                            };
-                            for line in lines.lines() {
-                                let mut line = line.trim();
-                                line = line.strip_prefix("* ").unwrap_or(line);
+            let mut buffer = CommentBuffer {out: vec![], mode: CommentMode::Normal, lines: vec![]};
+            let mut text = whole_text;
+            'comment_loop : loop {
+                match start_re.captures(text) {
+                    Some(found_start) => {
+                        let start_prefix_match = found_start.get(1).or(found_start.get(3)).unwrap();
+                        match start_prefix_match.as_str() {
+                            "//" => {
+                                let mode =
+                                    {
+                                        let start_suffix_match = found_start.get(2);
+                                        let (mode, match_end) =
+                                            match start_suffix_match {
+                                                Some(start_suffix_match) => (
+                                                    match start_suffix_match.as_str() {
+                                                        "/" => CommentMode::DocOuter,
+                                                        "!" => CommentMode::DocInner,
+                                                        _ => unreachable!(),
+                                                    },
+                                                    start_suffix_match.end(),
+                                                ),
+                                                None => (CommentMode::Normal, start_prefix_match.end()),
+                                            };
+                                        text = &text[match_end..];
+                                        mode
+                                    };
+                                let (line, next_start) =
+                                    match text.find('\n') {
+                                        Some(line_end) => (&text[..line_end], line_end + 1),
+                                        None => (text, text.len()),
+                                    };
                                 buffer.add(mode, line);
-                            }
-                            assert_ne!(next_start, 0);
-                            text = &text[next_start..];
-                        },
-                        _ => unreachable!(),
+                                assert_ne!(next_start, 0);
+                                text = &text[next_start..];
+                            },
+                            "/*" => {
+                                let mode =
+                                    {
+                                        let start_suffix_match = found_start.get(2);
+                                        let (mode, match_end) =
+                                            match start_suffix_match {
+                                                Some(start_suffix_match) => (
+                                                    match start_suffix_match.as_str() {
+                                                        "*" => CommentMode::DocOuter,
+                                                        "!" => CommentMode::DocInner,
+                                                        _ => unreachable!(),
+                                                    },
+                                                    start_suffix_match.end(),
+                                                ),
+                                                None => (CommentMode::Normal, start_prefix_match.end()),
+                                            };
+                                        text = &text[match_end..];
+                                        mode
+                                    };
+                                let mut nesting = 1;
+                                let mut search_end_at = 0usize;
+                                let (lines, next_start) = loop {
+                                    let found_event = block_event_re.captures(&text[search_end_at..]).unwrap().get(1).unwrap();
+                                    let event_start = search_end_at + found_event.start();
+                                    search_end_at = search_end_at + found_event.end();
+                                    match found_event.as_str() { "/*" => { nesting += 1; }, "*/" => {
+                                        nesting -= 1;
+                                        if nesting == 0 { break (&text[..event_start], search_end_at); }
+                                    }, _ => unreachable!() }
+                                };
+                                for line in lines.lines() {
+                                    let mut line = line.trim();
+                                    line = line.strip_prefix("* ").unwrap_or(line);
+                                    buffer.add(mode, line);
+                                }
+                                assert_ne!(next_start, 0);
+                                text = &text[next_start..];
+                            },
+                            _ => unreachable!(),
+                        }
+                    },
+                    None => { break 'comment_loop; },
+                }
+            }
+            buffer.flush();
+            if !buffer.out.is_empty() { self.comments.insert(HashLineColumn(end), buffer.out); }
+        }
+    }
+
+    // Extract comments
+    let mut state =
+        State {source: source, line_lookup: line_lookup, comments: HashMap::new(), last_offset: 0usize};
+
+    fn recurse(state: &mut State, ts: TokenStream) -> TokenStream {
+        let mut out = vec![];
+        let mut ts = ts.into_iter().peekable();
+        while let Some(t) = ts.next() {
+            match t {
+                proc_macro2::TokenTree::Group(g) => {
+                    state.extract(state.last_offset, g.span_open().start());
+                    state.last_offset = state.to_offset(g.span_open().end());
+                    let subtokens = recurse(state, g.stream());
+                    state.extract(state.last_offset, g.span_close().start());
+                    state.last_offset = state.to_offset(g.span_close().end());
+                    out.push(proc_macro2::TokenTree::Group(Group::new(g.delimiter(), subtokens)));
+                },
+                proc_macro2::TokenTree::Ident(g) => {
+                    state.extract(state.last_offset, g.span().start());
+                    state.last_offset = state.to_offset(g.span().end());
+                    out.push(proc_macro2::TokenTree::Ident(g));
+                },
+                proc_macro2::TokenTree::Punct(g) => {
+                    let offset = state.to_offset(g.span().start());
+                    if g.as_char() == '#' && &state.source[offset .. offset + 1] == "/" {
+                        
+                        // Syn converts doc comments into doc attrs, work around that here by detecting a mismatch between the token and the 
+                        // source (written /, token is #) and skipping all tokens within the fake doc attr range
+                        loop {
+                            let in_comment = ts.peek().map(|n| n.span().start() < g.span().end()).unwrap_or(false);
+                            if !in_comment { break; }
+                            ts.next();
+                        }
+                    } else {
+                        state.last_offset = state.to_offset(g.span().end());
+                        out.push(proc_macro2::TokenTree::Punct(g));
                     }
                 },
-                None => { break 'comment_loop; },
+                proc_macro2::TokenTree::Literal(g) => {
+                    state.extract(state.last_offset, g.span().start());
+                    state.last_offset = state.to_offset(g.span().end());
+                    out.push(proc_macro2::TokenTree::Literal(g));
+                },
             }
         }
-        buffer.flush();
-        if !buffer.out.is_empty() { self.comments.insert(HashLineColumn(loc), buffer.out); }
+        TokenStream::from_iter(out)
     }
+
+    let tokens = recurse(&mut state, TokenStream::from_str(source).map_err(|e| anyhow!("{:?}", e))?);
+    Ok((state.comments, tokens))
 }
 
 struct State {stack: Vec<Box<dyn StackEl>>, line_buffer: String, need_nl: bool}
