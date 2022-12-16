@@ -146,7 +146,9 @@ fn main() {
             );
         }
         match syn::parse_str::<File>(&res.rendered) {
-            Ok(_) => { },
+            Ok(_) => {
+
+            },
             Err(e) => {
                 eprintln!("{}", res.rendered);
                 return Err(
@@ -193,7 +195,9 @@ fn main() {
             print!("{}", out);
             Ok(())
         }) {
-            Ok(_) => { },
+            Ok(_) => {
+
+            },
             Err(e) => {
                 eprintln!("Error formatting stdin: {:?}", e);
                 process::exit(1);
@@ -214,7 +218,9 @@ fn main() {
                 }
                 Ok(())
             }) {
-                Ok(_) => { },
+                Ok(_) => {
+
+                },
                 Err(e) => {
                     eprintln!("Error formatting {:?}: {:?}", file, e);
                     failed = true;

@@ -124,16 +124,22 @@ pub(crate) fn append_path<'a>(
                     Some(t) => {
                         append_comments(out, base_indent, node, t);
                     },
-                    None => { },
+                    None => {
+
+                    },
                 };
                 node.seg(out, "::");
             },
-            None => { },
+            None => {
+
+            },
         }
         append_comments(out, base_indent, node, seg.value().ident.span().start());
         node.seg(out, &seg.value().ident.to_string());
         match &seg.value().arguments {
-            syn::PathArguments::None => { },
+            syn::PathArguments::None => {
+
+            },
             syn::PathArguments::AngleBracketed(a) => {
                 node.child(
                     new_sg_comma_bracketed_list(
@@ -364,7 +370,9 @@ impl Formattable for TypeParamBound {
                     node.seg(out, "(");
                 }
                 match t.modifier {
-                    syn::TraitBoundModifier::None => { },
+                    syn::TraitBoundModifier::None => {
+
+                    },
                     syn::TraitBoundModifier::Maybe(_) => node.seg(out, "?"),
                 }
                 if let Some(hot) = &t.lifetimes {
@@ -487,7 +495,9 @@ impl Formattable for &Type {
                     );
                 }
                 match &x.output {
-                    ReturnType::Default => { },
+                    ReturnType::Default => {
+
+                    },
                     ReturnType::Type(_, t) => {
                         node.seg(out, " -> ");
                         node.child(t.make_segs(out, base_indent));

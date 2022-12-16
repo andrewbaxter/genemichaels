@@ -6,6 +6,6 @@ pub fn err_stop<R: , F: FnOnce() -> Result<R>>(f: F) -> Result<R> {
 }
 
 #[macro_export]
-macro_rules! es{($ b : expr) => {
-    $ crate :: utils :: err_stop(||$ b)
+macro_rules! es{($b: expr) => {
+    $crate:: utils:: err_stop(|| $b)
 };}

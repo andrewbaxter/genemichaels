@@ -707,7 +707,9 @@ impl StackEl for StackBlock {
                         pulldown_cmark::CodeBlockKind::Fenced(x) => x,
                     }));
                     self.line.flush(state, out);
-                    Ok(StackRes::Push(Box::new(StackCodeBlock{ line: self.line.zero_indent() })))
+                    Ok(StackRes::Push(Box::new(StackCodeBlock{
+                        line: self.line.zero_indent(),
+                    })))
                 },
                 pulldown_cmark::Tag::List(ordered) => {
                     self.block_ev(state, out);
@@ -1041,7 +1043,9 @@ pub(crate) fn format_md(
                 StackRes::Keep => {
                     state.stack.push(top);
                 },
-                StackRes::Pop => { },
+                StackRes::Pop => {
+
+                },
             }
         }
         Ok(out)

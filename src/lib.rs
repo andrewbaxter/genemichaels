@@ -127,7 +127,9 @@ pub(crate) fn line_length(line: &RefCell<Line>) -> usize {
                     out += b.get();
                 }
             },
-            SegmentContent::Comment(_) => { },
+            SegmentContent::Comment(_) => {
+
+            },
         };
     }
     out
@@ -150,7 +152,9 @@ pub(crate) fn split_group(node: &RefCell<SplitGroup>) {
             Some((line, index)) => {
                 split_line_at(&line, index, None);
             },
-            None => { },
+            None => {
+
+            },
         };
     }
 }
@@ -172,7 +176,9 @@ pub(crate) fn split_line_at(line: &RefCell<Line>, at: usize, inject_start: Optio
             SegmentContent::Comment((a, _)) => {
                 a.activate();
             },
-            _ => { },
+            _ => {
+
+            },
         };
     }
     insert_line(line.borrow().lines.clone(), line.borrow().index + 1, new_segs);
@@ -423,7 +429,7 @@ impl Default for FormatConfig {
         Self{
             max_width: 120,
             root_splits: false,
-            split_brace_threshold: Some(0usize),
+            split_brace_threshold: Some(1usize),
             split_attributes: true,
             comment_width: Some(80usize),
             comment_errors_fatal: false,
@@ -462,7 +468,9 @@ pub fn format_ast(
         active: false,
     })));
     let root = ast.make_segs(&mut out, &base_indent);
-    let lines = Rc::new(RefCell::new(Lines{ lines: vec![] }));
+    let lines = Rc::new(RefCell::new(Lines{
+        lines: vec![],
+    }));
     let line = Rc::new(RefCell::new(Line{
         lines: lines.clone(),
         index: 0,

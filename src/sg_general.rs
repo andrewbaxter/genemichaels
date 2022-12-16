@@ -123,7 +123,9 @@ pub(crate) fn append_statement_list_raw(
             syn::AttrStyle::Outer => {
                 continue;
             },
-            syn::AttrStyle::Inner(_) => { },
+            syn::AttrStyle::Inner(_) => {
+
+            },
         };
         if i > 0 {
             sg.split_if(out, base_indent.clone(), out.split_attributes, false);
@@ -308,7 +310,9 @@ pub(crate) fn new_sg_outer_attrs(
     let mut sg = new_sg();
     for attr in attrs {
         match attr.style {
-            syn::AttrStyle::Outer => { },
+            syn::AttrStyle::Outer => {
+
+            },
             syn::AttrStyle::Inner(_) => {
                 continue;
             },
@@ -370,12 +374,12 @@ pub(crate) fn append_macro_body(
     tokens: TokenStream,
 ) {
     if let Ok(exprs) = syn::parse2::<ExprCall>(quote!{
-        f(# tokens)
+        f(#tokens)
     }) {
         append_inline_list_raw(out, base_indent, sg, ",", false, &exprs.args);
     } else if let Ok(block) = syn::parse2::<Block>(quote!{
         {
-            # tokens
+            #tokens
         }
     }) {
         append_statement_list_raw(out, base_indent, sg, None, &block.stmts);
@@ -420,7 +424,7 @@ pub(crate) fn append_macro_body(
             let tokens = TokenStream::from_iter(sub.0);
             let punct = sub.1;
             if let Ok(exprs) = syn::parse2::<ExprCall>(quote!{
-                f(# tokens # punct)
+                f(#tokens #punct)
             }) {
                 assert!(exprs.args.len() <= 1);
                 if let Some(e) = exprs.args.iter().next() {
@@ -431,7 +435,7 @@ pub(crate) fn append_macro_body(
                 }
             } else if let Ok(block) = syn::parse2::<Block>(quote!{
                 {
-                    # tokens # punct
+                    #tokens #punct
                 }
             }) {
                 append_statement_list_raw(out, base_indent, sg, None, &block.stmts);
@@ -455,7 +459,9 @@ pub(crate) fn append_macro_body(
                                     },
                                     proc_macro2::Delimiter::Brace => {
                                         match mode {
-                                            ConsecMode::ConnectForward => { },
+                                            ConsecMode::ConnectForward => {
+
+                                            },
                                             _ => {
                                                 sg.seg(out, " ");
                                             },
@@ -487,7 +493,9 @@ pub(crate) fn append_macro_body(
                         },
                         proc_macro2::TokenTree::Ident(i) => {
                             match mode {
-                                ConsecMode::ConnectForward => { },
+                                ConsecMode::ConnectForward => {
+
+                                },
                                 ConsecMode::NoConnect | ConsecMode::Punct => {
                                     sg.seg(out, " ");
                                 },
@@ -499,7 +507,9 @@ pub(crate) fn append_macro_body(
                         proc_macro2::TokenTree::Punct(p) => match p.as_char() {
                             '\'' | '$' | '#' => {
                                 match mode {
-                                    ConsecMode::ConnectForward => { },
+                                    ConsecMode::ConnectForward => {
+
+                                    },
                                     ConsecMode::NoConnect | ConsecMode::Punct => {
                                         sg.seg(out, " ");
                                     },
@@ -515,11 +525,15 @@ pub(crate) fn append_macro_body(
                             },
                             _ => {
                                 match mode {
-                                    ConsecMode::ConnectForward => { },
+                                    ConsecMode::ConnectForward => {
+
+                                    },
                                     ConsecMode::NoConnect => {
                                         sg.seg(out, " ");
                                     },
-                                    ConsecMode::Punct => { },
+                                    ConsecMode::Punct => {
+
+                                    },
                                 }
                                 append_comments(out, base_indent, sg, p.span().start());
                                 sg.seg(out, &p.to_string());
@@ -528,7 +542,9 @@ pub(crate) fn append_macro_body(
                         },
                         proc_macro2::TokenTree::Literal(l) => {
                             match mode {
-                                ConsecMode::ConnectForward => { },
+                                ConsecMode::ConnectForward => {
+
+                                },
                                 ConsecMode::NoConnect | ConsecMode::Punct => {
                                     sg.seg(out, " ");
                                 },

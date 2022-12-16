@@ -82,7 +82,9 @@ fn append_vis(out: &mut MakeSegsState, base_indent: &Alignment, node: &mut Split
             });
             node.seg(out, ") ");
         },
-        syn::Visibility::Inherited => { },
+        syn::Visibility::Inherited => {
+
+        },
     }
 }
 
@@ -145,7 +147,9 @@ fn append_sig(out: &mut MakeSegsState, base_indent: &Alignment, sg: &mut SplitGr
             );
         }
         match &sig.output {
-            ReturnType::Default => { },
+            ReturnType::Default => {
+
+            },
             ReturnType::Type(_, t) => {
                 sg.seg(out, " -> ");
                 sg.child(t.make_segs(out, base_indent));
@@ -1017,7 +1021,9 @@ impl Formattable for Variant {
                         ")",
                     );
                 },
-                syn::Fields::Unit => { },
+                syn::Fields::Unit => {
+
+                },
             }
             if let Some(e) = &self.discriminant {
                 append_binary(out, base_indent, &mut sg, " =", &e.1);
