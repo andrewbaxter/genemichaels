@@ -208,6 +208,7 @@ impl Formattable for &Expr {
                             base_indent,
                             c.span.start(),
                             "async move {",
+                            Some(&e.attrs),
                             &e.block.stmts,
                             e.block.brace_token.span.end().prev(),
                         )
@@ -217,6 +218,7 @@ impl Formattable for &Expr {
                             base_indent,
                             e.async_token.span.start(),
                             "async {",
+                            Some(&e.attrs),
                             &e.block.stmts,
                             e.block.brace_token.span.end().prev(),
                         )
@@ -256,6 +258,7 @@ impl Formattable for &Expr {
                         base_indent,
                         e.block.brace_token.span.start(),
                         "{",
+                        Some(&e.attrs),
                         &e.block.stmts,
                         e.block.brace_token.span.end().prev(),
                     )
@@ -868,7 +871,7 @@ impl Formattable for &Expr {
                     let mut sg = new_sg(out);
                     if let Some(l) = &e.label {
                         append_comments(out, base_indent, &mut sg, l.name.apostrophe.start());
-                        sg.seg(out, format!("{}: ", l.to_token_stream()));
+                        sg.seg(out, format!("{}: ", l.name));
                     }
                     append_comments(out, base_indent, &mut sg, e.while_token.span.start());
                     sg.seg(out, "while ");

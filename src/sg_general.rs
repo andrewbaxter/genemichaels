@@ -174,12 +174,13 @@ pub(crate) fn new_sg_block(
     base_indent: &Alignment,
     start: LineColumn,
     prefix: &'static str,
+    attrs: Option<&Vec<Attribute>>,
     block: &Vec<impl FormattableStmt>,
     end: LineColumn,
 ) -> SplitGroupIdx {
     let mut sg = new_sg(out);
     append_comments(out, base_indent, &mut sg, start);
-    append_bracketed_statement_list(out, base_indent, &mut sg, prefix, None, block, end);
+    append_bracketed_statement_list(out, base_indent, &mut sg, prefix, attrs, block, end);
     sg.build(out)
 }
 
@@ -426,6 +427,7 @@ pub(crate) fn append_macro_body(
                     sg.child(e.make_segs(out, base_indent));
                 }
                 if let Some(suf) = punct {
+                    append_comments(out, base_indent, sg, suf.span().start());
                     sg.seg(out, suf);
                 }
             } else if let Ok(block) = syn::parse2::<Block>(quote!{
@@ -539,6 +541,7 @@ pub(crate) fn append_macro_body(
                     }
                 }
                 if let Some(suf) = punct {
+                    append_comments(out, base_indent, sg, suf.span().start());
                     sg.seg(out, suf);
                 }
             }
