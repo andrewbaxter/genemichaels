@@ -88,31 +88,47 @@ fn main() {
     #[derive(Parser)]
     struct Args {
         files: Vec<PathBuf>,
-        #[arg(short, long, default_value_t = 120)]
-        line_length: usize,
         #[arg(short, long, help = "Modify the file in place rather than print to stdout")]
         write: bool,
+        #[arg(short, long, default_value_t = FormatConfig::default().max_width)]
+        line_length: usize,
         #[arg(long, help = "For any node that's split, all parent nodes must also be split")]
         root_splits: bool,
         #[arg(
             long,
             help = "Always split {} groups with >= this number of children; disable with `off`",
-            default_value_t = Offable::On(1),
+            default_value_t = match FormatConfig::default().split_brace_threshold {
+                Some(x) => Offable::On(x),
+                None => Offable::Off,
+            },
         )]
         split_brace_threshold: Offable<usize>,
-        #[arg(long, help = "Always split #[] attributes; disable with `false`", default_value_t = Offable::On(On))]
+        #[arg(
+            long,
+            help = "Always split #[] attributes; disable with `false`",
+            default_value_t = match FormatConfig::default().split_attributes {
+                true => Offable::On(On),
+                false => Offable::Off,
+            },
+        )]
         split_attributes: Offable<On>,
         #[arg(
             long,
             help =
                 "Use a max comment length relative to start of comment (i.e. ignoring indentation); disable with `off`",
-            default_value_t = Offable::On(80),
+            default_value_t = match FormatConfig::default().comment_width {
+                Some(x) => Offable::On(x),
+                None => Offable::Off,
+            },
         )]
         comment_length: Offable<usize>,
         #[arg(
             long,
             help = "Problems formatting comments are fatal; disable with `false`",
-            default_value_t = Offable::On(On),
+            default_value_t = match FormatConfig::default().comment_errors_fatal {
+                true => Offable::On(On),
+                false => Offable::Off,
+            },
         )]
         comment_errors_fatal: Offable<On>,
     }

@@ -418,6 +418,19 @@ pub struct FormatConfig {
     pub comment_errors_fatal: bool,
 }
 
+impl Default for FormatConfig {
+    fn default() -> Self {
+        Self{
+            max_width: 120,
+            root_splits: false,
+            split_brace_threshold: Some(0usize),
+            split_attributes: true,
+            comment_width: Some(80usize),
+            comment_errors_fatal: false,
+        }
+    }
+}
+
 pub struct FormatRes {
     pub rendered: String,
     pub lost_comments: HashMap<HashLineColumn, Vec<Comment>>,
