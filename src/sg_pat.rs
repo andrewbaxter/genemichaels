@@ -17,6 +17,7 @@ use crate::{
         new_sg_comma_bracketed_list,
         new_sg_comma_bracketed_list_ext,
         new_sg_macro,
+        append_comments,
     },
     sg_type::{
         build_extended_path,
@@ -67,7 +68,7 @@ impl Formattable for &Pat {
                     if let Some(at) = &x.subpat {
                         new_sg_binary(out, base_indent, |out: &mut MakeSegsState, base_indent: &Alignment| {
                             new_sg_lit(out, start.map(|s| (base_indent, s)), &prefix)
-                        }, " @", &*at.1)
+                        }, at.0.span.start(), " @", &*at.1)
                     } else {
                         new_sg_lit(out, start.map(|s| (base_indent, s)), prefix)
                     }
@@ -94,12 +95,13 @@ impl Formattable for &Pat {
                 base_indent,
                 &x.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut node = new_sg(out);
-                    if x.leading_vert.is_some() {
-                        node.seg(out, "| ");
+                    let mut sg = new_sg(out);
+                    if let Some(t) = &x.leading_vert {
+                        append_comments(out, base_indent, &mut sg, t.span.start());
+                        sg.seg(out, "| ");
                     }
-                    append_inline_list_raw(out, base_indent, &mut node, " |", false, &x.cases);
-                    node.build(out)
+                    append_inline_list_raw(out, base_indent, &mut sg, " |", false, &x.cases);
+                    sg.build(out)
                 },
             ),
             Pat::Path(x) => new_sg_outer_attrs(
@@ -115,10 +117,11 @@ impl Formattable for &Pat {
                 base_indent,
                 &x.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    new_sg_binary(out, base_indent, x.lo.as_ref(), match x.limits {
-                        syn::RangeLimits::HalfOpen(_) => "..",
-                        syn::RangeLimits::Closed(_) => "..=",
-                    }, x.hi.as_ref())
+                    let (tok_loc, tok) = match x.limits {
+                        syn::RangeLimits::HalfOpen(x) => (x.spans[0].start(), ".."),
+                        syn::RangeLimits::Closed(x) => (x.spans[0].start(), "..="),
+                    };
+                    new_sg_binary(out, base_indent, x.lo.as_ref(), tok_loc, tok, x.hi.as_ref())
                 },
             ),
             Pat::Reference(x) => new_sg_outer_attrs(
@@ -225,7 +228,7 @@ impl Formattable for &Pat {
                 base_indent,
                 &x.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    new_sg_binary(out, base_indent, x.pat.as_ref(), ":", x.ty.as_ref())
+                    new_sg_binary(out, base_indent, x.pat.as_ref(), x.colon_token.span.start(), ":", x.ty.as_ref())
                 },
             ),
             Pat::Verbatim(x) => new_sg_lit(out, None, x),

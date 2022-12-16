@@ -15,6 +15,11 @@ use syn::{
     Block,
     ExprCall,
     Macro,
+    token::{
+        Comma,
+        Or,
+        Add,
+    },
 };
 use crate::{
     comments::HashLineColumn,
@@ -29,6 +34,7 @@ use crate::{
     TrivialLineColMath,
     check_split_brace_threshold,
     SplitGroupIdx,
+    FormattablePunct,
 };
 
 pub(crate) fn build_rev_pair(
@@ -63,13 +69,15 @@ pub(crate) fn new_sg_binary(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
     left: impl Formattable,
+    tok_loc: LineColumn,
     tok: &str,
     right: impl Formattable,
 ) -> SplitGroupIdx {
-    let mut node = new_sg(out);
-    node.child(left.make_segs(out, base_indent));
-    append_binary(out, base_indent, &mut node, tok, right);
-    node.build(out)
+    let mut sg = new_sg(out);
+    sg.child(left.make_segs(out, base_indent));
+    append_comments(out, base_indent, &mut sg, tok_loc);
+    append_binary(out, base_indent, &mut sg, tok, right);
+    sg.build(out)
 }
 
 pub(crate) fn append_attr(
@@ -175,31 +183,34 @@ pub(crate) fn new_sg_block(
     sg.build(out)
 }
 
-pub(crate) fn append_inline_list_raw<E: Formattable, T: >(
+pub(crate) fn append_inline_list_raw<E: Formattable, T: FormattablePunct>(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
-    node: &mut SplitGroupBuilder,
+    sg: &mut SplitGroupBuilder,
     punct: &str,
     punct_is_suffix: bool,
     exprs: &Punctuated<E, T>,
 ) {
     for (i, pair) in exprs.pairs().enumerate() {
         if i > 0 {
-            node.split(out, base_indent.clone(), true);
+            sg.split(out, base_indent.clone(), true);
         }
-        node.child(pair.value().make_segs(out, &base_indent));
+        if let Some(p) = pair.punct() {
+            append_comments(out, base_indent, sg, p.span_start());
+        }
+        sg.child(pair.value().make_segs(out, &base_indent));
         if i < exprs.len() - 1 {
-            node.seg(out, punct);
-            node.seg_unsplit(out, " ");
+            sg.seg(out, punct);
+            sg.seg_unsplit(out, " ");
         } else {
             if punct_is_suffix {
-                node.seg_split(out, punct);
+                sg.seg_split(out, punct);
             }
         }
     }
 }
 
-pub(crate) fn append_inline_list<E: Formattable, T: >(
+pub(crate) fn append_inline_list<E: Formattable, T: FormattablePunct>(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
     sg: &mut SplitGroupBuilder,
@@ -212,7 +223,7 @@ pub(crate) fn append_inline_list<E: Formattable, T: >(
     append_inline_list_raw(out, &indent, sg, punct, punct_is_suffix, exprs);
 }
 
-pub(crate) fn append_comma_bracketed_list<E: Formattable, T: >(
+pub(crate) fn append_comma_bracketed_list<E: Formattable, T: FormattablePunct>(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
     sg: &mut SplitGroupBuilder,
@@ -231,7 +242,7 @@ pub(crate) fn append_comma_bracketed_list<E: Formattable, T: >(
     sg.seg(out, suffix);
 }
 
-pub(crate) fn new_sg_comma_bracketed_list<E: Formattable, T: >(
+pub(crate) fn new_sg_comma_bracketed_list<E: Formattable, T: FormattablePunct>(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
     base: Option<impl Formattable>,
@@ -250,7 +261,7 @@ pub(crate) fn new_sg_comma_bracketed_list<E: Formattable, T: >(
     sg.build(out)
 }
 
-pub(crate) fn new_sg_comma_bracketed_list_ext<E: Formattable, T: >(
+pub(crate) fn new_sg_comma_bracketed_list_ext<E: Formattable, T: FormattablePunct>(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
     base: Option<impl Formattable>,
@@ -563,4 +574,22 @@ pub(crate) fn has_comments(out: &mut MakeSegsState, t: impl ToTokens) -> bool {
         .next()
         .map(|t| out.comments.contains_key(&HashLineColumn(t.span().start())))
         .unwrap_or(false)
+}
+
+impl FormattablePunct for Comma {
+    fn span_start(&self) -> LineColumn {
+        self.span.start()
+    }
+}
+
+impl FormattablePunct for Or {
+    fn span_start(&self) -> LineColumn {
+        self.span.start()
+    }
+}
+
+impl FormattablePunct for Add {
+    fn span_start(&self) -> LineColumn {
+        self.span.start()
+    }
 }

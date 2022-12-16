@@ -410,7 +410,7 @@ impl Formattable for TraitItem {
                         if let Some(d) = &x.default {
                             new_sg_binary(out, base_indent, |out: &mut MakeSegsState, base_indent: &Alignment| {
                                 build_base(out, base_indent)
-                            }, " =", &d.1)
+                            }, d.0.span.start(), " =", &d.1)
                         } else {
                             build_base(out, base_indent)
                         }
@@ -480,6 +480,7 @@ impl Formattable for TraitItem {
                                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                                     build_base(out, base_indent)
                                 },
+                                d.0.span.start(),
                                 " =",
                                 &d.1,
                             ),

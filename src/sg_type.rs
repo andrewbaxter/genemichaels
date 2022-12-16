@@ -253,11 +253,18 @@ pub(crate) fn build_generics_part_b(
     base: impl Formattable,
     wh: &WhereClause,
 ) -> SplitGroupIdx {
-    new_sg_binary(out, base_indent, base, " where", |out: &mut MakeSegsState, base_indent: &Alignment| {
-        let mut node = new_sg(out);
-        append_inline_list(out, base_indent, &mut node, ",", true, &wh.predicates);
-        node.build(out)
-    })
+    new_sg_binary(
+        out,
+        base_indent,
+        base,
+        wh.where_token.span.start(),
+        " where",
+        |out: &mut MakeSegsState, base_indent: &Alignment| {
+            let mut node = new_sg(out);
+            append_inline_list(out, base_indent, &mut node, ",", true, &wh.predicates);
+            node.build(out)
+        },
+    )
 }
 
 impl Formattable for WherePredicate {
@@ -290,7 +297,14 @@ impl Formattable for WherePredicate {
                 append_inline_list(out, base_indent, &mut node, " +", false, &l.bounds);
                 node.build(out)
             },
-            WherePredicate::Eq(e) => new_sg_binary(out, base_indent, &e.lhs_ty, " =", &e.rhs_ty),
+            WherePredicate::Eq(e) => new_sg_binary(
+                out,
+                base_indent,
+                &e.lhs_ty,
+                e.eq_token.span.start(),
+                " =",
+                &e.rhs_ty,
+            ),
         }
     }
 }
@@ -306,14 +320,14 @@ impl Formattable for GenericParam {
                     let build_base = |out: &mut MakeSegsState, base_indent: &Alignment| {
                         let mut sg = new_sg(out);
                         sg.seg(out, &t.ident);
-                        if t.colon_token.is_some() {
+                        if t.colon_token.is_some() && !t.bounds.is_empty() {
                             sg.seg(out, ": ");
                             append_inline_list(out, base_indent, &mut sg, " +", false, &t.bounds);
                         }
                         sg.build(out)
                     };
                     if let Some(def) = &t.default {
-                        new_sg_binary(out, base_indent, build_base, " =", def)
+                        new_sg_binary(out, base_indent, build_base, t.eq_token.unwrap().span.start(), " =", def)
                     } else {
                         build_base(out, base_indent)
                     }
@@ -336,7 +350,7 @@ impl Formattable for GenericParam {
                         node.build(out)
                     };
                     if let Some(def) = &c.default {
-                        new_sg_binary(out, base_indent, build_base, " =", def)
+                        new_sg_binary(out, base_indent, build_base, c.eq_token.unwrap().span.start(), " =", def)
                     } else {
                         build_base(out, base_indent)
                     }
@@ -630,7 +644,7 @@ impl Formattable for FnArg {
                 base_indent,
                 &x.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    new_sg_binary(out, base_indent, x.pat.as_ref(), ":", x.ty.as_ref())
+                    new_sg_binary(out, base_indent, x.pat.as_ref(), x.colon_token.span.start(), ":", x.ty.as_ref())
                 },
             ),
         }
@@ -643,7 +657,14 @@ impl Formattable for GenericArgument {
             GenericArgument::Lifetime(l) => l.make_segs(out, base_indent),
             GenericArgument::Type(t) => t.make_segs(out, base_indent),
             GenericArgument::Const(c) => c.make_segs(out, base_indent),
-            GenericArgument::Binding(b) => new_sg_binary(out, base_indent, &b.ident, " =", &b.ty),
+            GenericArgument::Binding(b) => new_sg_binary(
+                out,
+                base_indent,
+                &b.ident,
+                b.eq_token.span.start(),
+                " =",
+                &b.ty,
+            ),
             GenericArgument::Constraint(c) => {
                 let mut node = new_sg(out);
                 node.seg(out, &c.ident);

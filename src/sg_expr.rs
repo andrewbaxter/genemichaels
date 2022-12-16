@@ -179,7 +179,7 @@ impl Formattable for &Expr {
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    new_sg_binary(out, base_indent, e.left.as_ref(), " =", e.right.as_ref())
+                    new_sg_binary(out, base_indent, e.left.as_ref(), e.eq_token.span.start(), " =", e.right.as_ref())
                 },
             ),
             Expr::AssignOp(e) => new_sg_outer_attrs(
@@ -191,6 +191,7 @@ impl Formattable for &Expr {
                         out,
                         base_indent,
                         e.left.as_ref(),
+                        e.op.to_token_stream().into_iter().next().unwrap().span().start(),
                         &format!(" {}", e.op.to_token_stream()),
                         e.right.as_ref(),
                     )
@@ -239,6 +240,7 @@ impl Formattable for &Expr {
                         out,
                         base_indent,
                         e.left.as_ref(),
+                        e.op.to_token_stream().into_iter().next().unwrap().span().start(),
                         &format!(" {}", e.op.to_token_stream()),
                         e.right.as_ref(),
                     )
@@ -311,7 +313,7 @@ impl Formattable for &Expr {
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    new_sg_binary(out, base_indent, e.expr.as_ref(), " as", e.ty.as_ref())
+                    new_sg_binary(out, base_indent, e.expr.as_ref(), e.as_token.span.start(), " as", e.ty.as_ref())
                 },
             ),
             Expr::Closure(e) => new_sg_outer_attrs(
@@ -369,13 +371,13 @@ impl Formattable for &Expr {
                             },
                             e.body.as_ref(),
                         ),
-                        syn::ReturnType::Type(_, output) => build_rev_pair(
+                        syn::ReturnType::Type(tok, output) => build_rev_pair(
                             out,
                             base_indent,
                             |out: &mut MakeSegsState, base_indent: &Alignment| {
                                 new_sg_binary(out, base_indent, |out: &mut MakeSegsState, base_indent: &Alignment| {
                                     build_base(out, base_indent, e)
-                                }, " ->", output.as_ref())
+                                }, tok.spans[0].start(), " ->", output.as_ref())
                             },
                             e.body.as_ref(),
                         ),
@@ -576,7 +578,14 @@ impl Formattable for &Expr {
                                     let mut sg = new_sg(out);
                                     sg.child({
                                         if let Some(guard) = &arm.guard {
-                                            new_sg_binary(out, &indent, &arm.pat, " if", guard.1.as_ref())
+                                            new_sg_binary(
+                                                out,
+                                                &indent,
+                                                &arm.pat,
+                                                guard.0.span.start(),
+                                                " if",
+                                                guard.1.as_ref(),
+                                            )
                                         } else {
                                             arm.pat.make_segs(out, &indent)
                                         }
@@ -644,21 +653,24 @@ impl Formattable for &Expr {
                     match (&e.from, &e.to) {
                         (None, None) => new_sg_lit(out, Some((base_indent, tok_loc)), tok),
                         (None, Some(r)) => {
-                            let mut node = new_sg(out);
-                            node.seg(out, tok);
-                            node.child(r.as_ref().make_segs(out, base_indent));
-                            node.build(out)
+                            let mut sg = new_sg(out);
+                            append_comments(out, base_indent, &mut sg, tok_loc);
+                            sg.seg(out, tok);
+                            sg.child(r.as_ref().make_segs(out, base_indent));
+                            sg.build(out)
                         },
                         (Some(l), None) => {
-                            let mut node = new_sg(out);
-                            node.child(l.as_ref().make_segs(out, base_indent));
-                            node.seg(out, tok);
-                            node.build(out)
+                            let mut sg = new_sg(out);
+                            append_comments(out, base_indent, &mut sg, tok_loc);
+                            sg.child(l.as_ref().make_segs(out, base_indent));
+                            sg.seg(out, tok);
+                            sg.build(out)
                         },
                         (Some(l), Some(r)) => new_sg_binary(
                             out,
                             base_indent,
                             l.as_ref(),
+                            tok_loc,
                             &format!(" {}", tok),
                             r.as_ref(),
                         ),
@@ -803,7 +815,7 @@ impl Formattable for &Expr {
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    new_sg_binary(out, base_indent, e.expr.as_ref(), ":", e.ty.as_ref())
+                    new_sg_binary(out, base_indent, e.expr.as_ref(), e.colon_token.span.start(), ":", e.ty.as_ref())
                 },
             ),
             Expr::Unary(e) => new_sg_outer_attrs(

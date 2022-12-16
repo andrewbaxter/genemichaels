@@ -411,6 +411,10 @@ pub(crate) enum MarginGroup {
     None,
 }
 
+pub(crate) trait FormattablePunct {
+    fn span_start(&self) -> LineColumn;
+}
+
 pub(crate) trait FormattableStmt: ToTokens + Formattable {
     fn want_margin(&self) -> (MarginGroup, bool);
 }
