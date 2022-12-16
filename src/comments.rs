@@ -136,7 +136,6 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
                                     None => (text, text.len()),
                                 };
                                 buffer.add(mode, line);
-                                assert_ne!(next_start, 0);
                                 text = &text[next_start..];
                             },
                             "/*" => {
@@ -178,7 +177,6 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
                                     line = line.strip_prefix("* ").unwrap_or(line);
                                     buffer.add(mode, line);
                                 }
-                                assert_ne!(next_start, 0);
                                 text = &text[next_start..];
                             },
                             _ => unreachable!(),

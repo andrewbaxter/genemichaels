@@ -127,9 +127,7 @@ pub(crate) fn line_length(line: &RefCell<Line>) -> usize {
                     out += b.get();
                 }
             },
-            SegmentContent::Comment(_) => {
-
-            },
+            SegmentContent::Comment(_) => { },
         };
     }
     out
@@ -152,9 +150,7 @@ pub(crate) fn split_group(node: &RefCell<SplitGroup>) {
             Some((line, index)) => {
                 split_line_at(&line, index, None);
             },
-            None => {
-
-            },
+            None => { },
         };
     }
 }
@@ -176,9 +172,7 @@ pub(crate) fn split_line_at(line: &RefCell<Line>, at: usize, inject_start: Optio
             SegmentContent::Comment((a, _)) => {
                 a.activate();
             },
-            _ => {
-
-            },
+            _ => { },
         };
     }
     insert_line(line.borrow().lines.clone(), line.borrow().index + 1, new_segs);
@@ -468,9 +462,7 @@ pub fn format_ast(
         active: false,
     })));
     let root = ast.make_segs(&mut out, &base_indent);
-    let lines = Rc::new(RefCell::new(Lines{
-        lines: vec![],
-    }));
+    let lines = Rc::new(RefCell::new(Lines{ lines: vec![] }));
     let line = Rc::new(RefCell::new(Line{
         lines: lines.clone(),
         index: 0,
@@ -693,7 +685,7 @@ pub fn format_ast(
                         };
                         if verbatim {
                             for line in comment.lines.lines() {
-                                rendered.push_str(format!("{}[{}]", prefix, line).trim());
+                                rendered.push_str(format!("{}{}", prefix, line).trim());
                                 rendered.push_str("\n");
                             }
                         }
