@@ -1,7 +1,5 @@
 use std::{
-    cell::RefCell,
     fmt::Write,
-    rc::Rc,
 };
 use proc_macro2::{
     LineColumn,
@@ -26,11 +24,11 @@ use crate::{
     Formattable,
     FormattableStmt,
     MakeSegsState,
-    SplitGroup,
     SplitGroupBuilder,
     MarginGroup,
     TrivialLineColMath,
     check_split_brace_threshold,
+    SplitGroupIdx,
 };
 
 pub(crate) fn build_rev_pair(
@@ -38,16 +36,13 @@ pub(crate) fn build_rev_pair(
     base_indent: &Alignment,
     base: impl Formattable,
     right: impl Formattable,
-) -> Rc<
-    RefCell<SplitGroup>,
-> {
-    let mut node = new_sg();
-    node.child(base.make_segs(out, base_indent));
-    node.seg(out, " ");
-    node.child(right.make_segs(out, base_indent));
-    let out = node.build();
-    out.borrow_mut().children.reverse();
-    out
+) -> SplitGroupIdx {
+    let mut sg = new_sg(out);
+    sg.child(base.make_segs(out, base_indent));
+    sg.seg(out, " ");
+    sg.child(right.make_segs(out, base_indent));
+    sg.reverse_children();
+    sg.build(out)
 }
 
 pub(crate) fn append_binary(
@@ -70,13 +65,11 @@ pub(crate) fn new_sg_binary(
     left: impl Formattable,
     tok: &str,
     right: impl Formattable,
-) -> Rc<
-    RefCell<SplitGroup>,
-> {
-    let mut node = new_sg();
+) -> SplitGroupIdx {
+    let mut node = new_sg(out);
     node.child(left.make_segs(out, base_indent));
     append_binary(out, base_indent, &mut node, tok, right);
-    node.build()
+    node.build(out)
 }
 
 pub(crate) fn append_attr(
@@ -88,7 +81,7 @@ pub(crate) fn append_attr(
 ) {
     append_comments(out, base_indent, sg, attr.pound_token.span.start());
     sg.child({
-        let mut sg = new_sg();
+        let mut sg = new_sg(out);
         let indent = base_indent.indent();
         let mut prefix = String::new();
         prefix.write_str(if bang {
@@ -101,7 +94,7 @@ pub(crate) fn append_attr(
         append_macro_body(out, &indent, &mut sg, attr.tokens.clone());
         append_comments(out, &indent, &mut sg, attr.bracket_token.span.end().prev());
         sg.seg(out, "]");
-        sg.build()
+        sg.build(out)
     });
 }
 
@@ -123,9 +116,7 @@ pub(crate) fn append_statement_list_raw(
             syn::AttrStyle::Outer => {
                 continue;
             },
-            syn::AttrStyle::Inner(_) => {
-
-            },
+            syn::AttrStyle::Inner(_) => { },
         };
         if i > 0 {
             sg.split_if(out, base_indent.clone(), out.split_attributes, false);
@@ -177,13 +168,11 @@ pub(crate) fn new_sg_block(
     prefix: &'static str,
     block: &Vec<impl FormattableStmt>,
     end: LineColumn,
-) -> Rc<
-    RefCell<SplitGroup>,
-> {
-    let mut sg = new_sg();
+) -> SplitGroupIdx {
+    let mut sg = new_sg(out);
     append_comments(out, base_indent, &mut sg, start);
     append_bracketed_statement_list(out, base_indent, &mut sg, prefix, None, block, end);
-    sg.build()
+    sg.build(out)
 }
 
 pub(crate) fn append_inline_list_raw<E: Formattable, T: >(
@@ -251,16 +240,14 @@ pub(crate) fn new_sg_comma_bracketed_list<E: Formattable, T: >(
     exprs: &Punctuated<E, T>,
     end: LineColumn,
     suffix: &str,
-) -> Rc<
-    RefCell<SplitGroup>,
-> {
-    let mut sg = new_sg();
+) -> SplitGroupIdx {
+    let mut sg = new_sg(out);
     if let Some(base) = base {
         sg.child(base.make_segs(out, base_indent));
     }
     append_comments(out, base_indent, &mut sg, start);
     append_comma_bracketed_list(out, base_indent, &mut sg, prefix, exprs, end, suffix);
-    sg.build()
+    sg.build(out)
 }
 
 pub(crate) fn new_sg_comma_bracketed_list_ext<E: Formattable, T: >(
@@ -272,10 +259,8 @@ pub(crate) fn new_sg_comma_bracketed_list_ext<E: Formattable, T: >(
     exprs: &Punctuated<E, T>,
     extra: impl Formattable,
     suffix: &str,
-) -> Rc<
-    RefCell<SplitGroup>,
-> {
-    let mut sg = new_sg();
+) -> SplitGroupIdx {
+    let mut sg = new_sg(out);
     if let Some(base) = base {
         sg.child(base.make_segs(out, base_indent));
     }
@@ -293,7 +278,7 @@ pub(crate) fn new_sg_comma_bracketed_list_ext<E: Formattable, T: >(
     sg.seg_unsplit(out, " ");
     sg.split(out, base_indent.clone(), false);
     sg.seg(out, suffix);
-    sg.build()
+    sg.build(out)
 }
 
 pub(crate) fn new_sg_outer_attrs(
@@ -301,18 +286,14 @@ pub(crate) fn new_sg_outer_attrs(
     base_indent: &Alignment,
     attrs: &Vec<Attribute>,
     child: impl Formattable,
-) -> Rc<
-    RefCell<SplitGroup>,
-> {
+) -> SplitGroupIdx {
     if attrs.is_empty() {
         return child.make_segs(out, base_indent);
     }
-    let mut sg = new_sg();
+    let mut sg = new_sg(out);
     for attr in attrs {
         match attr.style {
-            syn::AttrStyle::Outer => {
-
-            },
+            syn::AttrStyle::Outer => { },
             syn::AttrStyle::Inner(_) => {
                 continue;
             },
@@ -324,13 +305,16 @@ pub(crate) fn new_sg_outer_attrs(
         sg.split_if(out, base_indent.clone(), out.split_attributes, false);
     }
     sg.child(child.make_segs(out, base_indent));
-    sg.build()
+    sg.build(out)
 }
 
-pub(crate) fn new_sg_macro(out: &mut MakeSegsState, base_indent: &Alignment, mac: &Macro, semi: bool) -> Rc<
-    RefCell<SplitGroup>,
-> {
-    let mut sg = new_sg();
+pub(crate) fn new_sg_macro(
+    out: &mut MakeSegsState,
+    base_indent: &Alignment,
+    mac: &Macro,
+    semi: bool,
+) -> SplitGroupIdx {
+    let mut sg = new_sg(out);
     sg.child(build_path(out, base_indent, &mac.path));
     sg.seg(out, "!");
     let indent = base_indent.indent();
@@ -364,7 +348,7 @@ pub(crate) fn new_sg_macro(out: &mut MakeSegsState, base_indent: &Alignment, mac
     if semi {
         sg.seg(out, ";");
     }
-    sg.build()
+    sg.build(out)
 }
 
 pub(crate) fn append_macro_body(
@@ -446,7 +430,7 @@ pub(crate) fn append_macro_body(
                         proc_macro2::TokenTree::Group(g) => {
                             append_comments(out, base_indent, sg, g.span_open().start());
                             sg.child({
-                                let mut sg = new_sg();
+                                let mut sg = new_sg(out);
                                 let indent = base_indent.indent();
                                 match g.delimiter() {
                                     proc_macro2::Delimiter::Parenthesis => {
@@ -459,9 +443,7 @@ pub(crate) fn append_macro_body(
                                     },
                                     proc_macro2::Delimiter::Brace => {
                                         match mode {
-                                            ConsecMode::ConnectForward => {
-
-                                            },
+                                            ConsecMode::ConnectForward => { },
                                             _ => {
                                                 sg.seg(out, " ");
                                             },
@@ -487,15 +469,13 @@ pub(crate) fn append_macro_body(
                                         append_macro_body(out, &indent, &mut sg, g.stream());
                                     },
                                 }
-                                sg.build()
+                                sg.build(out)
                             });
                             mode = ConsecMode::NoConnect;
                         },
                         proc_macro2::TokenTree::Ident(i) => {
                             match mode {
-                                ConsecMode::ConnectForward => {
-
-                                },
+                                ConsecMode::ConnectForward => { },
                                 ConsecMode::NoConnect | ConsecMode::Punct => {
                                     sg.seg(out, " ");
                                 },
@@ -507,9 +487,7 @@ pub(crate) fn append_macro_body(
                         proc_macro2::TokenTree::Punct(p) => match p.as_char() {
                             '\'' | '$' | '#' => {
                                 match mode {
-                                    ConsecMode::ConnectForward => {
-
-                                    },
+                                    ConsecMode::ConnectForward => { },
                                     ConsecMode::NoConnect | ConsecMode::Punct => {
                                         sg.seg(out, " ");
                                     },
@@ -525,15 +503,11 @@ pub(crate) fn append_macro_body(
                             },
                             _ => {
                                 match mode {
-                                    ConsecMode::ConnectForward => {
-
-                                    },
+                                    ConsecMode::ConnectForward => { },
                                     ConsecMode::NoConnect => {
                                         sg.seg(out, " ");
                                     },
-                                    ConsecMode::Punct => {
-
-                                    },
+                                    ConsecMode::Punct => { },
                                 }
                                 append_comments(out, base_indent, sg, p.span().start());
                                 sg.seg(out, &p.to_string());
@@ -542,9 +516,7 @@ pub(crate) fn append_macro_body(
                         },
                         proc_macro2::TokenTree::Literal(l) => {
                             match mode {
-                                ConsecMode::ConnectForward => {
-
-                                },
+                                ConsecMode::ConnectForward => { },
                                 ConsecMode::NoConnect | ConsecMode::Punct => {
                                     sg.seg(out, " ");
                                 },
@@ -576,12 +548,12 @@ pub(crate) fn append_comments(
         Some(c) => c,
         None => return,
     };
-    sg.add(out, Rc::new(RefCell::new(crate::Segment{
-        node: sg.node.clone(),
+    sg.add(out, crate::Segment{
+        node: sg.node,
         line: None,
         mode: crate::SegmentMode::All,
         content: crate::SegmentContent::Comment((base_indent.clone(), comments)),
-    })));
+    });
 }
 
 pub(crate) fn has_comments(out: &mut MakeSegsState, t: impl ToTokens) -> bool {

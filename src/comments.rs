@@ -613,7 +613,10 @@ impl StackEl for StackInline {
                 Ok(StackRes::Keep)
             },
             Event::Html(x) => {
-                self.line.write_unbreakable(state, out, &x);
+                for line in x.lines() {
+                    self.line.write_unbreakable(state, out, &line);
+                    self.line.flush_always(state, out);
+                }
                 Ok(StackRes::Keep)
             },
             Event::FootnoteReference(_) => Err(anyhow!("Unimplemented markdown footnote ref in inline")),
@@ -705,9 +708,7 @@ impl StackEl for StackBlock {
                         pulldown_cmark::CodeBlockKind::Fenced(x) => x,
                     }));
                     self.line.flush(state, out);
-                    Ok(StackRes::Push(Box::new(StackCodeBlock{
-                        line: self.line.zero_indent(),
-                    })))
+                    Ok(StackRes::Push(Box::new(StackCodeBlock{ line: self.line.zero_indent() })))
                 },
                 pulldown_cmark::Tag::List(ordered) => {
                     self.block_ev(state, out);
@@ -785,7 +786,10 @@ impl StackEl for StackBlock {
             },
             Event::Html(x) => {
                 self.inline_ev();
-                self.line.write_unbreakable(state, out, &x);
+                for line in x.lines() {
+                    self.line.write_unbreakable(state, out, &line);
+                    self.line.flush_always(state, out);
+                }
                 Ok(StackRes::Keep)
             },
             Event::FootnoteReference(_) => Err(anyhow!("Unimplemented markdown footnote ref in block")),
@@ -1041,9 +1045,7 @@ pub(crate) fn format_md(
                 StackRes::Keep => {
                     state.stack.push(top);
                 },
-                StackRes::Pop => {
-
-                },
+                StackRes::Pop => { },
             }
         }
         Ok(out)

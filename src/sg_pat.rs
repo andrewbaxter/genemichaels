@@ -1,7 +1,5 @@
 use std::{
-    cell::RefCell,
     fmt::Write,
-    rc::Rc,
 };
 use syn::{
     Expr,
@@ -27,22 +25,22 @@ use crate::{
     Alignment,
     Formattable,
     MakeSegsState,
-    SplitGroup,
     TrivialLineColMath,
+    SplitGroupIdx,
 };
 
 impl Formattable for &Pat {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
+    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
         match self {
             Pat::Box(x) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &x.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut node = new_sg();
+                    let mut node = new_sg(out);
                     node.seg(out, "box ");
                     node.child(x.pat.as_ref().make_segs(out, base_indent));
-                    node.build()
+                    node.build(out)
                 },
             ),
             Pat::Ident(x) => new_sg_outer_attrs(
@@ -96,12 +94,12 @@ impl Formattable for &Pat {
                 base_indent,
                 &x.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut node = new_sg();
+                    let mut node = new_sg(out);
                     if x.leading_vert.is_some() {
                         node.seg(out, "| ");
                     }
                     append_inline_list_raw(out, base_indent, &mut node, " |", false, &x.cases);
-                    node.build()
+                    node.build(out)
                 },
             ),
             Pat::Path(x) => new_sg_outer_attrs(
@@ -245,21 +243,21 @@ impl Formattable for &Pat {
 }
 
 impl Formattable for Pat {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
+    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
         (&self).make_segs(out, base_indent)
     }
 }
 
 impl Formattable for FieldPat {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
+    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
         new_sg_outer_attrs(out, base_indent, &self.attrs, |out: &mut MakeSegsState, base_indent: &Alignment| {
-            let mut sg = new_sg();
+            let mut sg = new_sg(out);
             match &self.member {
                 syn::Member::Named(x) => sg.seg(out, x),
                 syn::Member::Unnamed(x) => sg.seg(out, x.index),
             };
             append_binary(out, base_indent, &mut sg, ":", self.pat.as_ref());
-            sg.build()
+            sg.build(out)
         })
     }
 }

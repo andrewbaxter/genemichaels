@@ -216,7 +216,7 @@ fn main() {
             }) {
                 Ok(_) => { },
                 Err(e) => {
-                    eprintln!("Error formatting {:?}: {:?}", file, e);
+                    eprintln!("Error formatting {}: {:?}", &file.to_string_lossy(), e);
                     failed = true;
                 },
             };

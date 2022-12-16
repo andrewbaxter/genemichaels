@@ -1,7 +1,3 @@
-use std::{
-    cell::RefCell,
-    rc::Rc,
-};
 use syn::File;
 use crate::{
     new_sg,
@@ -12,26 +8,26 @@ use crate::{
     Alignment,
     Formattable,
     MakeSegsState,
-    SplitGroup,
+    SplitGroupIdx,
 };
 
 impl Formattable for File {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
-        fn build_inner(out: &mut MakeSegsState, base_indent: &Alignment, ast: &File) -> Rc<RefCell<SplitGroup>> {
+    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
+        fn build_inner(out: &mut MakeSegsState, base_indent: &Alignment, ast: &File) -> SplitGroupIdx {
             new_sg_outer_attrs(out, base_indent, &ast.attrs, |out: &mut MakeSegsState, base_indent: &Alignment| {
-                let mut sg = new_sg();
+                let mut sg = new_sg(out);
                 append_statement_list_raw(out, base_indent, &mut sg, Some(&ast.attrs), &ast.items);
-                sg.build()
+                sg.build(out)
             })
         }
 
         if let Some(shebang) = &self.shebang {
-            let mut sg = new_sg();
+            let mut sg = new_sg(out);
             sg.seg(out, shebang);
             sg.split_always(out, base_indent.clone(), true);
             sg.split_always(out, base_indent.clone(), true);
             sg.child(build_inner(out, base_indent, self));
-            sg.build()
+            sg.build(out)
         } else {
             build_inner(out, base_indent, self)
         }

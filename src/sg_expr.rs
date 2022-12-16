@@ -1,7 +1,3 @@
-use std::{
-    cell::RefCell,
-    rc::Rc,
-};
 use quote::ToTokens;
 use syn::{
     Expr,
@@ -33,9 +29,9 @@ use crate::{
     Alignment,
     Formattable,
     MakeSegsState,
-    SplitGroup,
     TrivialLineColMath,
     check_split_brace_threshold,
+    SplitGroupIdx,
 };
 
 #[derive(Clone)]
@@ -83,12 +79,12 @@ fn gather_dotted<'a, 'b: 'a>(out: &'a mut Vec<Dotted<'b>>, root: Dotted<'b>) -> 
     }
 }
 
-fn new_sg_dotted(out: &mut MakeSegsState, base_indent: &Alignment, root: Dotted) -> Rc<RefCell<SplitGroup>> {
+fn new_sg_dotted(out: &mut MakeSegsState, base_indent: &Alignment, root: Dotted) -> SplitGroupIdx {
     let mut children = vec![];
     let leaf = gather_dotted(&mut children, root);
     children.reverse();
 
-    fn build_child(out: &mut MakeSegsState, base_indent: &Alignment, child: &Dotted) -> Rc<RefCell<SplitGroup>> {
+    fn build_child(out: &mut MakeSegsState, base_indent: &Alignment, child: &Dotted) -> SplitGroupIdx {
         match child {
             Dotted::Await(x) => {
                 new_sg_lit(out, Some((base_indent, x.dot_token.span.start())), ".await")
@@ -130,15 +126,15 @@ fn new_sg_dotted(out: &mut MakeSegsState, base_indent: &Alignment, root: Dotted)
                 ")",
             ),
             Dotted::Try(inner) => {
-                let mut sg = new_sg();
+                let mut sg = new_sg(out);
                 sg.child(build_child(out, base_indent, inner.as_ref()));
                 sg.seg(out, "?");
-                sg.build()
+                sg.build(out)
             },
         }
     }
 
-    let mut sg = new_sg();
+    let mut sg = new_sg(out);
     sg.child(leaf.make_segs(out, base_indent));
     if children.len() > 1 {
         let indent = base_indent.indent();
@@ -149,17 +145,17 @@ fn new_sg_dotted(out: &mut MakeSegsState, base_indent: &Alignment, root: Dotted)
     } else {
         sg.child(build_child(out, base_indent, &children.get(0).unwrap()));
     }
-    sg.build()
+    sg.build(out)
 }
 
 impl Formattable for Expr {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
+    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
         (&self).make_segs(out, base_indent)
     }
 }
 
 impl Formattable for &Expr {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
+    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
         match self {
             Expr::Array(e) => new_sg_outer_attrs(
                 out,
@@ -268,11 +264,11 @@ impl Formattable for &Expr {
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut sg = new_sg();
+                    let mut sg = new_sg(out);
                     append_comments(out, base_indent, &mut sg, e.box_token.span.start());
                     sg.seg(out, "box ");
                     sg.child(e.expr.make_segs(out, base_indent));
-                    sg.build()
+                    sg.build(out)
                 },
             ),
             Expr::Break(e) => new_sg_outer_attrs(
@@ -280,7 +276,7 @@ impl Formattable for &Expr {
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut sg = new_sg();
+                    let mut sg = new_sg(out);
                     append_comments(out, base_indent, &mut sg, e.break_token.span.start());
                     sg.seg(out, "break");
                     if let Some(l) = &e.label {
@@ -290,7 +286,7 @@ impl Formattable for &Expr {
                         sg.seg(out, " ");
                         sg.child(e.make_segs(out, base_indent));
                     }
-                    sg.build()
+                    sg.build(out)
                 },
             ),
             Expr::Call(e) => new_sg_outer_attrs(
@@ -323,9 +319,11 @@ impl Formattable for &Expr {
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    fn build_base(out: &mut MakeSegsState, base_indent: &Alignment, e: &ExprClosure) -> Rc<
-                        RefCell<SplitGroup>,
-                    > {
+                    fn build_base(
+                        out: &mut MakeSegsState,
+                        base_indent: &Alignment,
+                        e: &ExprClosure,
+                    ) -> SplitGroupIdx {
                         let mut prefix = String::new();
                         let mut need_space = false;
                         if e.movability.is_some() {
@@ -394,9 +392,10 @@ impl Formattable for &Expr {
                         prefix.push_str(" ");
                         prefix.push_str(&label.to_string());
                     }
-                    let mut node = new_sg();
-                    node.seg(out, &prefix);
-                    node.build()
+                    let mut sg = new_sg(out);
+                    append_comments(out, base_indent, &mut sg, e.continue_token.span.start());
+                    sg.seg(out, &prefix);
+                    sg.build(out)
                 },
             ),
             Expr::Field(e) => new_sg_outer_attrs(
@@ -412,22 +411,22 @@ impl Formattable for &Expr {
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut sg = new_sg();
+                    let mut sg = new_sg(out);
                     sg.child({
-                        let mut sg = new_sg();
+                        let mut sg = new_sg(out);
                         sg.child({
-                            let mut sg = new_sg();
+                            let mut sg = new_sg(out);
                             if let Some(l) = &e.label {
                                 sg.seg(out, &format!("{}: ", l.name));
                             }
                             append_comments(out, base_indent, &mut sg, e.for_token.span.start());
                             sg.seg(out, "for ");
                             sg.child(e.pat.make_segs(out, base_indent));
-                            sg.build()
+                            sg.build(out)
                         });
                         sg.seg(out, " in ");
                         sg.child(e.expr.make_segs(out, base_indent));
-                        sg.build()
+                        sg.build(out)
                     });
                     append_bracketed_statement_list(
                         out,
@@ -438,7 +437,7 @@ impl Formattable for &Expr {
                         &e.body.stmts,
                         e.body.brace_token.span.end().prev(),
                     );
-                    sg.build()
+                    sg.build(out)
                 },
             ),
             Expr::Group(e) => new_sg_outer_attrs(
@@ -454,15 +453,15 @@ impl Formattable for &Expr {
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut sg = new_sg();
+                    let mut sg = new_sg(out);
                     sg.child({
-                        let mut sg = new_sg();
+                        let mut sg = new_sg(out);
                         sg.child({
-                            let mut sg = new_sg();
+                            let mut sg = new_sg(out);
                             append_comments(out, base_indent, &mut sg, e.if_token.span.start());
                             sg.seg(out, "if ");
                             sg.child(e.cond.make_segs(out, base_indent));
-                            sg.build()
+                            sg.build(out)
                         });
                         append_bracketed_statement_list(
                             out,
@@ -473,14 +472,14 @@ impl Formattable for &Expr {
                             &e.then_branch.stmts,
                             e.then_branch.brace_token.span.end().prev(),
                         );
-                        sg.build()
+                        sg.build(out)
                     });
                     if let Some((t, else_branch)) = &e.else_branch {
                         append_comments(out, base_indent, &mut sg, t.span.start());
                         sg.seg(out, " else ");
                         sg.child(else_branch.make_segs(out, base_indent));
                     }
-                    sg.build()
+                    sg.build(out)
                 },
             ),
             Expr::Index(e) => new_sg_outer_attrs(
@@ -488,12 +487,12 @@ impl Formattable for &Expr {
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut sg = new_sg();
+                    let mut sg = new_sg(out);
                     sg.child(e.expr.make_segs(out, base_indent));
                     sg.seg(out, "[");
                     sg.child(e.index.make_segs(out, base_indent));
                     sg.seg(out, "]");
-                    sg.build()
+                    sg.build(out)
                 },
             ),
             Expr::Let(e) => new_sg_outer_attrs(
@@ -501,12 +500,12 @@ impl Formattable for &Expr {
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut sg = new_sg();
+                    let mut sg = new_sg(out);
                     append_comments(out, base_indent, &mut sg, e.let_token.span.start());
                     sg.seg(out, "let ");
                     sg.child(e.pat.make_segs(out, base_indent));
                     append_binary(out, base_indent, &mut sg, " =", e.expr.as_ref());
-                    sg.build()
+                    sg.build(out)
                 },
             ),
             Expr::Lit(e) => new_sg_outer_attrs(
@@ -514,10 +513,10 @@ impl Formattable for &Expr {
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, _base_indent: &Alignment| {
-                    let mut node = new_sg();
+                    let mut node = new_sg(out);
                     append_comments(out, base_indent, &mut node, e.lit.span().start());
                     node.seg(out, e.lit.to_token_stream());
-                    node.build()
+                    node.build(out)
                 },
             ),
             Expr::Loop(e) => new_sg_outer_attrs(
@@ -525,7 +524,7 @@ impl Formattable for &Expr {
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut sg = new_sg();
+                    let mut sg = new_sg(out);
                     if let Some(l) = &e.label {
                         append_comments(out, base_indent, &mut sg, l.name.span().start());
                         sg.seg(out, format!("{} ", l.to_token_stream()));
@@ -540,7 +539,7 @@ impl Formattable for &Expr {
                         &e.body.stmts,
                         e.body.brace_token.span.end().prev(),
                     );
-                    sg.build()
+                    sg.build(out)
                 },
             ),
             Expr::Macro(e) => new_sg_outer_attrs(
@@ -556,7 +555,7 @@ impl Formattable for &Expr {
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut sg = new_sg();
+                    let mut sg = new_sg(out);
                     if check_split_brace_threshold(out, e.arms.len()) {
                         sg.initial_split();
                     }
@@ -574,7 +573,7 @@ impl Formattable for &Expr {
                                 &base_indent,
                                 &arm.attrs,
                                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                                    let mut sg = new_sg();
+                                    let mut sg = new_sg(out);
                                     sg.child({
                                         if let Some(guard) = &arm.guard {
                                             new_sg_binary(out, &indent, &arm.pat, " if", guard.1.as_ref())
@@ -585,9 +584,8 @@ impl Formattable for &Expr {
                                     append_comments(out, base_indent, &mut sg, arm.fat_arrow_token.spans[0].start());
                                     sg.seg(out, " => ");
                                     sg.child(arm.body.make_segs(out, &indent));
-                                    let out = sg.build();
-                                    out.borrow_mut().children.reverse();
-                                    out
+                                    sg.reverse_children();
+                                    sg.build(out)
                                 },
                             ),
                         );
@@ -601,7 +599,7 @@ impl Formattable for &Expr {
                     sg.split(out, base_indent.clone(), false);
                     append_comments(out, base_indent, &mut sg, e.brace_token.span.end().prev());
                     sg.seg(out, "}");
-                    sg.build()
+                    sg.build(out)
                 },
             ),
             Expr::MethodCall(e) => new_sg_outer_attrs(
@@ -617,13 +615,13 @@ impl Formattable for &Expr {
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut sg = new_sg();
+                    let mut sg = new_sg(out);
                     append_comments(out, base_indent, &mut sg, e.paren_token.span.start());
                     sg.seg(out, "(");
                     sg.child(e.expr.make_segs(out, base_indent));
                     append_comments(out, base_indent, &mut sg, e.paren_token.span.end().prev());
                     sg.seg(out, ")");
-                    sg.build()
+                    sg.build(out)
                 },
             ),
             Expr::Path(e) => new_sg_outer_attrs(
@@ -646,16 +644,16 @@ impl Formattable for &Expr {
                     match (&e.from, &e.to) {
                         (None, None) => new_sg_lit(out, Some((base_indent, tok_loc)), tok),
                         (None, Some(r)) => {
-                            let mut node = new_sg();
+                            let mut node = new_sg(out);
                             node.seg(out, tok);
                             node.child(r.as_ref().make_segs(out, base_indent));
-                            node.build()
+                            node.build(out)
                         },
                         (Some(l), None) => {
-                            let mut node = new_sg();
+                            let mut node = new_sg(out);
                             node.child(l.as_ref().make_segs(out, base_indent));
                             node.seg(out, tok);
-                            node.build()
+                            node.build(out)
                         },
                         (Some(l), Some(r)) => new_sg_binary(
                             out,
@@ -688,14 +686,14 @@ impl Formattable for &Expr {
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut sg = new_sg();
+                    let mut sg = new_sg(out);
                     append_comments(out, base_indent, &mut sg, e.return_token.span.start());
                     sg.seg(out, "return");
                     if let Some(e) = &e.expr {
                         sg.seg(out, " ");
                         sg.child(e.make_segs(out, base_indent));
                     }
-                    sg.build()
+                    sg.build(out)
                 },
             ),
             Expr::Struct(e) => new_sg_outer_attrs(
@@ -703,7 +701,7 @@ impl Formattable for &Expr {
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut sg = new_sg();
+                    let mut sg = new_sg(out);
                     if out
                         .split_brace_threshold
                         .map(|t| e.fields.len() + e.rest.iter().count() > t)
@@ -746,7 +744,7 @@ impl Formattable for &Expr {
                     sg.split(out, base_indent.clone(), false);
                     append_comments(out, base_indent, &mut sg, e.brace_token.span.end().prev());
                     sg.seg(out, "}");
-                    sg.build()
+                    sg.build(out)
                 },
             ),
             Expr::Try(e) => new_sg_outer_attrs(
@@ -756,10 +754,10 @@ impl Formattable for &Expr {
                 |out: &mut MakeSegsState, base_indent: &Alignment| match get_dotted(self) {
                     DottedRes::Dotted(d) => new_sg_dotted(out, base_indent, d),
                     DottedRes::Leaf(_) => {
-                        let mut node = new_sg();
+                        let mut node = new_sg(out);
                         node.child(e.expr.make_segs(out, base_indent));
                         node.seg(out, "?");
-                        node.build()
+                        node.build(out)
                     },
                 },
             ),
@@ -768,7 +766,7 @@ impl Formattable for &Expr {
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut sg = new_sg();
+                    let mut sg = new_sg(out);
                     append_comments(out, base_indent, &mut sg, e.try_token.span.start());
                     sg.seg(out, "try ");
                     append_bracketed_statement_list(
@@ -780,7 +778,7 @@ impl Formattable for &Expr {
                         &e.block.stmts,
                         e.block.brace_token.span.end().prev(),
                     );
-                    sg.build()
+                    sg.build(out)
                 },
             ),
             Expr::Tuple(e) => new_sg_outer_attrs(
@@ -813,7 +811,7 @@ impl Formattable for &Expr {
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut sg = new_sg();
+                    let mut sg = new_sg(out);
                     append_comments(
                         out,
                         base_indent,
@@ -822,7 +820,7 @@ impl Formattable for &Expr {
                     );
                     sg.seg(out, &e.op.to_token_stream().to_string());
                     sg.child(e.expr.make_segs(out, base_indent));
-                    sg.build()
+                    sg.build(out)
                 },
             ),
             Expr::Unsafe(e) => new_sg_outer_attrs(
@@ -830,7 +828,7 @@ impl Formattable for &Expr {
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut sg = new_sg();
+                    let mut sg = new_sg(out);
                     append_comments(out, base_indent, &mut sg, e.unsafe_token.span.start());
                     sg.seg(out, "unsafe ");
                     append_bracketed_statement_list(
@@ -842,20 +840,20 @@ impl Formattable for &Expr {
                         &e.block.stmts,
                         e.block.brace_token.span.end().prev(),
                     );
-                    sg.build()
+                    sg.build(out)
                 },
             ),
             Expr::Verbatim(e) => {
-                let mut node = new_sg();
+                let mut node = new_sg(out);
                 node.seg(out, &e.to_string());
-                node.build()
+                node.build(out)
             },
             Expr::While(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut sg = new_sg();
+                    let mut sg = new_sg(out);
                     if let Some(l) = &e.label {
                         append_comments(out, base_indent, &mut sg, l.name.apostrophe.start());
                         sg.seg(out, format!("{}: ", l.to_token_stream()));
@@ -872,7 +870,7 @@ impl Formattable for &Expr {
                         &e.body.stmts,
                         e.body.brace_token.span.end().prev(),
                     );
-                    sg.build()
+                    sg.build(out)
                 },
             ),
             Expr::Yield(e) => new_sg_outer_attrs(
@@ -880,14 +878,14 @@ impl Formattable for &Expr {
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut sg = new_sg();
+                    let mut sg = new_sg(out);
                     append_comments(out, base_indent, &mut sg, e.yield_token.span.start());
                     sg.seg(out, "yield");
                     if let Some(e) = &e.expr {
                         sg.seg(out, " ");
                         sg.child(e.make_segs(out, base_indent));
                     }
-                    sg.build()
+                    sg.build(out)
                 },
             ),
             _ => unreachable!(),
