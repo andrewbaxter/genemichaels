@@ -43,15 +43,17 @@ impl TrivialLineColMath for LineColumn {
     }
 }
 
-#[derive(PartialEq, Clone, Copy, Debug)] 
+#[derive(PartialEq, Clone, Copy, Debug)]
 pub enum CommentMode {
     Normal,
     DocInner,
     DocOuter,
+    Verbatim,
 }
 
-#[derive(Debug)] 
+#[derive(Debug)]
 pub struct Comment {
+    pub(crate) loc: LineColumn,
     pub(crate) mode: CommentMode,
     pub(crate) lines: String,
 }
@@ -62,7 +64,7 @@ pub struct SplitGroup {
     pub(crate) segments: Vec<Rc<RefCell<Segment>>>,
 }
 
-#[derive(Debug, Clone, Copy)] 
+#[derive(Debug, Clone, Copy)]
 pub(crate) enum SegmentMode {
     All,
     Unsplit,
@@ -74,7 +76,7 @@ pub(crate) struct SegmentLine {
     pub(crate) seg_index: usize,
 }
 
-#[derive(Debug)] 
+#[derive(Debug)]
 pub(crate) enum SegmentContent {
     Text(String),
     Comment((Alignment, Vec<Comment>)),
@@ -220,7 +222,7 @@ pub(crate) struct Alignment_ {
     pub(crate) active: bool,
 }
 
-#[derive(Clone)] 
+#[derive(Clone)]
 pub struct Alignment(Rc<RefCell<Alignment_>>);
 
 impl std::fmt::Debug for Alignment {
@@ -371,7 +373,7 @@ pub(crate) fn new_sg_lit(
     sg.build()
 }
 
-#[derive(PartialEq)] 
+#[derive(PartialEq)]
 pub(crate) enum MarginGroup {
     Attr,
     BlockDef,
@@ -413,6 +415,7 @@ pub struct FormatConfig {
     pub split_brace_threshold: Option<usize>,
     pub split_attributes: bool,
     pub comment_width: Option<usize>,
+    pub comment_errors_fatal: bool,
 }
 
 pub struct FormatRes {
@@ -628,17 +631,51 @@ pub fn format_ast(
                         if i > 0 {
                             rendered.push_str("\n");
                         }
-                        format_md(
-                            &mut rendered,
-                            config.max_width,
-                            config.comment_width,
-                            &format!("{}//{} ", " ".repeat(b.get()), match comment.mode {
-                                CommentMode::Normal => "",
-                                CommentMode::DocInner => "!",
-                                CommentMode::DocOuter => "/",
-                            }),
-                            &comment.lines,
-                        );
+                        let prefix = format!("{}//{} ", " ".repeat(b.get()), match comment.mode {
+                            CommentMode::Normal => "",
+                            CommentMode::DocInner => "!",
+                            CommentMode::DocOuter => "/",
+                            CommentMode::Verbatim => ".",
+                        });
+                        let verbatim = match comment.mode {
+                            CommentMode::Verbatim => {
+                                true
+                            },
+                            _ => {
+                                match format_md(
+                                    &mut rendered,
+                                    config.max_width,
+                                    config.comment_width,
+                                    &prefix,
+                                    &comment.lines,
+                                ) {
+                                    Err(e) => {
+                                        let message =
+                                            format!(
+                                                "Error formatting comments before {}:{}: \n{}",
+                                                comment.loc.line,
+                                                comment.loc.column,
+                                                comment.lines
+                                            );
+                                        if config.comment_errors_fatal {
+                                            return Err(e.context(message));
+                                        } else {
+                                            eprintln!("{:?}", e.context(message));
+                                        }
+                                        true
+                                    },
+                                    Ok(_) => {
+                                        false
+                                    },
+                                }
+                            },
+                        };
+                        if verbatim {
+                            for line in comment.lines.lines() {
+                                rendered.push_str(format!("{}[{}]", prefix, line).trim());
+                                rendered.push_str("\n");
+                            }
+                        }
                     }
                 },
             }

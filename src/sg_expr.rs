@@ -1,6 +1,15 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{
+    cell::RefCell,
+    rc::Rc,
+};
 use quote::ToTokens;
-use syn::{Expr, ExprAwait, ExprClosure, ExprField, ExprMethodCall};
+use syn::{
+    Expr,
+    ExprAwait,
+    ExprClosure,
+    ExprField,
+    ExprMethodCall,
+};
 use crate::{
     new_sg,
     new_sg_lit,
@@ -15,7 +24,12 @@ use crate::{
         new_sg_comma_bracketed_list,
         new_sg_macro,
     },
-    sg_type::{build_array_type, build_extended_path, build_path, build_ref},
+    sg_type::{
+        build_array_type,
+        build_extended_path,
+        build_path,
+        build_ref,
+    },
     Alignment,
     Formattable,
     MakeSegsState,
@@ -24,11 +38,19 @@ use crate::{
     check_split_brace_threshold,
 };
 
-#[derive(Clone)] enum Dotted<'a> {Await(&'a ExprAwait), Field(&'a ExprField), Method(&'a ExprMethodCall), 
+#[derive(Clone)]
+enum Dotted<'a> {
+    Await(&'a ExprAwait),
+    Field(&'a ExprField),
+    Method(&'a ExprMethodCall),
     // only if base is dotted
-    Try(Box<Dotted<'a>>)}
+    Try(Box<Dotted<'a>>),
+}
 
-enum DottedRes<'a> {Dotted(Dotted<'a>), Leaf(&'a Expr)}
+enum DottedRes<'a> {
+    Dotted(Dotted<'a>),
+    Leaf(&'a Expr),
+}
 
 fn get_dotted<'a>(e: &'a Expr) -> DottedRes<'a> {
     match e {
@@ -479,11 +501,12 @@ impl Formattable for &Expr {
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut node = new_sg();
-                    node.seg(out, "let ");
-                    node.child(e.pat.make_segs(out, base_indent));
-                    append_binary(out, base_indent, &mut node, " =", e.expr.as_ref());
-                    node.build()
+                    let mut sg = new_sg();
+                    append_comments(out, base_indent, &mut sg, e.let_token.span.start());
+                    sg.seg(out, "let ");
+                    sg.child(e.pat.make_segs(out, base_indent));
+                    append_binary(out, base_indent, &mut sg, " =", e.expr.as_ref());
+                    sg.build()
                 },
             ),
             Expr::Lit(e) => new_sg_outer_attrs(
@@ -545,22 +568,29 @@ impl Formattable for &Expr {
                     let indent = base_indent.indent();
                     for (i, arm) in e.arms.iter().enumerate() {
                         sg.split(out, indent.clone(), true);
-                        sg.child({
-                            let mut sg = new_sg();
-                            sg.child({
-                                if let Some(guard) = &arm.guard {
-                                    new_sg_binary(out, &indent, &arm.pat, " if", guard.1.as_ref())
-                                } else {
-                                    arm.pat.make_segs(out, &indent)
-                                }
-                            });
-                            append_comments(out, base_indent, &mut sg, arm.fat_arrow_token.spans[0].start());
-                            sg.seg(out, " => ");
-                            sg.child(arm.body.make_segs(out, &indent));
-                            let out = sg.build();
-                            out.borrow_mut().children.reverse();
-                            out
-                        });
+                        sg.child(
+                            new_sg_outer_attrs(
+                                out,
+                                &base_indent,
+                                &arm.attrs,
+                                |out: &mut MakeSegsState, base_indent: &Alignment| {
+                                    let mut sg = new_sg();
+                                    sg.child({
+                                        if let Some(guard) = &arm.guard {
+                                            new_sg_binary(out, &indent, &arm.pat, " if", guard.1.as_ref())
+                                        } else {
+                                            arm.pat.make_segs(out, &indent)
+                                        }
+                                    });
+                                    append_comments(out, base_indent, &mut sg, arm.fat_arrow_token.spans[0].start());
+                                    sg.seg(out, " => ");
+                                    sg.child(arm.body.make_segs(out, &indent));
+                                    let out = sg.build();
+                                    out.borrow_mut().children.reverse();
+                                    out
+                                },
+                            ),
+                        );
                         if i == e.arms.len() - 1 {
                             sg.seg_split(out, ",");
                         } else {

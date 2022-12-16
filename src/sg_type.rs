@@ -1,4 +1,8 @@
-use std::{cell::RefCell, fmt::Write, rc::Rc};
+use std::{
+    cell::RefCell,
+    fmt::Write,
+    rc::Rc,
+};
 use proc_macro2::LineColumn;
 use quote::ToTokens;
 use syn::{

@@ -341,6 +341,7 @@ pub(crate) fn new_sg_macro(out: &mut MakeSegsState, base_indent: &Alignment, mac
         },
         syn::MacroDelimiter::Brace(x) => {
             sg.seg(out, "{");
+            sg.initial_split();
             sg.split(out, indent.clone(), true);
             append_macro_body(out, &indent, &mut sg, mac.tokens.clone());
             append_comments(out, base_indent, &mut sg, x.span.end().prev());
@@ -368,12 +369,18 @@ pub(crate) fn append_macro_body(
     sg: &mut SplitGroupBuilder,
     tokens: TokenStream,
 ) {
-    if let Ok(exprs) = syn::parse2::<ExprCall>(quote!{f(# tokens)}) {
+    if let Ok(exprs) = syn::parse2::<ExprCall>(quote!{
+        f(# tokens)
+    }) {
         append_inline_list_raw(out, base_indent, sg, ",", false, &exprs.args);
-    } else if let Ok(block) = syn::parse2::<Block>(quote!{{# tokens}}) {
+    } else if let Ok(block) = syn::parse2::<Block>(quote!{
+        {
+            # tokens
+        }
+    }) {
         append_statement_list_raw(out, base_indent, sg, None, &block.stmts);
     } else {
-        #[derive(PartialEq)] 
+        #[derive(PartialEq)]
         enum ConsecMode {
             // Start, joining punct (.)
             StartJoin,
@@ -383,23 +390,27 @@ pub(crate) fn append_macro_body(
             Punct,
         }
 
+        // Split token stream into "expressions" using `;` and `,` and then try to re-evaluate each
+        // expression to use normal formatting.
         let mut substreams = vec![];
-        let mut top = vec![];
-        for t in tokens {
-            match t {
-                proc_macro2::TokenTree::Punct(p) if match p.as_char() {
-                    ';' | ',' => true,
-                    _ => false,
-                } => {
-                    substreams.push((top.split_off(0), Some(p)));
-                },
-                _ => {
-                    top.push(t);
-                },
+        {
+            let mut top = vec![];
+            for t in tokens {
+                match t {
+                    proc_macro2::TokenTree::Punct(p) if match p.as_char() {
+                        ';' | ',' => true,
+                        _ => false,
+                    } => {
+                        substreams.push((top.split_off(0), Some(p)));
+                    },
+                    _ => {
+                        top.push(t);
+                    },
+                }
             }
-        }
-        if !top.is_empty() {
-            substreams.push((top, None));
+            if !top.is_empty() {
+                substreams.push((top, None));
+            }
         }
         let substreams_len = substreams.len();
         for (i, sub) in substreams.into_iter().enumerate() {
@@ -407,9 +418,16 @@ pub(crate) fn append_macro_body(
                 sg.split(out, base_indent.clone(), true);
             }
             let tokens = TokenStream::from_iter(sub.0);
-            if let Ok(exprs) = syn::parse2::<ExprCall>(quote!{f(# tokens)}) {
+            let punct = sub.1;
+            if let Ok(exprs) = syn::parse2::<ExprCall>(quote!{
+                f(# tokens # punct)
+            }) {
                 append_inline_list_raw(out, base_indent, sg, ",", false, &exprs.args);
-            } else if let Ok(block) = syn::parse2::<Block>(quote!{{# tokens}}) {
+            } else if let Ok(block) = syn::parse2::<Block>(quote!{
+                {
+                    # tokens # punct
+                }
+            }) {
                 append_statement_list_raw(out, base_indent, sg, None, &block.stmts);
             } else {
                 let mut mode = ConsecMode::StartJoin;
@@ -436,6 +454,7 @@ pub(crate) fn append_macro_body(
                                                 sg.seg(out, " ");
                                             },
                                         }
+                                        sg.initial_split();
                                         sg.seg(out, "{");
                                         sg.split(out, indent.clone(), true);
                                         append_macro_body(out, &indent, &mut sg, g.stream());
@@ -509,9 +528,9 @@ pub(crate) fn append_macro_body(
                         },
                     }
                 }
-            }
-            if let Some(suf) = sub.1 {
-                sg.seg(out, suf);
+                if let Some(suf) = punct {
+                    sg.seg(out, suf);
+                }
             }
             if i < substreams_len - 1 {
                 sg.seg_unsplit(out, " ");

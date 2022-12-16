@@ -15,7 +15,13 @@ use crate::{
         new_sg_comma_bracketed_list_ext,
         new_sg_macro,
     },
-    sg_type::{append_path, build_path, build_generics_part_b, build_generics_part_a, append_generics},
+    sg_type::{
+        append_path,
+        build_path,
+        build_generics_part_b,
+        build_generics_part_a,
+        append_generics,
+    },
     Alignment,
     Formattable,
     FormattableStmt,
@@ -27,7 +33,10 @@ use crate::{
     check_split_brace_threshold,
 };
 use quote::ToTokens;
-use std::{cell::RefCell, rc::Rc};
+use std::{
+    cell::RefCell,
+    rc::Rc,
+};
 use syn::{
     Expr,
     Field,
@@ -169,17 +178,22 @@ impl FormattableStmt for Stmt {
 impl Formattable for Stmt {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
         match self {
-            Stmt::Local(l) => {
-                let mut sg = new_sg();
-                append_comments(out, base_indent, &mut sg, l.let_token.span.start());
-                sg.seg(out, "let ");
-                sg.child(l.pat.make_segs(out, base_indent));
-                if let Some(init) = &l.init {
-                    append_binary(out, base_indent, &mut sg, " =", init.1.as_ref());
-                }
-                sg.seg(out, ";");
-                sg.build()
-            },
+            Stmt::Local(l) => new_sg_outer_attrs(
+                out,
+                base_indent,
+                &l.attrs,
+                |out: &mut MakeSegsState, base_indent: &Alignment| {
+                    let mut sg = new_sg();
+                    append_comments(out, base_indent, &mut sg, l.let_token.span.start());
+                    sg.seg(out, "let ");
+                    sg.child(l.pat.make_segs(out, base_indent));
+                    if let Some(init) = &l.init {
+                        append_binary(out, base_indent, &mut sg, " =", init.1.as_ref());
+                    }
+                    sg.seg(out, ";");
+                    sg.build()
+                },
+            ),
             Stmt::Item(i) => i.make_segs(out, base_indent),
             Stmt::Expr(e) => e.make_segs(out, base_indent),
             Stmt::Semi(e, _) => {

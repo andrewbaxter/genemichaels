@@ -1,5 +1,13 @@
-use std::{cell::RefCell, fmt::Write, rc::Rc};
-use syn::{Expr, FieldPat, Pat};
+use std::{
+    cell::RefCell,
+    fmt::Write,
+    rc::Rc,
+};
+use syn::{
+    Expr,
+    FieldPat,
+    Pat,
+};
 use crate::{
     new_sg,
     new_sg_lit,
@@ -12,7 +20,10 @@ use crate::{
         new_sg_comma_bracketed_list_ext,
         new_sg_macro,
     },
-    sg_type::{build_extended_path, build_ref},
+    sg_type::{
+        build_extended_path,
+        build_ref,
+    },
     Alignment,
     Formattable,
     MakeSegsState,
@@ -21,7 +32,7 @@ use crate::{
 };
 
 impl Formattable for &Pat {
-    fn make_segs(& self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
+    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
         match self {
             Pat::Box(x) => new_sg_outer_attrs(
                 out,
@@ -47,34 +58,38 @@ impl Formattable for &Pat {
                     }
                     if let Some(y) = x.mutability {
                         prefix.write_str("mut ").unwrap();
-                        if start.is_none() { start = Some(y.span.start()); }
+                        if start.is_none() {
+                            start = Some(y.span.start());
+                        }
                     }
                     prefix.write_str(&x.ident.to_string()).unwrap();
-                    if start.is_none() { start = Some(x.ident.span().start()); }
+                    if start.is_none() {
+                        start = Some(x.ident.span().start());
+                    }
                     if let Some(at) = &x.subpat {
-                        new_sg_binary(
-                            out,
-                            base_indent,
-                            |out: &mut MakeSegsState, base_indent: &Alignment| {
-                                new_sg_lit(out, start.map(|s| (base_indent, s)), &prefix)
-                            },
-                            " @",
-                            &*at.1,
-                        )
-                    } else { new_sg_lit(out, start.map(|s| (base_indent, s)), prefix) }
+                        new_sg_binary(out, base_indent, |out: &mut MakeSegsState, base_indent: &Alignment| {
+                            new_sg_lit(out, start.map(|s| (base_indent, s)), &prefix)
+                        }, " @", &*at.1)
+                    } else {
+                        new_sg_lit(out, start.map(|s| (base_indent, s)), prefix)
+                    }
                 },
             ),
             Pat::Lit(x) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &x.attrs,
-                |out: &mut MakeSegsState, base_indent: &Alignment| { x.expr.as_ref().make_segs(out, base_indent) },
+                |out: &mut MakeSegsState, base_indent: &Alignment| {
+                    x.expr.as_ref().make_segs(out, base_indent)
+                },
             ),
             Pat::Macro(x) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &x.attrs,
-                |out: &mut MakeSegsState, base_indent: &Alignment| { new_sg_macro(out, base_indent, &x.mac, false) },
+                |out: &mut MakeSegsState, base_indent: &Alignment| {
+                    new_sg_macro(out, base_indent, &x.mac, false)
+                },
             ),
             Pat::Or(x) => new_sg_outer_attrs(
                 out,
@@ -82,7 +97,9 @@ impl Formattable for &Pat {
                 &x.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut node = new_sg();
-                    if x.leading_vert.is_some() { node.seg(out, "| "); }
+                    if x.leading_vert.is_some() {
+                        node.seg(out, "| ");
+                    }
                     append_inline_list_raw(out, base_indent, &mut node, " |", false, &x.cases);
                     node.build()
                 },
@@ -100,16 +117,10 @@ impl Formattable for &Pat {
                 base_indent,
                 &x.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    new_sg_binary(
-                        out,
-                        base_indent,
-                        x.lo.as_ref(),
-                        match x.limits {
-                            syn::RangeLimits::HalfOpen(_) => "..",
-                            syn::RangeLimits::Closed(_) => "..=",
-                        },
-                        x.hi.as_ref(),
-                    )
+                    new_sg_binary(out, base_indent, x.lo.as_ref(), match x.limits {
+                        syn::RangeLimits::HalfOpen(_) => "..",
+                        syn::RangeLimits::Closed(_) => "..=",
+                    }, x.hi.as_ref())
                 },
             ),
             Pat::Reference(x) => new_sg_outer_attrs(
@@ -234,26 +245,21 @@ impl Formattable for &Pat {
 }
 
 impl Formattable for Pat {
-    fn make_segs(& self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
+    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
         (&self).make_segs(out, base_indent)
     }
 }
 
 impl Formattable for FieldPat {
-    fn make_segs(& self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
-        new_sg_outer_attrs(
-            out,
-            base_indent,
-            &self.attrs,
-            |out: &mut MakeSegsState, base_indent: &Alignment| {
-                let mut sg = new_sg();
-                match &self.member {
-                    syn::Member::Named(x) => sg.seg(out, x),
-                    syn::Member::Unnamed(x) => sg.seg(out, x.index),
-                };
-                append_binary(out, base_indent, &mut sg, ":", self.pat.as_ref());
-                sg.build()
-            },
-        )
+    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> Rc<RefCell<SplitGroup>> {
+        new_sg_outer_attrs(out, base_indent, &self.attrs, |out: &mut MakeSegsState, base_indent: &Alignment| {
+            let mut sg = new_sg();
+            match &self.member {
+                syn::Member::Named(x) => sg.seg(out, x),
+                syn::Member::Unnamed(x) => sg.seg(out, x.index),
+            };
+            append_binary(out, base_indent, &mut sg, ":", self.pat.as_ref());
+            sg.build()
+        })
     }
 }
