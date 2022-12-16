@@ -383,9 +383,9 @@ pub(crate) fn append_macro_body(
         #[derive(PartialEq)]
         enum ConsecMode {
             // Start, joining punct (.)
-            StartJoin,
+            ConnectForward,
             // Idents, literals
-            IdentLit,
+            NoConnect,
             // Other punctuation
             Punct,
         }
@@ -422,7 +422,13 @@ pub(crate) fn append_macro_body(
             if let Ok(exprs) = syn::parse2::<ExprCall>(quote!{
                 f(# tokens # punct)
             }) {
-                append_inline_list_raw(out, base_indent, sg, ",", false, &exprs.args);
+                assert!(exprs.args.len() <= 1);
+                if let Some(e) = exprs.args.iter().next() {
+                    sg.child(e.make_segs(out, base_indent));
+                }
+                if let Some(suf) = punct {
+                    sg.seg(out, suf);
+                }
             } else if let Ok(block) = syn::parse2::<Block>(quote!{
                 {
                     # tokens # punct
@@ -430,7 +436,7 @@ pub(crate) fn append_macro_body(
             }) {
                 append_statement_list_raw(out, base_indent, sg, None, &block.stmts);
             } else {
-                let mut mode = ConsecMode::StartJoin;
+                let mut mode = ConsecMode::ConnectForward;
                 for t in tokens {
                     match t {
                         proc_macro2::TokenTree::Group(g) => {
@@ -449,7 +455,7 @@ pub(crate) fn append_macro_body(
                                     },
                                     proc_macro2::Delimiter::Brace => {
                                         match mode {
-                                            ConsecMode::StartJoin => { },
+                                            ConsecMode::ConnectForward => { },
                                             _ => {
                                                 sg.seg(out, " ");
                                             },
@@ -477,35 +483,40 @@ pub(crate) fn append_macro_body(
                                 }
                                 sg.build()
                             });
-                            mode = ConsecMode::IdentLit;
+                            mode = ConsecMode::NoConnect;
                         },
                         proc_macro2::TokenTree::Ident(i) => {
                             match mode {
-                                ConsecMode::StartJoin => { },
-                                ConsecMode::IdentLit | ConsecMode::Punct => {
+                                ConsecMode::ConnectForward => { },
+                                ConsecMode::NoConnect | ConsecMode::Punct => {
                                     sg.seg(out, " ");
                                 },
                             }
                             append_comments(out, base_indent, sg, i.span().start());
                             sg.seg(out, &i.to_string());
-                            mode = ConsecMode::IdentLit;
+                            mode = ConsecMode::NoConnect;
                         },
                         proc_macro2::TokenTree::Punct(p) => match p.as_char() {
-                            '\'' => {
+                            '\'' | '$' | '#' => {
                                 match mode {
-                                    ConsecMode::StartJoin => { },
-                                    ConsecMode::IdentLit | ConsecMode::Punct => {
+                                    ConsecMode::ConnectForward => { },
+                                    ConsecMode::NoConnect | ConsecMode::Punct => {
                                         sg.seg(out, " ");
                                     },
                                 }
                                 append_comments(out, base_indent, sg, p.span().start());
                                 sg.seg(out, &p.to_string());
-                                mode = ConsecMode::StartJoin;
+                                mode = ConsecMode::ConnectForward;
+                            },
+                            ':' => {
+                                append_comments(out, base_indent, sg, p.span().start());
+                                sg.seg(out, &p.to_string());
+                                mode = ConsecMode::Punct;
                             },
                             _ => {
                                 match mode {
-                                    ConsecMode::StartJoin => { },
-                                    ConsecMode::IdentLit => {
+                                    ConsecMode::ConnectForward => { },
+                                    ConsecMode::NoConnect => {
                                         sg.seg(out, " ");
                                     },
                                     ConsecMode::Punct => { },
@@ -517,14 +528,14 @@ pub(crate) fn append_macro_body(
                         },
                         proc_macro2::TokenTree::Literal(l) => {
                             match mode {
-                                ConsecMode::StartJoin => { },
-                                ConsecMode::IdentLit | ConsecMode::Punct => {
+                                ConsecMode::ConnectForward => { },
+                                ConsecMode::NoConnect | ConsecMode::Punct => {
                                     sg.seg(out, " ");
                                 },
                             }
                             append_comments(out, base_indent, sg, l.span().start());
                             sg.seg(out, &l.to_string());
-                            mode = ConsecMode::IdentLit;
+                            mode = ConsecMode::NoConnect;
                         },
                     }
                 }
