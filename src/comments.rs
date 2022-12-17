@@ -419,13 +419,13 @@ impl LineState {
             text = text.trim_start();
         }
         while !text.is_empty() {
-            if state.line_buffer.len() + text.len() > max_width {
+            if state.line_buffer.chars().count() + text.chars().count() > max_width {
                 // match segmenter .segment_str(&text)
                 match text
                     .char_indices()
                     .filter(|i| i.1 == ' ')
                     .map(|i| i.0 + 1)
-                    .take_while(|b| state.line_buffer.len() + *b < max_width)
+                    .take_while(|b| state.line_buffer.chars().count() + *b < max_width)
                     .last() {
                     Some(b) => {
                         // Doesn't fit, but can split to get within line
@@ -463,7 +463,7 @@ impl LineState {
     fn write_unbreakable(&self, state: &mut State, out: &mut String, text: &str) {
         let mut s = self.0.as_ref().borrow_mut();
         let max_width = s.calc_max_width();
-        if state.line_buffer.len() + text.len() > max_width {
+        if state.line_buffer.chars().count() + text.chars().count() > max_width {
             s.flush(state, out, true);
         }
         state.line_buffer.push_str(text);
@@ -476,7 +476,7 @@ impl LineState {
         } else {
             0
         };
-        if state.line_buffer.len() + text.len() >= max_width {
+        if state.line_buffer.chars().count() + text.chars().count() >= max_width {
             s.flush(state, out, true);
         } else {
             state.line_buffer.push_str(text);

@@ -127,7 +127,7 @@ pub(crate) fn line_length(out: &MakeSegsState, lines: &Lines, line_i: LineIdx) -
     for seg_i in &lines.owned_lines.get(line_i.0).unwrap().segs {
         let seg = out.segs.get(seg_i.0).unwrap();
         match &seg.content {
-            SegmentContent::Text(t) => len += t.len(),
+            SegmentContent::Text(t) => len += t.chars().count(),
             SegmentContent::Break(b, _) => {
                 if out.nodes.get(seg.node.0).unwrap().split {
                     len += b.get();

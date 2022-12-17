@@ -168,7 +168,7 @@ impl Formattable for &Pat {
                             base_indent,
                             Some(&x.path),
                             x.brace_token.span.start(),
-                            "{",
+                            " {",
                             &x.fields,
                             |out: &mut MakeSegsState, base_indent: &Alignment| {
                                 new_sg_lit(out, Some((base_indent, d.spans[0].start())), "..")
@@ -181,7 +181,7 @@ impl Formattable for &Pat {
                             base_indent,
                             Some(&x.path),
                             x.brace_token.span.start(),
-                            "{",
+                            " {",
                             &x.fields,
                             x.brace_token.span.end().prev(),
                             "}",
