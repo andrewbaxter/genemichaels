@@ -114,7 +114,7 @@ dependencies = [
 
 [[package]]
 name = "genemichaels"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "anyhow",
  "clap",
