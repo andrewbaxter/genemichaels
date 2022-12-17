@@ -171,7 +171,7 @@ fn main() {
         Ok(res.rendered)
     }
 
-    let config = FormatConfig{
+    let config = FormatConfig {
         max_width: args.line_length,
         root_splits: args.root_splits,
         split_brace_threshold: match args.split_brace_threshold {
