@@ -809,9 +809,14 @@ impl StackEl for StackBlock {
                 }
                 Ok(StackRes::Keep)
             },
+            Event::Rule => {
+                self.block_ev(state, out);
+                self.line.write_unbreakable(state, out, "---");
+                self.line.flush_always(state, out);
+                Ok(StackRes::Keep)
+            },
             Event::FootnoteReference(_) => Err(anyhow!("Unimplemented markdown footnote ref in block")),
             Event::HardBreak => Err(anyhow!("Unimplemented markdown hard break in block")),
-            Event::Rule => Err(anyhow!("Unimplemented markdown hr in block")),
             Event::TaskListMarker(_) => Err(anyhow!("Unimplemented markdown task in block")),
         }
     }
