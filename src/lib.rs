@@ -1,6 +1,6 @@
 use anyhow::{
     Result,
-    Context,
+    anyhow,
 };
 use comments::{
     format_md,
@@ -196,7 +196,7 @@ pub(crate) fn split_line_at(
 
 pub(crate) fn insert_line(out: &mut MakeSegsState, lines: &mut Lines, at: usize, segs: Vec<SegmentIdx>) {
     let line_i = LineIdx(lines.owned_lines.len());
-    lines.owned_lines.push(Line{
+    lines.owned_lines.push(Line {
         index: at,
         segs: segs,
     });
@@ -208,7 +208,7 @@ pub(crate) fn insert_line(out: &mut MakeSegsState, lines: &mut Lines, at: usize,
                 l.seg_index = i;
             },
             None => {
-                seg.line = Some(SegmentLine{
+                seg.line = Some(SegmentLine {
                     line: line_i,
                     seg_index: i,
                 });
@@ -250,7 +250,7 @@ impl std::fmt::Debug for Alignment {
 
 impl Alignment {
     pub(crate) fn indent(&self) -> Alignment {
-        Alignment(Rc::new(RefCell::new(Alignment_{
+        Alignment(Rc::new(RefCell::new(Alignment_ {
             parent: Some(self.clone()),
             active: false,
         })))
@@ -318,7 +318,7 @@ impl SplitGroupBuilder {
     }
 
     pub(crate) fn seg(&mut self, out: &mut MakeSegsState, text: impl ToString) {
-        self.add(out, Segment{
+        self.add(out, Segment {
             node: self.node,
             line: None,
             mode: SegmentMode::All,
@@ -327,7 +327,7 @@ impl SplitGroupBuilder {
     }
 
     pub(crate) fn seg_split(&mut self, out: &mut MakeSegsState, text: impl ToString) {
-        self.add(out, Segment{
+        self.add(out, Segment {
             node: self.node,
             line: None,
             mode: SegmentMode::Split,
@@ -336,7 +336,7 @@ impl SplitGroupBuilder {
     }
 
     pub(crate) fn seg_unsplit(&mut self, out: &mut MakeSegsState, text: impl ToString) {
-        self.add(out, Segment{
+        self.add(out, Segment {
             node: self.node,
             line: None,
             mode: SegmentMode::Unsplit,
@@ -345,7 +345,7 @@ impl SplitGroupBuilder {
     }
 
     pub(crate) fn split_if(&mut self, out: &mut MakeSegsState, alignment: Alignment, always: bool, activate: bool) {
-        self.add(out, Segment{
+        self.add(out, Segment {
             node: self.node,
             line: None,
             mode: if always {
@@ -358,7 +358,7 @@ impl SplitGroupBuilder {
     }
 
     pub(crate) fn split(&mut self, out: &mut MakeSegsState, alignment: Alignment, activate: bool) {
-        self.add(out, Segment{
+        self.add(out, Segment {
             node: self.node,
             line: None,
             mode: SegmentMode::Split,
@@ -367,7 +367,7 @@ impl SplitGroupBuilder {
     }
 
     pub(crate) fn split_always(&mut self, out: &mut MakeSegsState, alignment: Alignment, activate: bool) {
-        self.add(out, Segment{
+        self.add(out, Segment {
             node: self.node,
             line: None,
             mode: SegmentMode::All,
@@ -378,12 +378,12 @@ impl SplitGroupBuilder {
 
 pub(crate) fn new_sg(out: &mut MakeSegsState) -> SplitGroupBuilder {
     let idx = SplitGroupIdx(out.nodes.len());
-    out.nodes.push(SplitGroup{
+    out.nodes.push(SplitGroup {
         split: false,
         segments: vec![],
         children: vec![],
     });
-    SplitGroupBuilder{
+    SplitGroupBuilder {
         node: idx,
         segs: vec![],
         children: vec![],
@@ -457,7 +457,7 @@ pub struct FormatConfig {
 
 impl Default for FormatConfig {
     fn default() -> Self {
-        Self{
+        Self {
             max_width: 120,
             root_splits: false,
             split_brace_threshold: Some(1usize),
@@ -478,18 +478,29 @@ pub use comments::extract_comments;
 
 pub fn format_str(source: &str, config: &FormatConfig) -> Result<FormatRes> {
     let (comments, tokens) = extract_comments(source)?;
-    format_ast(syn::parse2::<File>(tokens).context("Error parsing token stream")?, config, comments)
+    format_ast(
+        syn::parse2::<File>(
+            tokens,
+        ).map_err(
+            |e| anyhow!(
+                "Syn error parsing token stream at {}:{}: {}",
+                e.span().start().line,
+                e.span().start().column,
+                e
+            ),
+        )?,
+        config,
+        comments,
+    )
 }
 
 pub fn format_ast(
     ast: impl Formattable,
     config: &FormatConfig,
     comments: HashMap<HashLineColumn, Vec<Comment>>,
-) -> Result<
-    FormatRes,
-> {
+) -> Result<FormatRes> {
     // Build text
-    let mut out = MakeSegsState{
+    let mut out = MakeSegsState {
         nodes: vec![],
         segs: vec![],
         comments: comments,
@@ -497,25 +508,25 @@ pub fn format_ast(
         split_attributes: config.split_attributes,
         split_where: config.split_where,
     };
-    let base_indent = Alignment(Rc::new(RefCell::new(Alignment_{
+    let base_indent = Alignment(Rc::new(RefCell::new(Alignment_ {
         parent: None,
         active: false,
     })));
     let root = ast.make_segs(&mut out, &base_indent);
-    let mut lines = Lines{
+    let mut lines = Lines {
         lines: vec![],
         owned_lines: vec![],
     };
     {
         let line_i = LineIdx(lines.owned_lines.len());
-        lines.owned_lines.push(Line{
+        lines.owned_lines.push(Line {
             index: 0,
             segs: out.segs.iter().enumerate().map(|(i, _)| SegmentIdx(i)).collect(),
         });
         lines.lines.push(line_i);
         for line_i in &lines.lines {
             for (j, seg_i) in lines.owned_lines.get(line_i.0).unwrap().segs.iter().enumerate() {
-                out.segs.get_mut(seg_i.0).unwrap().line = Some(SegmentLine{
+                out.segs.get_mut(seg_i.0).unwrap().line = Some(SegmentLine {
                     line: *line_i,
                     seg_index: j,
                 });
@@ -580,7 +591,7 @@ pub fn format_ast(
                             (_, _) => {
                                 if let Some(a) = prev_comment.take() {
                                     let seg_i = SegmentIdx(out.segs.len());
-                                    out.segs.push(Segment{
+                                    out.segs.push(Segment {
                                         node: synth_seg_node.clone(),
                                         line: None,
                                         mode: SegmentMode::All,
@@ -757,7 +768,7 @@ pub fn format_ast(
         }
         line_i_i += 1;
     }
-    Ok(FormatRes{
+    Ok(FormatRes {
         rendered: rendered,
         lost_comments: out.comments,
     })
