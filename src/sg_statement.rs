@@ -14,6 +14,7 @@ use crate::{
         new_sg_comma_bracketed_list,
         new_sg_comma_bracketed_list_ext,
         new_sg_macro,
+        append_macro_bracketed,
     },
     sg_type::{
         append_path,
@@ -82,7 +83,9 @@ fn append_vis(out: &mut MakeSegsState, base_indent: &Alignment, node: &mut Split
     }
 }
 
-fn append_sig(out: &mut MakeSegsState, base_indent: &Alignment, sg: &mut SplitGroupBuilder, sig: &Signature) {
+fn new_sg_sig(out: &mut MakeSegsState, base_indent: &Alignment, sig: &Signature) -> SplitGroupIdx {
+    let mut sg = new_sg(out);
+
     fn build_base(out: &mut MakeSegsState, base_indent: &Alignment, sg: &mut SplitGroupBuilder, sig: &Signature) {
         let mut prefix = String::new();
         if let Some(x) = sig.constness {
@@ -157,8 +160,9 @@ fn append_sig(out: &mut MakeSegsState, base_indent: &Alignment, sg: &mut SplitGr
             sg.build(out)
         }, wh))
     } else {
-        build_base(out, base_indent, sg, sig)
+        build_base(out, base_indent, &mut sg, sig)
     }
+    sg.build(out)
 }
 
 impl FormattableStmt for Stmt {
@@ -219,7 +223,7 @@ impl Formattable for ForeignItem {
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut node = new_sg(out);
                     append_vis(out, base_indent, &mut node, &x.vis);
-                    append_sig(out, base_indent, &mut node, &x.sig);
+                    node.child(new_sg_sig(out, base_indent, &x.sig));
                     node.seg(out, ";");
                     node.build(out)
                 },
@@ -323,7 +327,7 @@ impl Formattable for ImplItem {
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     append_vis(out, base_indent, &mut sg, &x.vis);
-                    append_sig(out, base_indent, &mut sg, &x.sig);
+                    sg.child(new_sg_sig(out, base_indent, &x.sig));
                     sg.child(
                         new_sg_block(
                             out,
@@ -426,7 +430,7 @@ impl Formattable for TraitItem {
                 &x.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
-                    append_sig(out, base_indent, &mut sg, &x.sig);
+                    sg.child(new_sg_sig(out, base_indent, &x.sig));
                     if let Some(d) = &x.default {
                         sg.child(
                             new_sg_block(
@@ -609,7 +613,7 @@ impl Formattable for Item {
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     append_vis(out, base_indent, &mut sg, &x.vis);
-                    append_sig(out, base_indent, &mut sg, &x.sig);
+                    sg.child(new_sg_sig(out, base_indent, &x.sig));
                     sg.child(
                         new_sg_block(
                             out,
@@ -721,30 +725,7 @@ impl Formattable for Item {
                     if let Some(n) = &x.ident {
                         sg.seg(out, &format!(" {}", n));
                     }
-                    let indent = base_indent.indent();
-                    match &x.mac.delimiter {
-                        syn::MacroDelimiter::Paren(_) => {
-                            sg.seg(out, "(");
-                            append_macro_body(out, &indent, &mut sg, x.mac.tokens.to_token_stream());
-                            sg.split(out, base_indent.clone(), false);
-                            sg.seg(out, ")");
-                        },
-                        syn::MacroDelimiter::Brace(_) => {
-                            sg.seg(out, "{");
-                            append_macro_body(out, &indent, &mut sg, x.mac.tokens.to_token_stream());
-                            sg.split(out, base_indent.clone(), false);
-                            sg.seg(out, "}");
-                        },
-                        syn::MacroDelimiter::Bracket(_) => {
-                            sg.seg(out, "[");
-                            append_macro_body(out, &indent, &mut sg, x.mac.tokens.to_token_stream());
-                            sg.split(out, base_indent.clone(), false);
-                            sg.seg(out, "]");
-                        },
-                    }
-                    if x.semi_token.is_some() {
-                        sg.seg(out, ";");
-                    }
+                    append_macro_bracketed(out, base_indent, &mut sg, &x.mac, x.semi_token.is_some());
                     sg.build(out)
                 },
             ),

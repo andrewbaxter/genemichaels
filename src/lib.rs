@@ -1,5 +1,6 @@
 use anyhow::{
     Result,
+    Context,
 };
 use comments::{
     format_md,
@@ -114,6 +115,7 @@ pub struct MakeSegsState {
     comments: HashMap<HashLineColumn, Vec<Comment>>,
     split_brace_threshold: Option<usize>,
     split_attributes: bool,
+    split_where: bool,
 }
 
 pub(crate) fn check_split_brace_threshold(out: &MakeSegsState, count: usize) -> bool {
@@ -448,6 +450,7 @@ pub struct FormatConfig {
     pub root_splits: bool,
     pub split_brace_threshold: Option<usize>,
     pub split_attributes: bool,
+    pub split_where: bool,
     pub comment_width: Option<usize>,
     pub comment_errors_fatal: bool,
 }
@@ -459,6 +462,7 @@ impl Default for FormatConfig {
             root_splits: false,
             split_brace_threshold: Some(1usize),
             split_attributes: true,
+            split_where: true,
             comment_width: Some(80usize),
             comment_errors_fatal: false,
         }
@@ -474,7 +478,7 @@ pub use comments::extract_comments;
 
 pub fn format_str(source: &str, config: &FormatConfig) -> Result<FormatRes> {
     let (comments, tokens) = extract_comments(source)?;
-    format_ast(syn::parse2::<File>(tokens)?, config, comments)
+    format_ast(syn::parse2::<File>(tokens).context("Error parsing token stream")?, config, comments)
 }
 
 pub fn format_ast(
@@ -491,6 +495,7 @@ pub fn format_ast(
         comments: comments,
         split_brace_threshold: config.split_brace_threshold,
         split_attributes: config.split_attributes,
+        split_where: config.split_where,
     };
     let base_indent = Alignment(Rc::new(RefCell::new(Alignment_{
         parent: None,

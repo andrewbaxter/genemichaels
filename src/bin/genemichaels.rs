@@ -105,13 +105,22 @@ fn main() {
         split_brace_threshold: Offable<usize>,
         #[arg(
             long,
-            help = "Always split #[] attributes; disable with `false`",
+            help = "Always split #[] attributes; disable with `off`",
             default_value_t = match FormatConfig::default().split_attributes {
                 true => Offable::On(On),
                 false => Offable::Off,
             },
         )]
         split_attributes: Offable<On>,
+        #[arg(
+            long,
+            help = "Always split where clauses; disable with `off`",
+            default_value_t = match FormatConfig::default().split_attributes {
+                true => Offable::On(On),
+                false => Offable::Off,
+            },
+        )]
+        split_where: Offable<On>,
         #[arg(
             long,
             help =
@@ -170,6 +179,10 @@ fn main() {
             Offable::On(n) => Some(n),
         },
         split_attributes: match args.split_attributes {
+            Offable::Off => false,
+            Offable::On(_) => true,
+        },
+        split_where: match args.split_where {
             Offable::Off => false,
             Offable::On(_) => true,
         },

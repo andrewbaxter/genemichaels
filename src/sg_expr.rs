@@ -724,7 +724,7 @@ impl Formattable for &Expr {
                         sg.initial_split();
                     }
                     sg.child(build_path(out, base_indent, &e.path));
-                    sg.seg(out, "{");
+                    sg.seg(out, " {");
                     sg.seg_unsplit(out, " ");
                     let indent = base_indent.indent();
                     let mut i = 0;

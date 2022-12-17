@@ -99,7 +99,9 @@ pub(crate) fn build_path(out: &mut MakeSegsState, base_indent: &Alignment, path:
     node.build(out)
 }
 
-pub(crate) fn append_path<'a>(
+pub(crate) fn append_path<
+    'a,
+>(
     out: &mut MakeSegsState,
     node: &mut SplitGroupBuilder,
     base_indent: &Alignment,
@@ -213,12 +215,12 @@ pub(crate) fn build_generics_part_a(
 ) -> SplitGroupIdx {
     new_sg_comma_bracketed_list(out, base_indent, None::<Expr>, 
         // not really optional, just sometimes not parsed
-        generics.lt_token.map(|s| s.span.start()).unwrap_or(LineColumn{
+        generics.lt_token.map(|s| s.span.start()).unwrap_or(LineColumn {
             line: 0,
             column: 0,
         }), "<", &generics.params, 
         // not really optional, just sometimes not parsed
-        generics.gt_token.map(|s| s.span.start()).unwrap_or(LineColumn{
+        generics.gt_token.map(|s| s.span.start()).unwrap_or(LineColumn {
             line: 0,
             column: 0,
         }), ">")
@@ -253,18 +255,18 @@ pub(crate) fn build_generics_part_b(
     base: impl Formattable,
     wh: &WhereClause,
 ) -> SplitGroupIdx {
-    new_sg_binary(
-        out,
-        base_indent,
-        base,
-        wh.where_token.span.start(),
-        " where",
-        |out: &mut MakeSegsState, base_indent: &Alignment| {
-            let mut node = new_sg(out);
-            append_inline_list(out, base_indent, &mut node, ",", true, &wh.predicates);
-            node.build(out)
-        },
-    )
+    let mut sg = new_sg(out);
+    if out.split_where {
+        sg.initial_split();
+    }
+    sg.child(base.make_segs(out, base_indent));
+    append_comments(out, base_indent, &mut sg, wh.where_token.span.start());
+    sg.seg_unsplit(out, " ");
+    sg.split(out, base_indent.clone(), true);
+    sg.seg(out, "where");
+    sg.seg_unsplit(out, " ");
+    append_inline_list(out, base_indent, &mut sg, ",", true, &wh.predicates);
+    sg.build(out)
 }
 
 impl Formattable for WherePredicate {
@@ -286,16 +288,18 @@ impl Formattable for WherePredicate {
                     );
                 }
                 sg.child(t.bounded_ty.make_segs(out, base_indent));
-                sg.seg(out, ": ");
+                sg.seg(out, ":");
+                sg.seg_unsplit(out, " ");
                 append_inline_list(out, base_indent, &mut sg, " +", false, &t.bounds);
                 sg.build(out)
             },
             WherePredicate::Lifetime(l) => {
-                let mut node = new_sg(out);
-                node.seg(out, &l.lifetime);
-                node.seg(out, ": ");
-                append_inline_list(out, base_indent, &mut node, " +", false, &l.bounds);
-                node.build(out)
+                let mut sg = new_sg(out);
+                sg.seg(out, &l.lifetime);
+                sg.seg(out, ":");
+                sg.seg_unsplit(out, " ");
+                append_inline_list(out, base_indent, &mut sg, " +", false, &l.bounds);
+                sg.build(out)
             },
             WherePredicate::Eq(e) => new_sg_binary(
                 out,
@@ -495,9 +499,10 @@ impl Formattable for &Type {
                 }
                 match &x.output {
                     ReturnType::Default => { },
-                    ReturnType::Type(_, t) => {
+                    ReturnType::Type(t, ty) => {
+                        append_comments(out, base_indent, &mut sg, t.spans[0].start());
                         sg.seg(out, " -> ");
-                        sg.child(t.make_segs(out, base_indent));
+                        sg.child(ty.make_segs(out, base_indent));
                     },
                 }
                 sg.build(out)

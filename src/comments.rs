@@ -88,7 +88,7 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
                     if self.lines.is_empty() {
                         return;
                     }
-                    self.out.push(Comment{
+                    self.out.push(Comment {
                         loc: self.loc,
                         mode: self.mode,
                         lines: self.lines.split_off(0).join("\n"),
@@ -104,7 +104,7 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
                 }
             }
 
-            let mut buffer = CommentBuffer{
+            let mut buffer = CommentBuffer {
                 out: vec![],
                 mode: CommentMode::Normal,
                 lines: vec![],
@@ -227,7 +227,7 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
     }
 
     // Extract comments
-    let mut state = State{
+    let mut state = State {
         source: source,
         line_lookup: line_lookup,
         comments: HashMap::new(),
@@ -285,7 +285,20 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
         TokenStream::from_iter(out)
     }
 
-    let tokens = recurse(&mut state, TokenStream::from_str(source).map_err(|e| anyhow!("{:?}", e))?);
+    let tokens =
+        recurse(
+            &mut state,
+            TokenStream::from_str(
+                source,
+            ).map_err(
+                |e| anyhow!(
+                    "Error reconverting token stream at {}:{}: {:?}",
+                    e.span().start().line,
+                    e.span().start().column,
+                    e
+                ),
+            )?,
+        );
     Ok((state.comments, tokens))
 }
 
@@ -311,7 +324,7 @@ struct LineState_ {
 }
 
 impl LineState_ {
-    fn flush_always(&mut self, state: &mut State, out: &mut String) {
+    fn flush_always(&mut self, state: &mut State, out: &mut String, wrapping: bool) {
         out.push_str(&format!("{}{}{}{}", if state.need_nl {
             "\n"
         } else {
@@ -319,7 +332,7 @@ impl LineState_ {
         }, match &self.first_prefix.take() {
             Some(t) => t,
             None => &*self.prefix,
-        }, &state.line_buffer, if self.explicit_wrap {
+        }, &state.line_buffer, if wrapping && self.explicit_wrap {
             " \\"
         } else {
             ""
@@ -328,9 +341,9 @@ impl LineState_ {
         state.need_nl = true;
     }
 
-    fn flush(&mut self, state: &mut State, out: &mut String) {
+    fn flush(&mut self, state: &mut State, out: &mut String, wrapping: bool) {
         if !state.line_buffer.trim().is_empty() {
-            self.flush_always(state, out);
+            self.flush_always(state, out, wrapping);
         }
     }
 
@@ -356,7 +369,7 @@ impl LineState {
         rel_max_width: Option<usize>,
         explicit_wrap: bool,
     ) -> LineState {
-        LineState(Rc::new(RefCell::new(LineState_{
+        LineState(Rc::new(RefCell::new(LineState_ {
             first_prefix: first_prefix,
             prefix: prefix,
             explicit_wrap: explicit_wrap,
@@ -371,7 +384,7 @@ impl LineState {
 
     fn zero_indent(&self) -> LineState {
         let mut s = self.0.as_ref().borrow_mut();
-        LineState(Rc::new(RefCell::new(LineState_{
+        LineState(Rc::new(RefCell::new(LineState_ {
             first_prefix: s.first_prefix.take(),
             prefix: s.prefix.clone(),
             explicit_wrap: s.explicit_wrap,
@@ -382,7 +395,7 @@ impl LineState {
 
     fn indent(&self, first_prefix: Option<String>, prefix: String, explicit_wrap: bool) -> LineState {
         let mut s = self.0.as_ref().borrow_mut();
-        LineState(Rc::new(RefCell::new(LineState_{
+        LineState(Rc::new(RefCell::new(LineState_ {
             first_prefix: match (s.first_prefix.take(), first_prefix) {
                 (None, None) => None,
                 (None, Some(p)) => Some(format!("{}{}", s.prefix, p)),
@@ -417,17 +430,16 @@ impl LineState {
                     Some(b) => {
                         // Doesn't fit, but can split to get within line
                         state.line_buffer.push_str(&text[..b].trim_end());
-                        s.flush(state, out);
                         text = (&text[b..]).trim_start();
+                        s.flush(state, out, !text.is_empty());
                     },
                     None => {
                         if !state.line_buffer.is_empty() {
                             // Doesn't fit, can't split, but stuff in buffer - flush that first
-                            s.flush(state, out);
+                            s.flush(state, out, true);
                         } else {
                             // Doesn't fit, can't split, but buffer empty - just write it
                             state.line_buffer.push_str(text.trim_end());
-                            s.flush(state, out);
                             text = &text[text.len()..];
                         }
                     },
@@ -441,18 +453,18 @@ impl LineState {
     }
 
     fn flush_always(&self, state: &mut State, out: &mut String) {
-        self.0.as_ref().borrow_mut().flush_always(state, out);
+        self.0.as_ref().borrow_mut().flush_always(state, out, false);
     }
 
     fn flush(&self, state: &mut State, out: &mut String) {
-        self.0.as_ref().borrow_mut().flush(state, out);
+        self.0.as_ref().borrow_mut().flush(state, out, false);
     }
 
     fn write_unbreakable(&self, state: &mut State, out: &mut String, text: &str) {
         let mut s = self.0.as_ref().borrow_mut();
         let max_width = s.calc_max_width();
         if state.line_buffer.len() + text.len() > max_width {
-            s.flush(state, out);
+            s.flush(state, out, true);
         }
         state.line_buffer.push_str(text);
     }
@@ -465,7 +477,7 @@ impl LineState {
             0
         };
         if state.line_buffer.len() + text.len() >= max_width {
-            s.flush(state, out);
+            s.flush(state, out, true);
         } else {
             state.line_buffer.push_str(text);
         }
@@ -476,7 +488,7 @@ impl LineState {
         if !state.line_buffer.is_empty() {
             panic!();
         }
-        s.flush_always(state, out);
+        s.flush_always(state, out, false);
     }
 }
 
@@ -492,7 +504,7 @@ fn write_image(state: &mut State, out: &mut String, line: &LineState, url: &str,
 }
 
 fn push_emphasis(state: &mut State, out: &mut String, line: LineState, line_root: bool) -> Result<StackRes> {
-    Ok(StackRes::Push(StackInline::new(state, out, StackInlineArgs{
+    Ok(StackRes::Push(StackInline::new(state, out, StackInlineArgs {
         start_bound: Some("_".into()),
         end_bound: Some("_".into()),
         line_state: line,
@@ -501,7 +513,7 @@ fn push_emphasis(state: &mut State, out: &mut String, line: LineState, line_root
 }
 
 fn push_strong(state: &mut State, out: &mut String, line: LineState, line_root: bool) -> Result<StackRes> {
-    Ok(StackRes::Push(StackInline::new(state, out, StackInlineArgs{
+    Ok(StackRes::Push(StackInline::new(state, out, StackInlineArgs {
         start_bound: Some("**".into()),
         end_bound: Some("**".into()),
         line_state: line,
@@ -510,7 +522,7 @@ fn push_strong(state: &mut State, out: &mut String, line: LineState, line_root: 
 }
 
 fn push_strikethrough(state: &mut State, out: &mut String, line: LineState, line_root: bool) -> Result<StackRes> {
-    Ok(StackRes::Push(StackInline::new(state, out, StackInlineArgs{
+    Ok(StackRes::Push(StackInline::new(state, out, StackInlineArgs {
         start_bound: Some("~~".into()),
         end_bound: Some("~~".into()),
         line_state: line,
@@ -518,10 +530,15 @@ fn push_strikethrough(state: &mut State, out: &mut String, line: LineState, line
     })))
 }
 
-fn push_link(state: &mut State, out: &mut String, line: LineState, line_root: bool, url: &str, _title: &str) -> Result<
-    StackRes,
-> {
-    Ok(StackRes::Push(StackInline::new(state, out, StackInlineArgs{
+fn push_link(
+    state: &mut State,
+    out: &mut String,
+    line: LineState,
+    line_root: bool,
+    url: &str,
+    _title: &str,
+) -> Result<StackRes> {
+    Ok(StackRes::Push(StackInline::new(state, out, StackInlineArgs {
         start_bound: Some("[".into()),
         end_bound: Some(format!("]({})", url)),
         line_state: line,
@@ -551,7 +568,7 @@ impl StackInline {
         if let Some(b) = args.start_bound {
             args.line_state.write_unbreakable(state, out, &b);
         }
-        Box::new(StackInline{
+        Box::new(StackInline {
             end_bound: args.end_bound,
             line: args.line_state,
             line_root: args.line_root,
@@ -644,7 +661,7 @@ impl StackBlock {
         if let Some(b) = args.start_bound {
             args.line.write_unbreakable(state, out, &b);
         }
-        Box::new(StackBlock{
+        Box::new(StackBlock {
             line: args.line,
             end_bound: args.end_bound,
             first: true,
@@ -675,7 +692,7 @@ impl StackEl for StackBlock {
             Event::Start(x) => match x {
                 pulldown_cmark::Tag::Paragraph => {
                     self.block_ev(state, out);
-                    Ok(StackRes::Push(StackInline::new(state, out, StackInlineArgs{
+                    Ok(StackRes::Push(StackInline::new(state, out, StackInlineArgs {
                         start_bound: None,
                         end_bound: None,
                         line_state: self.line.indent(None, "".into(), false),
@@ -684,7 +701,7 @@ impl StackEl for StackBlock {
                 },
                 pulldown_cmark::Tag::Heading(level, _, _) => {
                     self.block_ev(state, out);
-                    Ok(StackRes::Push(StackInline::new(state, out, StackInlineArgs{
+                    Ok(StackRes::Push(StackInline::new(state, out, StackInlineArgs {
                         start_bound: None,
                         end_bound: None,
                         line_state: self
@@ -695,7 +712,7 @@ impl StackEl for StackBlock {
                 },
                 pulldown_cmark::Tag::BlockQuote => {
                     self.block_ev(state, out);
-                    Ok(StackRes::Push(StackBlock::new(state, out, StackBlockArgs{
+                    Ok(StackRes::Push(StackBlock::new(state, out, StackBlockArgs {
                         line: self.line.indent(None, "> ".into(), false),
                         start_bound: None,
                         end_bound: None,
@@ -708,17 +725,17 @@ impl StackEl for StackBlock {
                         pulldown_cmark::CodeBlockKind::Fenced(x) => x,
                     }));
                     self.line.flush(state, out);
-                    Ok(StackRes::Push(Box::new(StackCodeBlock{ line: self.line.zero_indent() })))
+                    Ok(StackRes::Push(Box::new(StackCodeBlock { line: self.line.zero_indent() })))
                 },
                 pulldown_cmark::Tag::List(ordered) => {
                     self.block_ev(state, out);
                     match ordered {
-                        Some(index) => Ok(StackRes::Push(Box::new(StackNumberList{
+                        Some(index) => Ok(StackRes::Push(Box::new(StackNumberList {
                             count: *index,
                             line: self.line.zero_indent(),
                             first: true,
                         }))),
-                        None => Ok(StackRes::Push(Box::new(StackBulletList{
+                        None => Ok(StackRes::Push(Box::new(StackBulletList {
                             line: self.line.zero_indent(),
                             first: true,
                         }))),
@@ -825,7 +842,7 @@ impl StackEl for StackNumberList {
                         } else {
                             self.line.write_newline(state, out);
                         }
-                        Ok(StackRes::Push(StackBlock::new(state, out, StackBlockArgs{
+                        Ok(StackRes::Push(StackBlock::new(state, out, StackBlockArgs {
                             line: self.indent(use_count),
                             start_bound: None,
                             end_bound: None,
@@ -910,7 +927,7 @@ fn bullet_indent(line: &LineState) -> LineState {
 }
 
 fn push_bullet_item(state: &mut State, out: &mut String, line: &LineState) -> Result<StackRes> {
-    Ok(StackRes::Push(StackBlock::new(state, out, StackBlockArgs{
+    Ok(StackRes::Push(StackBlock::new(state, out, StackBlockArgs {
         line: bullet_indent(line),
         start_bound: None,
         end_bound: None,
@@ -1014,20 +1031,18 @@ pub(crate) fn format_md(
     rel_max_width: Option<usize>,
     prefix: &str,
     source: &str,
-) -> Result<
-    (),
-> {
+) -> Result<()> {
     // TODO, due to a bug a bunch of unreachable branches might have had code added.  I'd
     // like to go back and see if some block-level starts can be removed in contexts they
     // shouldn't appear.
     match es!({
         let mut out = String::new();
-        let mut state = State{
+        let mut state = State {
             stack: vec![],
             line_buffer: String::new(),
             need_nl: false,
         };
-        let start_state = StackBlock::new(&mut state, &mut out, StackBlockArgs{
+        let start_state = StackBlock::new(&mut state, &mut out, StackBlockArgs {
             line: LineState::new(None, prefix.to_string(), max_width, rel_max_width, false),
             start_bound: None,
             end_bound: None,

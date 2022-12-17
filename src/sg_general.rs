@@ -19,7 +19,11 @@ use syn::{
         Comma,
         Or,
         Add,
+        Paren,
+        Brace,
+        Bracket,
     },
+    MacroDelimiter,
 };
 use crate::{
     comments::HashLineColumn,
@@ -184,7 +188,10 @@ pub(crate) fn new_sg_block(
     sg.build(out)
 }
 
-pub(crate) fn append_inline_list_raw<E: Formattable, T: FormattablePunct>(
+pub(crate) fn append_inline_list_raw<
+    E: Formattable,
+    T: FormattablePunct,
+>(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
     sg: &mut SplitGroupBuilder,
@@ -211,7 +218,10 @@ pub(crate) fn append_inline_list_raw<E: Formattable, T: FormattablePunct>(
     }
 }
 
-pub(crate) fn append_inline_list<E: Formattable, T: FormattablePunct>(
+pub(crate) fn append_inline_list<
+    E: Formattable,
+    T: FormattablePunct,
+>(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
     sg: &mut SplitGroupBuilder,
@@ -224,7 +234,10 @@ pub(crate) fn append_inline_list<E: Formattable, T: FormattablePunct>(
     append_inline_list_raw(out, &indent, sg, punct, punct_is_suffix, exprs);
 }
 
-pub(crate) fn append_comma_bracketed_list<E: Formattable, T: FormattablePunct>(
+pub(crate) fn append_comma_bracketed_list<
+    E: Formattable,
+    T: FormattablePunct,
+>(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
     sg: &mut SplitGroupBuilder,
@@ -243,7 +256,10 @@ pub(crate) fn append_comma_bracketed_list<E: Formattable, T: FormattablePunct>(
     sg.seg(out, suffix);
 }
 
-pub(crate) fn new_sg_comma_bracketed_list<E: Formattable, T: FormattablePunct>(
+pub(crate) fn new_sg_comma_bracketed_list<
+    E: Formattable,
+    T: FormattablePunct,
+>(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
     base: Option<impl Formattable>,
@@ -262,7 +278,10 @@ pub(crate) fn new_sg_comma_bracketed_list<E: Formattable, T: FormattablePunct>(
     sg.build(out)
 }
 
-pub(crate) fn new_sg_comma_bracketed_list_ext<E: Formattable, T: FormattablePunct>(
+pub(crate) fn new_sg_comma_bracketed_list_ext<
+    E: Formattable,
+    T: FormattablePunct,
+>(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
     base: Option<impl Formattable>,
@@ -320,6 +339,19 @@ pub(crate) fn new_sg_outer_attrs(
     sg.build(out)
 }
 
+pub(crate) fn append_macro_bracketed(
+    out: &mut MakeSegsState,
+    base_indent: &Alignment,
+    sg: &mut SplitGroupBuilder,
+    mac: &Macro,
+    semi: bool,
+) {
+    append_macro_body_bracketed(out, base_indent, sg, &mac.delimiter, mac.tokens.clone());
+    if semi {
+        sg.seg(out, ";");
+    }
+}
+
 pub(crate) fn new_sg_macro(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
@@ -329,13 +361,24 @@ pub(crate) fn new_sg_macro(
     let mut sg = new_sg(out);
     sg.child(build_path(out, base_indent, &mac.path));
     sg.seg(out, "!");
+    append_macro_bracketed(out, base_indent, &mut sg, mac, semi);
+    sg.build(out)
+}
+
+pub(crate) fn append_macro_body_bracketed(
+    out: &mut MakeSegsState,
+    base_indent: &Alignment,
+    sg: &mut SplitGroupBuilder,
+    delim: &MacroDelimiter,
+    tokens: TokenStream,
+) {
     let indent = base_indent.indent();
-    match mac.delimiter {
+    match delim {
         syn::MacroDelimiter::Paren(x) => {
             sg.seg(out, "(");
             sg.split(out, indent.clone(), true);
-            append_macro_body(out, &indent, &mut sg, mac.tokens.clone());
-            append_comments(out, base_indent, &mut sg, x.span.end().prev());
+            append_macro_body(out, &indent, sg, tokens.clone());
+            append_comments(out, base_indent, sg, x.span.end().prev());
             sg.split(out, base_indent.clone(), false);
             sg.seg(out, ")");
         },
@@ -343,24 +386,20 @@ pub(crate) fn new_sg_macro(
             sg.seg(out, "{");
             sg.initial_split();
             sg.split(out, indent.clone(), true);
-            append_macro_body(out, &indent, &mut sg, mac.tokens.clone());
-            append_comments(out, base_indent, &mut sg, x.span.end().prev());
+            append_macro_body(out, &indent, sg, tokens.clone());
+            append_comments(out, base_indent, sg, x.span.end().prev());
             sg.split(out, base_indent.clone(), false);
             sg.seg(out, "}");
         },
         syn::MacroDelimiter::Bracket(x) => {
             sg.seg(out, "[");
             sg.split(out, indent.clone(), true);
-            append_macro_body(out, &indent, &mut sg, mac.tokens.clone());
-            append_comments(out, base_indent, &mut sg, x.span.end().prev());
+            append_macro_body(out, &indent, sg, tokens.clone());
+            append_comments(out, base_indent, sg, x.span.end().prev());
             sg.split(out, base_indent.clone(), false);
             sg.seg(out, "]");
         },
     }
-    if semi {
-        sg.seg(out, ";");
-    }
-    sg.build(out)
 }
 
 pub(crate) fn append_macro_body(
@@ -447,12 +486,11 @@ pub(crate) fn append_macro_body(
                                 let indent = base_indent.indent();
                                 match g.delimiter() {
                                     proc_macro2::Delimiter::Parenthesis => {
-                                        sg.seg(out, "(");
-                                        sg.split(out, indent.clone(), true);
-                                        append_macro_body(out, &indent, &mut sg, g.stream());
-                                        append_comments(out, &indent, &mut sg, g.span_close().start());
-                                        sg.split(out, base_indent.clone(), false);
-                                        sg.seg(out, ")");
+                                        append_macro_body_bracketed(out, &indent, &mut sg, &MacroDelimiter::Paren({
+                                            let mut delim = Paren::default();
+                                            delim.span = g.span_close();
+                                            delim
+                                        }), g.stream());
                                     },
                                     proc_macro2::Delimiter::Brace => {
                                         match mode {
@@ -461,21 +499,18 @@ pub(crate) fn append_macro_body(
                                                 sg.seg(out, " ");
                                             },
                                         }
-                                        sg.initial_split();
-                                        sg.seg(out, "{");
-                                        sg.split(out, indent.clone(), true);
-                                        append_macro_body(out, &indent, &mut sg, g.stream());
-                                        append_comments(out, &indent, &mut sg, g.span_close().start());
-                                        sg.split(out, base_indent.clone(), false);
-                                        sg.seg(out, "}");
+                                        append_macro_body_bracketed(out, &indent, &mut sg, &MacroDelimiter::Brace({
+                                            let mut delim = Brace::default();
+                                            delim.span = g.span_close();
+                                            delim
+                                        }), g.stream());
                                     },
                                     proc_macro2::Delimiter::Bracket => {
-                                        sg.seg(out, "[");
-                                        sg.split(out, indent.clone(), true);
-                                        append_macro_body(out, &indent, &mut sg, g.stream());
-                                        append_comments(out, &indent, &mut sg, g.span_close().start());
-                                        sg.split(out, base_indent.clone(), false);
-                                        sg.seg(out, "]");
+                                        append_macro_body_bracketed(out, &indent, &mut sg, &MacroDelimiter::Bracket({
+                                            let mut delim = Bracket::default();
+                                            delim.span = g.span_close();
+                                            delim
+                                        }), g.stream());
                                     },
                                     proc_macro2::Delimiter::None => {
                                         // TODO needs verification
@@ -513,6 +548,11 @@ pub(crate) fn append_macro_body(
                                 append_comments(out, base_indent, sg, p.span().start());
                                 sg.seg(out, &p.to_string());
                                 mode = ConsecMode::Punct;
+                            },
+                            '.' => {
+                                append_comments(out, base_indent, sg, p.span().start());
+                                sg.seg(out, &p.to_string());
+                                mode = ConsecMode::ConnectForward;
                             },
                             _ => {
                                 match mode {
@@ -562,7 +602,7 @@ pub(crate) fn append_comments(
         Some(c) => c,
         None => return,
     };
-    sg.add(out, crate::Segment{
+    sg.add(out, crate::Segment {
         node: sg.node,
         line: None,
         mode: crate::SegmentMode::All,
