@@ -10,6 +10,13 @@ Named after Gene Michaels.
 
 Everything includes macros and comments. Dog fooded in this repo.
 
+### Differences to Rustfmt
+
+* This formats all macros, Rustfmt only formats macros under certain conditions
+* This is fully deterministic, Rustfmt keeps certain stylistic choices like
+* Rustfmt has [several](https://github.com/rust-lang/rustfmt/issues/3863) [restrictions](https://github.com/rust-lang/rustfmt/issues/2896) in what it formats normally, this always formats everything (if it doesn't it's a bug)
+* This also reformats comments per Markdown rules
+
 # Usage
 
 Run `cargo install genemichaels`
@@ -69,4 +76,8 @@ Macros are formatted with a couple tricks:
 
 1. If it parses as rust code (either an expression or statement list), it's formatted normally.
 2. If it doesn't, it's split by `;` and `,` since those are usually separators, then the above is tried for each chunk.
-3. Otherwise each token in the macro is concatenated with spaces (with a couple other per_case tweaks)
+3. Otherwise each token in the macro is concatenated with spaces (with a couple other per-case tweaks)
+
+## Q&A
+
+See [this Reddit post](https://www.reddit.com/r/rust/comments/zo54gj/gene_michaels_alternative_rust_code_formatter/) for many questions and answers.
