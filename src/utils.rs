@@ -9,5 +9,5 @@ pub fn err_stop<R, F: FnOnce() -> Result<R>>(f: F) -> Result<R> {
 macro_rules! es{
     ($b: expr) => {
         $crate:: utils:: err_stop(|| $b)
-    };
+    }
 }
