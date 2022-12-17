@@ -435,16 +435,28 @@ pub(crate) fn append_macro_body(
         {
             let mut top = vec![];
             for t in tokens {
-                match t {
+                let (push, break_) = match &t {
                     proc_macro2::TokenTree::Punct(p) if match p.as_char() {
                         ';' | ',' => true,
                         _ => false,
                     } => {
-                        substreams.push((top.split_off(0), Some(p)));
+                        (false, Some(Some(p.clone())))
+                    },
+                    proc_macro2::TokenTree::Group(g) if match g.delimiter() {
+                        proc_macro2::Delimiter::Brace => true,
+                        _ => false,
+                    } => {
+                        (true, Some(None))
                     },
                     _ => {
-                        top.push(t);
+                        (true, None)
                     },
+                };
+                if push {
+                    top.push(t);
+                }
+                if let Some(b) = break_ {
+                    substreams.push((top.split_off(0), b));
                 }
             }
             if !top.is_empty() {
