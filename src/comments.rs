@@ -13,7 +13,11 @@ use proc_macro2::{
     TokenStream,
     Group,
 };
-use pulldown_cmark::Event;
+use pulldown_cmark::{
+    Event,
+    LinkDef,
+    LinkType,
+};
 use std::cell::RefCell;
 use std::collections::{
     HashMap,
@@ -535,15 +539,30 @@ fn push_link(
     out: &mut String,
     line: LineState,
     line_root: bool,
+    mode: LinkType,
     url: &str,
     _title: &str,
 ) -> Result<StackRes> {
-    Ok(StackRes::Push(StackInline::new(state, out, StackInlineArgs {
-        start_bound: Some("[".into()),
-        end_bound: Some(format!("]({})", url)),
-        line_state: line,
-        line_root: line_root,
-    })))
+    match mode {
+        pulldown_cmark::LinkType::Inline => {
+            Ok(StackRes::Push(StackInline::new(state, out, StackInlineArgs {
+                start_bound: Some("[".into()),
+                end_bound: Some(format!("]({})", url)),
+                line_state: line,
+                line_root: line_root,
+            })))
+        },
+        pulldown_cmark::LinkType::Reference | pulldown_cmark::LinkType::ReferenceUnknown => {
+            push_ref_link(state, out, self.indent(), true, &url, &title)
+        },
+        pulldown_cmark::LinkType::Collapsed => todo!(),
+        pulldown_cmark::LinkType::CollapsedUnknown => todo!(),
+        pulldown_cmark::LinkType::Shortcut => todo!(),
+        pulldown_cmark::LinkType::ShortcutUnknown => todo!(),
+        pulldown_cmark::LinkType::Autolink | pulldown_cmark::LinkType::Email => {
+            self.line.write_unbreakable(state, out, format!("<{}>", url));
+        },
+    }
 }
 
 trait StackEl {
@@ -951,8 +970,8 @@ impl StackEl for StackBulletList {
                     }
                     push_bullet_item(state, out, &self.line)
                 },
-                pulldown_cmark::Tag::Link(_, url, title) => {
-                    push_link(state, out, self.indent(), true, &url, &title)
+                pulldown_cmark::Tag::Link(mode, url, title) => {
+                    push_link(state, out, self.indent(), true, mode, &url, &title)
                 },
                 pulldown_cmark::Tag::Paragraph => Err(anyhow!("Unimplemented paragraph in bullet list")),
                 pulldown_cmark::Tag::Heading(_, _, _) => Err(anyhow!("Unimplemented heading in bullet list")),
@@ -971,7 +990,18 @@ impl StackEl for StackBulletList {
                 pulldown_cmark::Tag::Strikethrough => Err(anyhow!("Unimplemented markdown strike in bullet list")),
                 pulldown_cmark::Tag::Image(_, _, _) => Err(anyhow!("Unimplemented markdown image in bullet list")),
             },
-            Event::End(_) => Ok(StackRes::Pop),
+            Event::End(e) => {
+                if e != self.origin {
+                    return Err(
+                        anyhow!(
+                            "state stack mismatch processing markdown, end event {} doesn't match start event {}",
+                            e,
+                            self.origin
+                        ),
+                    );
+                }
+                Ok(StackRes::Pop)
+            },
             Event::Text(t) => {
                 if self.first {
                     self.first = false;
@@ -1047,13 +1077,19 @@ pub(crate) fn format_md(
             line_buffer: String::new(),
             need_nl: false,
         };
+        let line = LineState::new(None, prefix.to_string(), max_width, rel_max_width, false);
         let start_state = StackBlock::new(&mut state, &mut out, StackBlockArgs {
-            line: LineState::new(None, prefix.to_string(), max_width, rel_max_width, false),
+            line: line.share(),
             start_bound: None,
             end_bound: None,
         });
         state.stack.push(start_state);
-        for e in pulldown_cmark::Parser::new(source) {
+        let mut parser =
+            pulldown_cmark::Parser::new_ext(
+                source,
+                pulldown_cmark::Options::ENABLE_FOOTNOTES | pulldown_cmark::Options::ENABLE_STRIKETHROUGH,
+            );
+        for e in parser {
             let mut top = state.stack.pop().ok_or_else(|| anyhow!("Markdown parser stack emptied"))?;
             match top
                 .handle(&mut state, &mut out, &e)
@@ -1066,6 +1102,17 @@ pub(crate) fn format_md(
                     state.stack.push(top);
                 },
                 StackRes::Pop => { },
+            }
+        }
+
+        // Sorted because parser stores hashmap which could be non-deterministic
+        let sorted_defs = parser.reference_definitions().iter().collect::<Vec<(&str, &LinkDef)>>();
+        if !sorted_defs.is_empty() {
+            line.write_newline(&mut state, &mut out);
+            sorted_defs.sort_by_cached_key(|e| e.0);
+            for (k, v) in sorted_defs {
+                line.write_unbreakable(&mut state, &mut out, format!("[{}]: {}", k, v));
+                line.flush(&mut state, &mut out);
             }
         }
         Ok(out)
