@@ -11,7 +11,9 @@ use genemichaels::{
 };
 use std::{
     fs,
-    io::Read,
+    io::{
+        Read,
+    },
     path::PathBuf,
     process,
     str::FromStr,
@@ -87,9 +89,8 @@ fn main() {
 
     #[derive(Parser)]
     struct Args {
+        #[arg(help = "Files to format in place; if none specified formats stdin and writes result to stdout")]
         files: Vec<PathBuf>,
-        #[arg(short, long, help = "Modify the file in place rather than print to stdout")]
-        write: bool,
         #[arg(short, long, default_value_t = FormatConfig::default().max_width)]
         line_length: usize,
         #[arg(long, help = "For any node that's split, all parent nodes must also be split")]
@@ -195,14 +196,21 @@ fn main() {
             Offable::On(_) => true,
         },
     };
+
+    fn skip(src: &str) -> bool {
+        (&src).lines().take(5).any(|l| l.contains("`nogenemichaels`"))
+    }
+
     if args.files.is_empty() {
         match es!({
-            if args.write {
-                return Err(anyhow!("Can't update file when source is passed via stdin (no path specified)"));
-            }
             let mut source = Vec::new();
             std::io::stdin().read_to_end(&mut source)?;
-            let out = process(&config, &String::from_utf8(source)?)?;
+            let source = String::from_utf8(source)?;
+            if skip(&source) {
+                print!("{}", source);
+                return Ok(());
+            }
+            let out = process(&config, &source)?;
             print!("{}", out);
             Ok(())
         }) {
@@ -216,15 +224,14 @@ fn main() {
         let mut failed = false;
         for file in &args.files {
             match es!({
-                if args.write {
-                    eprintln!("Formatting {}", &file.to_string_lossy());
+                let source = String::from_utf8(fs::read(file)?)?;
+                if skip(&source) {
+                    eprintln!("Skipping {}", &file.to_string_lossy());
+                    return Ok(());
                 }
-                let out = process(&config, &String::from_utf8(fs::read(file)?)?)?;
-                if args.write {
-                    fs::write(&file, out.as_bytes())?;
-                } else {
-                    print!("{}", out);
-                }
+                eprintln!("Formatting {}", &file.to_string_lossy());
+                let out = process(&config, &source)?;
+                fs::write(&file, out.as_bytes())?;
                 Ok(())
             }) {
                 Ok(_) => { },

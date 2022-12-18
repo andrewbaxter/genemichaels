@@ -31,6 +31,8 @@ If you're using VS Code, add the setting:
 
 to use it with reckless abandon.
 
+To skip specific files, in the first 5 lines of the source add a comment containing ``nogenemichaels``.
+
 # Programmatic usage
 
 Do `cargo add genemichaels`
