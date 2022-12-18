@@ -10,6 +10,14 @@ fn rt(text: &str) {
 }
 
 #[test]
+fn rt_field() {
+    rt(r#"fn main() {
+    let _x = MyStruct { abc };
+}
+"#)
+}
+
+#[test]
 fn rt_macro1() {
     rt(r#"macro_rules! err(($l: expr, $($args: tt) *) => {
     log!($l, slog::Level::Error, "", $($args) *)

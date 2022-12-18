@@ -734,14 +734,33 @@ impl Formattable for &Expr {
                             sg.seg_unsplit(out, " ");
                         }
                         sg.split(out, indent.clone(), true);
-                        match &pair.value().member {
-                            syn::Member::Named(n) => {
-                                append_comments(out, &indent, &mut sg, n.span().start());
-                                sg.seg(out, &format!("{}: ", n));
-                            },
-                            syn::Member::Unnamed(_) => unreachable!(),
-                        };
-                        sg.child(pair.value().expr.make_segs(out, &indent));
+                        let v = pair.value();
+                        sg.child(
+                            new_sg_outer_attrs(
+                                out,
+                                &indent,
+                                &v.attrs,
+                                |out: &mut MakeSegsState, base_indent: &Alignment| {
+                                    let mut sg = new_sg(out);
+                                    if let Some(col) = &v.colon_token {
+                                        match &v.member {
+                                            syn::Member::Named(n) => {
+                                                append_comments(out, &indent, &mut sg, n.span().start());
+                                                sg.seg(out, n);
+                                            },
+                                            syn::Member::Unnamed(i) => {
+                                                append_comments(out, &indent, &mut sg, i.span.start());
+                                                sg.seg(out, i.index);
+                                            },
+                                        };
+                                        append_comments(out, &indent, &mut sg, col.span.start());
+                                        sg.seg(out, ": ");
+                                    }
+                                    sg.child(pair.value().expr.make_segs(out, base_indent));
+                                    sg.build(out)
+                                },
+                            ),
+                        );
                         i += 1;
                     }
                     if let Some(dots) = &e.dot2_token {
@@ -758,6 +777,7 @@ impl Formattable for &Expr {
                         sg.seg_unsplit(out, " ");
                     } else {
                         sg.seg_split(out, ",");
+                        sg.seg_unsplit(out, " ");
                     }
                     sg.split(out, base_indent.clone(), false);
                     append_comments(out, base_indent, &mut sg, e.brace_token.span.end().prev());
