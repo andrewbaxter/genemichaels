@@ -16,3 +16,18 @@ fn rt_macro1() {
 };);
 "#);
 }
+
+#[test]
+fn rt_macro2() {
+    rt(
+        r#"struct Foo {
+    yes: bool,
+    other: i32,
+}
+
+fn g(f: Foo) {
+    assert!(matches!(f, Foo { yes: yes, .. } if yes))
+}
+"#,
+    );
+}
