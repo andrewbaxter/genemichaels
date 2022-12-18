@@ -731,6 +731,7 @@ impl Formattable for &Expr {
                     for pair in e.fields.pairs() {
                         if i > 0 {
                             sg.seg(out, ",");
+                            sg.seg_unsplit(out, " ");
                         }
                         sg.split(out, indent.clone(), true);
                         match &pair.value().member {
@@ -741,17 +742,19 @@ impl Formattable for &Expr {
                             syn::Member::Unnamed(_) => unreachable!(),
                         };
                         sg.child(pair.value().expr.make_segs(out, &indent));
-                        sg.seg_unsplit(out, " ");
                         i += 1;
                     }
-                    if let Some(rem) = &e.rest {
+                    if let Some(dots) = &e.dot2_token {
                         if i > 0 {
                             sg.seg(out, ",");
                             sg.seg_unsplit(out, " ");
-                            sg.split(out, indent.clone(), true);
                         }
+                        sg.split(out, indent.clone(), true);
+                        append_comments(out, base_indent, &mut sg, dots.spans[0].start());
                         sg.seg(out, "..");
-                        sg.child(rem.make_segs(out, &indent));
+                        if let Some(rem) = &e.rest {
+                            sg.child(rem.make_segs(out, &indent));
+                        }
                         sg.seg_unsplit(out, " ");
                     } else {
                         sg.seg_split(out, ",");
