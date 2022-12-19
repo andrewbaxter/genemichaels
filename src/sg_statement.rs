@@ -191,17 +191,19 @@ impl Formattable for Stmt {
                     if let Some(init) = &l.init {
                         append_binary(out, base_indent, &mut sg, " =", init.1.as_ref());
                     }
+                    append_comments(out, base_indent, &mut sg, l.semi_token.span.start());
                     sg.seg(out, ";");
                     sg.build(out)
                 },
             ),
             Stmt::Item(i) => i.make_segs(out, base_indent),
             Stmt::Expr(e) => e.make_segs(out, base_indent),
-            Stmt::Semi(e, _) => {
-                let mut node = new_sg(out);
-                node.child(e.make_segs(out, base_indent));
-                node.seg(out, ";");
-                node.build(out)
+            Stmt::Semi(e, semi) => {
+                let mut sg = new_sg(out);
+                sg.child(e.make_segs(out, base_indent));
+                append_comments(out, base_indent, &mut sg, semi.span.start());
+                sg.seg(out, ";");
+                sg.build(out)
             },
         }
     }
@@ -221,11 +223,12 @@ impl Formattable for ForeignItem {
                 base_indent,
                 &x.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut node = new_sg(out);
-                    append_vis(out, base_indent, &mut node, &x.vis);
-                    node.child(new_sg_sig(out, base_indent, &x.sig));
-                    node.seg(out, ";");
-                    node.build(out)
+                    let mut sg = new_sg(out);
+                    append_vis(out, base_indent, &mut sg, &x.vis);
+                    sg.child(new_sg_sig(out, base_indent, &x.sig));
+                    append_comments(out, base_indent, &mut sg, x.semi_token.span.start());
+                    sg.seg(out, ";");
+                    sg.build(out)
                 },
             ),
             ForeignItem::Static(x) => new_sg_outer_attrs(
@@ -244,6 +247,7 @@ impl Formattable for ForeignItem {
                     }
                     prefix.push_str(&x.ident.to_string());
                     sg.seg(out, &prefix);
+                    append_comments(out, base_indent, &mut sg, x.semi_token.span.start());
                     sg.seg(out, ";");
                     sg.build(out)
                 },
@@ -260,6 +264,7 @@ impl Formattable for ForeignItem {
                     prefix.push_str("type ");
                     prefix.push_str(&x.ident.to_string());
                     sg.seg(out, &prefix);
+                    append_comments(out, base_indent, &mut sg, x.semi_token.span.start());
                     sg.seg(out, ";");
                     sg.build(out)
                 },
@@ -299,8 +304,8 @@ impl Formattable for ImplItem {
                 base_indent,
                 &x.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut node = new_sg(out);
-                    node.child({
+                    let mut sg = new_sg(out);
+                    sg.child({
                         let mut sg = new_sg(out);
                         append_vis(out, base_indent, &mut sg, &x.vis);
                         let mut prefix = String::new();
@@ -315,9 +320,10 @@ impl Formattable for ImplItem {
                         append_binary(out, base_indent, &mut sg, ":", &x.ty);
                         sg.build(out)
                     });
-                    append_binary(out, base_indent, &mut node, " =", &x.expr);
-                    node.seg(out, ";");
-                    node.build(out)
+                    append_binary(out, base_indent, &mut sg, " =", &x.expr);
+                    append_comments(out, base_indent, &mut sg, x.semi_token.span.start());
+                    sg.seg(out, ";");
+                    sg.build(out)
                 },
             ),
             ImplItem::Method(x) => new_sg_outer_attrs(
@@ -361,6 +367,7 @@ impl Formattable for ImplItem {
                     sg.seg(out, &prefix);
                     append_generics(out, base_indent, &mut sg, &x.generics);
                     append_binary(out, base_indent, &mut sg, " =", &x.ty);
+                    append_comments(out, base_indent, &mut sg, x.semi_token.span.start());
                     sg.seg(out, ";");
                     sg.build(out)
                 },
@@ -400,8 +407,8 @@ impl Formattable for TraitItem {
                 base_indent,
                 &x.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut node = new_sg(out);
-                    node.child({
+                    let mut sg = new_sg(out);
+                    sg.child({
                         let build_base = |out: &mut MakeSegsState, base_indent: &Alignment| {
                             let mut sg = new_sg(out);
                             append_comments(out, base_indent, &mut sg, x.const_token.span.start());
@@ -420,8 +427,9 @@ impl Formattable for TraitItem {
                             build_base(out, base_indent)
                         }
                     });
-                    node.seg(out, ";");
-                    node.build(out)
+                    append_comments(out, base_indent, &mut sg, x.semi_token.span.start());
+                    sg.seg(out, ";");
+                    sg.build(out)
                 },
             ),
             TraitItem::Method(x) => new_sg_outer_attrs(
@@ -446,6 +454,7 @@ impl Formattable for TraitItem {
                         sg.reverse_children();
                         sg.build(out)
                     } else {
+                        append_comments(out, base_indent, &mut sg, x.semi_token.unwrap().span.start());
                         sg.seg(out, ";");
                         sg.build(out)
                     }
@@ -477,8 +486,8 @@ impl Formattable for TraitItem {
                         );
                         sg.build(out)
                     };
-                    let mut node = new_sg(out);
-                    node.child({
+                    let mut sg = new_sg(out);
+                    sg.child({
                         match &x.default {
                             Some(d) => new_sg_binary(
                                 out,
@@ -493,8 +502,9 @@ impl Formattable for TraitItem {
                             None => build_base(out, base_indent),
                         }
                     });
-                    node.seg(out, ";");
-                    node.build(out)
+                    append_comments(out, base_indent, &mut sg, x.semi_token.span.start());
+                    sg.seg(out, ";");
+                    sg.build(out)
                 },
             ),
             TraitItem::Macro(x) => new_sg_outer_attrs(
@@ -559,6 +569,7 @@ impl Formattable for Item {
                     sg.seg(out, ": ");
                     sg.child(x.ty.make_segs(out, base_indent));
                     append_binary(out, base_indent, &mut sg, " =", x.expr.as_ref());
+                    append_comments(out, base_indent, &mut sg, x.semi_token.span.start());
                     sg.seg(out, ";");
                     sg.build(out)
                 },
@@ -602,6 +613,7 @@ impl Formattable for Item {
                         sg.seg(out, " as ");
                         sg.seg(out, &r.1);
                     }
+                    append_comments(out, base_indent, &mut sg, x.semi_token.span.start());
                     sg.seg(out, ";");
                     sg.build(out)
                 },
@@ -764,6 +776,7 @@ impl Formattable for Item {
                             content.0.span.end().prev(),
                         );
                     } else {
+                        append_comments(out, base_indent, &mut sg, x.semi.unwrap().span.start());
                         sg.seg(out, ";");
                     }
                     sg.build(out)
@@ -782,6 +795,7 @@ impl Formattable for Item {
                     sg.seg(out, ": ");
                     sg.child(x.ty.make_segs(out, base_indent));
                     append_binary(out, base_indent, &mut sg, " =", x.expr.as_ref());
+                    append_comments(out, base_indent, &mut sg, x.semi_token.span.start());
                     sg.seg(out, ";");
                     sg.build(out)
                 },
@@ -822,9 +836,11 @@ impl Formattable for Item {
                                 t.paren_token.span.end().prev(),
                                 ")",
                             );
+                            append_comments(out, base_indent, &mut sg, x.semi_token.unwrap().span.start());
                             sg.seg(out, ";");
                         },
                         syn::Fields::Unit => {
+                            append_comments(out, base_indent, &mut sg, x.semi_token.unwrap().span.start());
                             sg.seg(out, ";");
                         },
                     }
@@ -888,6 +904,7 @@ impl Formattable for Item {
                         append_inline_list(out, base_indent, &mut node, " +", false, &x.bounds);
                         node.build(out)
                     });
+                    append_comments(out, base_indent, &mut sg, x.semi_token.span.start());
                     sg.seg(out, ";");
                     sg.build(out)
                 },
@@ -906,6 +923,7 @@ impl Formattable for Item {
                     sg.seg(out, &prefix);
                     append_generics(out, base_indent, &mut sg, &x.generics);
                     append_binary(out, base_indent, &mut sg, " =", x.ty.as_ref());
+                    append_comments(out, base_indent, &mut sg, x.semi_token.span.start());
                     sg.seg(out, ";");
                     sg.build(out)
                 },
@@ -949,6 +967,7 @@ impl Formattable for Item {
                         sg.seg(out, "::");
                     }
                     sg.child(x.tree.make_segs(out, base_indent));
+                    append_comments(out, base_indent, &mut sg, x.semi_token.span.start());
                     sg.seg(out, ";");
                     sg.build(out)
                 },

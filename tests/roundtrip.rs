@@ -83,3 +83,13 @@ fn rt_comment_before_if_brace1() {
 }
 "#)
 }
+
+#[test]
+fn rt_comment_before_semi1() {
+    rt(r#"fn main() {
+    let x = 44
+    // comment
+    ;
+}
+"#)
+}
