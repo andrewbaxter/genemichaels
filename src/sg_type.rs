@@ -265,7 +265,9 @@ pub(crate) fn build_generics_part_b(
     sg.split(out, base_indent.clone(), true);
     sg.seg(out, "where");
     sg.seg_unsplit(out, " ");
-    append_inline_list(out, base_indent, &mut sg, ",", true, &wh.predicates);
+
+    // No final comma because can be followed by a ;, and ,; looks pretty odd
+    append_inline_list(out, base_indent, &mut sg, ",", false, &wh.predicates);
     sg.build(out)
 }
 
