@@ -6,14 +6,16 @@ use genemichaels::{
 };
 
 fn rt(text: &str) {
-    assert_eq!(text, &format_str(text, &FormatConfig {
+    let res = format_str(text, &FormatConfig {
         max_width: 120,
         ..Default::default()
-    }).unwrap().rendered);
+    }).unwrap();
+    assert!(res.lost_comments.is_empty(), "Comments remain: {:?}", res.lost_comments);
+    assert!(text == &res.rendered, "Formatted text changed:\n\nBefore:\n{}\n\nAfter:\n{}\n", text, res.rendered);
 }
 
 #[test]
-fn rt_field() {
+fn rt_field1() {
     rt(r#"fn main() {
     let _x = MyStruct { abc };
 }
@@ -21,22 +23,29 @@ fn rt_field() {
 }
 
 #[test]
+fn rt_field2() {
+    rt(r#"fn main() {
+    match x {
+        MyStruct { abc } => { },
+    }
+}
+"#)
+}
+
+#[test]
 fn rt_macro1() {
-    rt(r#"macro_rules! err(($l: expr, $($args: tt) *) => {
+    rt(
+        r#"macro_rules! err(($l: expr, $($args: tt) *) => {
     log!($l, slog::Level::Error, "", $($args) *)
-};);
-"#);
+});
+"#,
+    );
 }
 
 #[test]
 fn rt_macro2() {
     rt(
-        r#"struct Foo {
-    yes: bool,
-    other: i32,
-}
-
-fn g(f: Foo) {
+        r#"fn g(f: Foo) {
     assert!(matches!(f, Foo { yes: yes, .. } if yes))
 }
 "#,

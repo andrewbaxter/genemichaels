@@ -10,7 +10,6 @@ use quote::{
     ToTokens,
 };
 use syn::{
-    punctuated::Punctuated,
     Attribute,
     Block,
     ExprCall,
@@ -24,6 +23,7 @@ use syn::{
         Bracket,
     },
     MacroDelimiter,
+    Expr,
 };
 use crate::{
     comments::HashLineColumn,
@@ -39,6 +39,7 @@ use crate::{
     check_split_brace_threshold,
     SplitGroupIdx,
     FormattablePunct,
+    sg_general_lists::append_inline_list_raw,
 };
 
 pub(crate) fn build_rev_pair(
@@ -188,128 +189,10 @@ pub(crate) fn new_sg_block(
     sg.build(out)
 }
 
-pub(crate) fn append_inline_list_raw<
-    E: Formattable,
-    T: FormattablePunct,
->(
-    out: &mut MakeSegsState,
-    base_indent: &Alignment,
-    sg: &mut SplitGroupBuilder,
-    punct: &str,
-    punct_is_suffix: bool,
-    exprs: &Punctuated<E, T>,
-) {
-    for (i, pair) in exprs.pairs().enumerate() {
-        if i > 0 {
-            sg.split(out, base_indent.clone(), true);
-        }
-        if let Some(p) = pair.punct() {
-            append_comments(out, base_indent, sg, p.span_start());
-        }
-        sg.child(pair.value().make_segs(out, &base_indent));
-        if i < exprs.len() - 1 {
-            sg.seg(out, punct);
-            sg.seg_unsplit(out, " ");
-        } else {
-            if punct_is_suffix {
-                sg.seg_split(out, punct);
-            }
-        }
-    }
-}
-
-pub(crate) fn append_inline_list<
-    E: Formattable,
-    T: FormattablePunct,
->(
-    out: &mut MakeSegsState,
-    base_indent: &Alignment,
-    sg: &mut SplitGroupBuilder,
-    punct: &str,
-    punct_is_suffix: bool,
-    exprs: &Punctuated<E, T>,
-) {
-    let indent = base_indent.indent();
-    sg.split(out, indent.clone(), true);
-    append_inline_list_raw(out, &indent, sg, punct, punct_is_suffix, exprs);
-}
-
-pub(crate) fn append_comma_bracketed_list<
-    E: Formattable,
-    T: FormattablePunct,
->(
-    out: &mut MakeSegsState,
-    base_indent: &Alignment,
-    sg: &mut SplitGroupBuilder,
-    prefix: &str,
-    exprs: &Punctuated<E, T>,
-    end: LineColumn,
-    suffix: &str,
-) {
-    // node.add_comments(out, base_indent, prefix_start);
-    sg.seg(out, prefix);
-    let indent = base_indent.indent();
-    sg.split(out, indent.clone(), true);
-    append_inline_list_raw(out, &indent, sg, ",", true, exprs);
-    append_comments(out, &indent, sg, end);
-    sg.split(out, base_indent.clone(), false);
-    sg.seg(out, suffix);
-}
-
-pub(crate) fn new_sg_comma_bracketed_list<
-    E: Formattable,
-    T: FormattablePunct,
->(
-    out: &mut MakeSegsState,
-    base_indent: &Alignment,
-    base: Option<impl Formattable>,
-    start: LineColumn,
-    prefix: &str,
-    exprs: &Punctuated<E, T>,
-    end: LineColumn,
-    suffix: &str,
-) -> SplitGroupIdx {
-    let mut sg = new_sg(out);
-    if let Some(base) = base {
-        sg.child(base.make_segs(out, base_indent));
-    }
-    append_comments(out, base_indent, &mut sg, start);
-    append_comma_bracketed_list(out, base_indent, &mut sg, prefix, exprs, end, suffix);
-    sg.build(out)
-}
-
-pub(crate) fn new_sg_comma_bracketed_list_ext<
-    E: Formattable,
-    T: FormattablePunct,
->(
-    out: &mut MakeSegsState,
-    base_indent: &Alignment,
-    base: Option<impl Formattable>,
-    start: LineColumn,
-    prefix: &str,
-    exprs: &Punctuated<E, T>,
-    extra: impl Formattable,
-    suffix: &str,
-) -> SplitGroupIdx {
-    let mut sg = new_sg(out);
-    if let Some(base) = base {
-        sg.child(base.make_segs(out, base_indent));
-    }
-    append_comments(out, base_indent, &mut sg, start);
-    sg.seg(out, prefix);
-    let indent = base_indent.indent();
-    for pair in exprs.pairs() {
-        sg.split(out, indent.clone(), true);
-        sg.child((&pair.value()).make_segs(out, &indent));
-        sg.seg(out, ",");
-        sg.seg_unsplit(out, " ");
-    }
-    sg.split(out, indent.clone(), true);
-    sg.child(extra.make_segs(out, base_indent));
-    sg.seg_unsplit(out, " ");
-    sg.split(out, base_indent.clone(), false);
-    sg.seg(out, suffix);
-    sg.build(out)
+pub(crate) enum InlineListSuffix<T: Formattable> {
+    None,
+    Punct,
+    Extra(T),
 }
 
 pub(crate) fn new_sg_outer_attrs(
@@ -411,7 +294,7 @@ pub(crate) fn append_macro_body(
     if let Ok(exprs) = syn::parse2::<ExprCall>(quote!{
         f(#tokens)
     }) {
-        append_inline_list_raw(out, base_indent, sg, ",", false, &exprs.args);
+        append_inline_list_raw(out, base_indent, sg, ",", &exprs.args, InlineListSuffix::<Expr>::None);
     } else if let Ok(block) = syn::parse2::<Block>(quote!{
         {
             #tokens

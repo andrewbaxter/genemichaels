@@ -10,24 +10,28 @@ use crate::{
     new_sg,
     new_sg_lit,
     sg_general::{
-        append_binary,
-        append_inline_list_raw,
         new_sg_outer_attrs,
         new_sg_binary,
-        new_sg_comma_bracketed_list,
-        new_sg_comma_bracketed_list_ext,
         new_sg_macro,
         append_comments,
+        InlineListSuffix,
     },
     sg_type::{
         build_extended_path,
         build_ref,
+        append_path,
     },
     Alignment,
     Formattable,
     MakeSegsState,
     TrivialLineColMath,
     SplitGroupIdx,
+    sg_general_lists::{
+        append_inline_list_raw,
+        append_bracketed_list_curly,
+        new_sg_bracketed_list_common,
+        append_bracketed_list_common,
+    },
 };
 
 impl Formattable for &Pat {
@@ -100,7 +104,14 @@ impl Formattable for &Pat {
                         append_comments(out, base_indent, &mut sg, t.span.start());
                         sg.seg(out, "| ");
                     }
-                    append_inline_list_raw(out, base_indent, &mut sg, " |", false, &x.cases);
+                    append_inline_list_raw(
+                        out,
+                        base_indent,
+                        &mut sg,
+                        " |",
+                        &x.cases,
+                        InlineListSuffix::<Expr>::None,
+                    );
                     sg.build(out)
                 },
             ),
@@ -145,10 +156,9 @@ impl Formattable for &Pat {
                 base_indent,
                 &x.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    new_sg_comma_bracketed_list(
+                    new_sg_bracketed_list_common(
                         out,
                         base_indent,
-                        None::<Expr>,
                         x.bracket_token.span.start(),
                         "[",
                         &x.elems,
@@ -162,31 +172,28 @@ impl Formattable for &Pat {
                 base_indent,
                 &x.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    if let Some(d) = x.dot2_token {
-                        new_sg_comma_bracketed_list_ext(
-                            out,
-                            base_indent,
-                            Some(&x.path),
-                            x.brace_token.span.start(),
-                            " {",
-                            &x.fields,
+                    let mut sg = new_sg(out);
+                    append_path(
+                        out,
+                        &mut sg,
+                        base_indent,
+                        x.path.leading_colon.map(|t| Some(t.spans[0].start())),
+                        x.path.segments.pairs(),
+                    );
+                    append_bracketed_list_curly(
+                        out,
+                        base_indent,
+                        &mut sg,
+                        x.brace_token.span.start(),
+                        &x.fields,
+                        x.dot2_token.as_ref().map(|d| {
                             |out: &mut MakeSegsState, base_indent: &Alignment| {
                                 new_sg_lit(out, Some((base_indent, d.spans[0].start())), "..")
-                            },
-                            "}",
-                        )
-                    } else {
-                        new_sg_comma_bracketed_list(
-                            out,
-                            base_indent,
-                            Some(&x.path),
-                            x.brace_token.span.start(),
-                            " {",
-                            &x.fields,
-                            x.brace_token.span.end().prev(),
-                            "}",
-                        )
-                    }
+                            }
+                        }),
+                        x.brace_token.span.end().prev(),
+                    );
+                    sg.build(out)
                 },
             ),
             Pat::Tuple(x) => new_sg_outer_attrs(
@@ -194,10 +201,9 @@ impl Formattable for &Pat {
                 base_indent,
                 &x.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    new_sg_comma_bracketed_list(
+                    new_sg_bracketed_list_common(
                         out,
                         base_indent,
-                        None::<Expr>,
                         x.paren_token.span.start(),
                         "(",
                         &x.elems,
@@ -211,16 +217,19 @@ impl Formattable for &Pat {
                 base_indent,
                 &x.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    new_sg_comma_bracketed_list(
+                    let mut sg = new_sg(out);
+                    sg.child((&x.path).make_segs(out, base_indent));
+                    append_bracketed_list_common(
                         out,
                         base_indent,
-                        Some(&x.path),
+                        &mut sg,
                         x.pat.paren_token.span.start(),
                         "(",
                         &x.pat.elems,
                         x.pat.paren_token.span.end().prev(),
                         ")",
-                    )
+                    );
+                    sg.build(out)
                 },
             ),
             Pat::Type(x) => new_sg_outer_attrs(
@@ -255,11 +264,15 @@ impl Formattable for FieldPat {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
         new_sg_outer_attrs(out, base_indent, &self.attrs, |out: &mut MakeSegsState, base_indent: &Alignment| {
             let mut sg = new_sg(out);
-            match &self.member {
-                syn::Member::Named(x) => sg.seg(out, x),
-                syn::Member::Unnamed(x) => sg.seg(out, x.index),
-            };
-            append_binary(out, base_indent, &mut sg, ":", self.pat.as_ref());
+            if let Some(col) = &self.colon_token {
+                match &self.member {
+                    syn::Member::Named(x) => sg.seg(out, x),
+                    syn::Member::Unnamed(x) => sg.seg(out, x.index),
+                };
+                append_comments(out, &base_indent, &mut sg, col.span.start());
+                sg.seg(out, ": ");
+            }
+            sg.child(self.pat.make_segs(out, base_indent));
             sg.build(out)
         })
     }

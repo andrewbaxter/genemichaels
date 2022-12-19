@@ -4,17 +4,14 @@ use crate::{
     sg_general::{
         append_binary,
         append_bracketed_statement_list,
-        append_comma_bracketed_list,
         append_comments,
-        append_inline_list,
         append_macro_body,
         new_sg_outer_attrs,
         new_sg_binary,
         new_sg_block,
-        new_sg_comma_bracketed_list,
-        new_sg_comma_bracketed_list_ext,
         new_sg_macro,
         append_macro_bracketed,
+        InlineListSuffix,
     },
     sg_type::{
         append_path,
@@ -32,6 +29,13 @@ use crate::{
     TrivialLineColMath,
     check_split_brace_threshold,
     SplitGroupIdx,
+    sg_general_lists::{
+        append_inline_list,
+        append_bracketed_list,
+        append_bracketed_list_curly,
+        new_sg_bracketed_list,
+        append_bracketed_list_common,
+    },
 };
 use quote::ToTokens;
 use syn::{
@@ -115,35 +119,25 @@ fn new_sg_sig(out: &mut MakeSegsState, base_indent: &Alignment, sig: &Signature)
         if !sig.generics.params.is_empty() {
             sg.child(build_generics_part_a(out, base_indent, &sig.generics));
         }
-        if let Some(v) = &sig.variadic {
-            sg.child(
-                new_sg_comma_bracketed_list_ext(
-                    out,
-                    base_indent,
-                    None::<Expr>,
-                    sig.paren_token.span.start(),
-                    "(",
-                    &sig.inputs,
-                    |out: &mut MakeSegsState, base_indent: &Alignment| {
+        sg.child(
+            new_sg_bracketed_list(
+                out,
+                base_indent,
+                sig.paren_token.span.start(),
+                "(",
+                false,
+                &sig.inputs,
+                if let Some(v) = &sig.variadic {
+                    InlineListSuffix::Extra(|out: &mut MakeSegsState, base_indent: &Alignment| {
                         new_sg_lit(out, Some((base_indent, v.dots.spans[0].start())), "...")
-                    },
-                    ")",
-                ),
-            );
-        } else {
-            sg.child(
-                new_sg_comma_bracketed_list(
-                    out,
-                    base_indent,
-                    None::<Expr>,
-                    sig.paren_token.span.start(),
-                    "(",
-                    &sig.inputs,
-                    sig.paren_token.span.end().prev(),
-                    ")",
-                ),
-            );
-        }
+                    })
+                } else {
+                    InlineListSuffix::None
+                },
+                sig.paren_token.span.end().prev(),
+                ")",
+            ),
+        );
         match &sig.output {
             ReturnType::Default => { },
             ReturnType::Type(_, t) => {
@@ -480,7 +474,14 @@ impl Formattable for TraitItem {
                             ":",
                             |out: &mut MakeSegsState, base_indent: &Alignment| {
                                 let mut node = new_sg(out);
-                                append_inline_list(out, base_indent, &mut node, " +", false, &x.bounds);
+                                append_inline_list(
+                                    out,
+                                    base_indent,
+                                    &mut node,
+                                    " +",
+                                    &x.bounds,
+                                    InlineListSuffix::<Expr>::None,
+                                );
                                 node.build(out)
                             },
                         );
@@ -588,14 +589,14 @@ impl Formattable for Item {
                     sg.seg(out, "enum ");
                     sg.seg(out, &x.ident.to_string());
                     append_generics(out, base_indent, &mut sg, &x.generics);
-                    append_comma_bracketed_list(
+                    append_bracketed_list_curly(
                         out,
                         base_indent,
                         &mut sg,
-                        " {",
+                        x.brace_token.span.start(),
                         &x.variants,
+                        None::<Expr>,
                         x.brace_token.span.end().prev(),
-                        "}",
                     );
                     sg.build(out)
                 },
@@ -816,21 +817,22 @@ impl Formattable for Item {
                             if check_split_brace_threshold(out, s.named.len()) {
                                 sg.initial_split();
                             }
-                            append_comma_bracketed_list(
+                            append_bracketed_list_curly(
                                 out,
                                 base_indent,
                                 &mut sg,
-                                " {",
+                                s.brace_token.span.start(),
                                 &s.named,
+                                None::<Expr>,
                                 s.brace_token.span.end().prev(),
-                                "}",
                             );
                         },
                         syn::Fields::Unnamed(t) => {
-                            append_comma_bracketed_list(
+                            append_bracketed_list_common(
                                 out,
                                 base_indent,
                                 &mut sg,
+                                t.paren_token.span.start(),
                                 "(",
                                 &t.unnamed,
                                 t.paren_token.span.end().prev(),
@@ -870,7 +872,14 @@ impl Formattable for Item {
                     append_generics(out, base_indent, &mut sg, &x.generics);
                     if x.colon_token.is_some() {
                         sg.seg(out, ": ");
-                        append_inline_list(out, base_indent, &mut sg, " +", false, &x.supertraits);
+                        append_inline_list(
+                            out,
+                            base_indent,
+                            &mut sg,
+                            " +",
+                            &x.supertraits,
+                            InlineListSuffix::<Expr>::None,
+                        );
                     }
                     sg.child(
                         new_sg_block(
@@ -901,7 +910,14 @@ impl Formattable for Item {
                     append_generics(out, base_indent, &mut sg, &x.generics);
                     append_binary(out, base_indent, &mut sg, " =", |out: &mut MakeSegsState, base_indent: &Alignment| {
                         let mut node = new_sg(out);
-                        append_inline_list(out, base_indent, &mut node, " +", false, &x.bounds);
+                        append_inline_list(
+                            out,
+                            base_indent,
+                            &mut node,
+                            " +",
+                            &x.bounds,
+                            InlineListSuffix::<Expr>::None,
+                        );
                         node.build(out)
                     });
                     append_comments(out, base_indent, &mut sg, x.semi_token.span.start());
@@ -942,14 +958,14 @@ impl Formattable for Item {
                     sg.seg(out, "union ");
                     sg.seg(out, &x.ident.to_string());
                     append_generics(out, base_indent, &mut sg, &x.generics);
-                    append_comma_bracketed_list(
+                    append_bracketed_list_curly(
                         out,
                         base_indent,
                         &mut sg,
-                        " {",
+                        x.fields.brace_token.span.start(),
                         &x.fields.named,
+                        None::<Expr>,
                         x.fields.brace_token.span.end().prev(),
-                        "}",
                     );
                     sg.build(out)
                 },
@@ -993,21 +1009,22 @@ impl Formattable for Variant {
                     if check_split_brace_threshold(out, s.named.len()) {
                         sg.initial_split();
                     }
-                    append_comma_bracketed_list(
+                    append_bracketed_list_curly(
                         out,
                         base_indent,
                         &mut sg,
-                        " {",
+                        s.brace_token.span.start(),
                         &s.named,
+                        None::<Expr>,
                         s.brace_token.span.end().prev(),
-                        "}",
                     );
                 },
                 syn::Fields::Unnamed(t) => {
-                    append_comma_bracketed_list(
+                    append_bracketed_list_common(
                         out,
                         base_indent,
                         &mut sg,
+                        t.paren_token.span.start(),
                         "(",
                         &t.unnamed,
                         t.paren_token.span.end().prev(),
@@ -1064,12 +1081,15 @@ impl Formattable for &UseTree {
                 if check_split_brace_threshold(out, x.items.len()) {
                     sg.initial_split();
                 }
-                append_comma_bracketed_list(
+                append_bracketed_list(
                     out,
                     base_indent,
                     &mut sg,
+                    x.brace_token.span.start(),
                     "{",
+                    true,
                     &x.items,
+                    InlineListSuffix::<Expr>::Punct,
                     x.brace_token.span.end().prev(),
                     "}",
                 );

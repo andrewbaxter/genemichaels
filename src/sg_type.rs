@@ -25,14 +25,11 @@ use crate::{
     new_sg_lit,
     sg_general::{
         append_binary,
-        append_comma_bracketed_list,
         append_comments,
-        append_inline_list,
         new_sg_outer_attrs,
         new_sg_binary,
-        new_sg_comma_bracketed_list,
-        new_sg_comma_bracketed_list_ext,
         new_sg_macro,
+        InlineListSuffix,
     },
     Alignment,
     Formattable,
@@ -40,6 +37,12 @@ use crate::{
     SplitGroupBuilder,
     TrivialLineColMath,
     SplitGroupIdx,
+    sg_general_lists::{
+        append_inline_list,
+        new_sg_bracketed_list_common,
+        append_bracketed_list_common,
+        new_sg_bracketed_list,
+    },
 };
 
 pub(crate) fn build_extended_path(
@@ -132,10 +135,9 @@ pub(crate) fn append_path<
             syn::PathArguments::None => { },
             syn::PathArguments::AngleBracketed(a) => {
                 node.child(
-                    new_sg_comma_bracketed_list(
+                    new_sg_bracketed_list_common(
                         out,
                         &indent,
-                        None::<&Expr>,
                         a.lt_token.span.start(),
                         &format!("{}{}", match &a.colon2_token {
                             Some(_) => "::",
@@ -149,10 +151,9 @@ pub(crate) fn append_path<
             },
             syn::PathArguments::Parenthesized(a) => {
                 node.child(
-                    new_sg_comma_bracketed_list(
+                    new_sg_bracketed_list_common(
                         out,
                         &indent,
-                        None::<&Expr>,
                         a.paren_token.span.start(),
                         "(",
                         &a.inputs,
@@ -213,7 +214,7 @@ pub(crate) fn build_generics_part_a(
     base_indent: &Alignment,
     generics: &Generics,
 ) -> SplitGroupIdx {
-    new_sg_comma_bracketed_list(out, base_indent, None::<Expr>, 
+    new_sg_bracketed_list_common(out, base_indent, 
         // not really optional, just sometimes not parsed
         generics.lt_token.map(|s| s.span.start()).unwrap_or(LineColumn {
             line: 0,
@@ -267,7 +268,7 @@ pub(crate) fn build_generics_part_b(
     sg.seg_unsplit(out, " ");
 
     // No final comma because can be followed by a ;, and ,; looks pretty odd
-    append_inline_list(out, base_indent, &mut sg, ",", false, &wh.predicates);
+    append_inline_list(out, base_indent, &mut sg, ",", &wh.predicates, InlineListSuffix::<Expr>::None);
     sg.build(out)
 }
 
@@ -279,10 +280,11 @@ impl Formattable for WherePredicate {
                 if let Some(hot) = &t.lifetimes {
                     append_comments(out, base_indent, &mut sg, hot.for_token.span.start());
                     sg.seg(out, "for");
-                    append_comma_bracketed_list(
+                    append_bracketed_list_common(
                         out,
                         base_indent,
                         &mut sg,
+                        hot.lt_token.span.start(),
                         "<",
                         &hot.lifetimes,
                         hot.gt_token.span.start(),
@@ -292,7 +294,7 @@ impl Formattable for WherePredicate {
                 sg.child(t.bounded_ty.make_segs(out, base_indent));
                 sg.seg(out, ":");
                 sg.seg_unsplit(out, " ");
-                append_inline_list(out, base_indent, &mut sg, " +", false, &t.bounds);
+                append_inline_list(out, base_indent, &mut sg, " +", &t.bounds, InlineListSuffix::<Expr>::None);
                 sg.build(out)
             },
             WherePredicate::Lifetime(l) => {
@@ -300,7 +302,7 @@ impl Formattable for WherePredicate {
                 sg.seg(out, &l.lifetime);
                 sg.seg(out, ":");
                 sg.seg_unsplit(out, " ");
-                append_inline_list(out, base_indent, &mut sg, " +", false, &l.bounds);
+                append_inline_list(out, base_indent, &mut sg, " +", &l.bounds, InlineListSuffix::<Expr>::None);
                 sg.build(out)
             },
             WherePredicate::Eq(e) => new_sg_binary(
@@ -328,7 +330,14 @@ impl Formattable for GenericParam {
                         sg.seg(out, &t.ident);
                         if t.colon_token.is_some() && !t.bounds.is_empty() {
                             sg.seg(out, ": ");
-                            append_inline_list(out, base_indent, &mut sg, " +", false, &t.bounds);
+                            append_inline_list(
+                                out,
+                                base_indent,
+                                &mut sg,
+                                " +",
+                                &t.bounds,
+                                InlineListSuffix::<Expr>::None,
+                            );
                         }
                         sg.build(out)
                     };
@@ -381,10 +390,11 @@ impl Formattable for TypeParamBound {
                 if let Some(hot) = &t.lifetimes {
                     append_comments(out, base_indent, &mut sg, hot.for_token.span.start());
                     sg.seg(out, "for");
-                    append_comma_bracketed_list(
+                    append_bracketed_list_common(
                         out,
                         base_indent,
                         &mut sg,
+                        hot.lt_token.span.start(),
                         "<",
                         &hot.lifetimes,
                         hot.gt_token.span.start(),
@@ -418,7 +428,14 @@ impl Formattable for LifetimeDef {
             if self.colon_token.is_some() {
                 append_binary(out, base_indent, &mut node, ":", |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut node = new_sg(out);
-                    append_inline_list(out, base_indent, &mut node, " +", false, &self.bounds);
+                    append_inline_list(
+                        out,
+                        base_indent,
+                        &mut node,
+                        " +",
+                        &self.bounds,
+                        InlineListSuffix::None::<Expr>,
+                    );
                     node.build(out)
                 });
             }
@@ -448,10 +465,11 @@ impl Formattable for &Type {
                 if let Some(hot) = &x.lifetimes {
                     append_comments(out, base_indent, &mut sg, hot.for_token.span.start());
                     sg.seg(out, "for");
-                    append_comma_bracketed_list(
+                    append_bracketed_list_common(
                         out,
                         base_indent,
                         &mut sg,
+                        hot.lt_token.span.start(),
                         "<",
                         &hot.lifetimes,
                         hot.gt_token.span.start(),
@@ -470,35 +488,24 @@ impl Formattable for &Type {
                 }
                 prefix.push_str("fn");
                 sg.seg(out, &prefix);
-                if let Some(v) = &x.variadic {
-                    sg.child(
-                        new_sg_comma_bracketed_list_ext(
-                            out,
-                            base_indent,
-                            None::<Expr>,
-                            x.paren_token.span.start(),
-                            "(",
-                            &x.inputs,
-                            |out: &mut MakeSegsState, _base_indent: &Alignment| {
+                sg.child(
+                    new_sg_bracketed_list(
+                        out,
+                        base_indent,
+                        x.paren_token.span.start(),
+                        "(",
+                        false,
+                        &x.inputs,
+                        match &x.variadic {
+                            Some(v) => InlineListSuffix::Extra(|out: &mut MakeSegsState, _base_indent: &Alignment| {
                                 new_sg_lit(out, Some((base_indent, v.dots.spans[0].start())), "...")
-                            },
-                            ")",
-                        ),
-                    );
-                } else {
-                    sg.child(
-                        new_sg_comma_bracketed_list(
-                            out,
-                            base_indent,
-                            None::<Expr>,
-                            x.paren_token.span.start(),
-                            "(",
-                            &x.inputs,
-                            x.paren_token.span.end().prev(),
-                            ")",
-                        ),
-                    );
-                }
+                            }),
+                            None => InlineListSuffix::None,
+                        },
+                        x.paren_token.span.end().prev(),
+                        ")",
+                    ),
+                );
                 match &x.output {
                     ReturnType::Default => { },
                     ReturnType::Type(t, ty) => {
@@ -514,7 +521,7 @@ impl Formattable for &Type {
                 let mut node = new_sg(out);
                 append_binary(out, base_indent, &mut node, "impl", |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut node = new_sg(out);
-                    append_inline_list(out, base_indent, &mut node, " +", false, &x.bounds);
+                    append_inline_list(out, base_indent, &mut node, " +", &x.bounds, InlineListSuffix::<Expr>::None);
                     node.build(out)
                 });
                 node.build(out)
@@ -567,15 +574,14 @@ impl Formattable for &Type {
                 let mut node = new_sg(out);
                 append_binary(out, base_indent, &mut node, "dyn", |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut node = new_sg(out);
-                    append_inline_list(out, base_indent, &mut node, " +", false, &x.bounds);
+                    append_inline_list(out, base_indent, &mut node, " +", &x.bounds, InlineListSuffix::<Expr>::None);
                     node.build(out)
                 });
                 node.build(out)
             },
-            Type::Tuple(x) => new_sg_comma_bracketed_list(
+            Type::Tuple(x) => new_sg_bracketed_list_common(
                 out,
                 base_indent,
-                None::<Expr>,
                 x.paren_token.span.start(),
                 "(",
                 &x.elems,
@@ -677,7 +683,7 @@ impl Formattable for GenericArgument {
                 node.seg(out, &c.ident);
                 append_binary(out, base_indent, &mut node, " =", |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut node = new_sg(out);
-                    append_inline_list(out, base_indent, &mut node, " +", false, &c.bounds);
+                    append_inline_list(out, base_indent, &mut node, " +", &c.bounds, InlineListSuffix::<Expr>::None);
                     node.build(out)
                 });
                 node.build(out)

@@ -5,6 +5,7 @@ use syn::{
     ExprClosure,
     ExprField,
     ExprMethodCall,
+    FieldValue,
 };
 use crate::{
     new_sg,
@@ -17,7 +18,6 @@ use crate::{
         new_sg_outer_attrs,
         new_sg_binary,
         new_sg_block,
-        new_sg_comma_bracketed_list,
         new_sg_macro,
     },
     sg_type::{
@@ -32,6 +32,11 @@ use crate::{
     TrivialLineColMath,
     check_split_brace_threshold,
     SplitGroupIdx,
+    sg_general_lists::{
+        append_bracketed_list_curly,
+        new_sg_bracketed_list_common,
+        append_bracketed_list_common,
+    },
 };
 
 #[derive(Clone)]
@@ -96,34 +101,42 @@ fn new_sg_dotted(out: &mut MakeSegsState, base_indent: &Alignment, root: Dotted)
                     syn::Member::Unnamed(u) => u.index.to_string(),
                 }),
             ),
-            Dotted::Method(e) => new_sg_comma_bracketed_list(
-                out,
-                base_indent,
-                Some(|out: &mut MakeSegsState, base_indent: &Alignment| {
+            Dotted::Method(e) => {
+                let mut sg = new_sg(out);
+                sg.child({
                     let build_base = |out: &mut MakeSegsState, _base_indent: &Alignment| {
                         new_sg_lit(out, Some((base_indent, e.dot_token.span.start())), format!(".{}", e.method))
                     };
                     if let Some(tf) = &e.turbofish {
-                        new_sg_comma_bracketed_list(
+                        let mut sg = new_sg(out);
+                        sg.child(build_base(out, base_indent));
+                        append_bracketed_list_common(
                             out,
                             base_indent,
-                            Some(build_base),
+                            &mut sg,
                             tf.colon2_token.spans[0].start(),
                             "::<",
                             &tf.args,
                             tf.lt_token.span.start(),
                             ">",
-                        )
+                        );
+                        sg.build(out)
                     } else {
                         build_base(out, base_indent)
                     }
-                }),
-                e.paren_token.span.start(),
-                "(",
-                &e.args,
-                e.paren_token.span.end().prev(),
-                ")",
-            ),
+                });
+                append_bracketed_list_common(
+                    out,
+                    base_indent,
+                    &mut sg,
+                    e.paren_token.span.start(),
+                    "(",
+                    &e.args,
+                    e.paren_token.span.end().prev(),
+                    ")",
+                );
+                sg.build(out)
+            },
             Dotted::Try(inner) => {
                 let mut sg = new_sg(out);
                 sg.child(build_child(out, base_indent, inner.as_ref()));
@@ -161,10 +174,9 @@ impl Formattable for &Expr {
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    new_sg_comma_bracketed_list(
+                    new_sg_bracketed_list_common(
                         out,
                         base_indent,
-                        None::<Expr>,
                         e.bracket_token.span.start(),
                         "[",
                         &e.elems,
@@ -298,16 +310,19 @@ impl Formattable for &Expr {
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    new_sg_comma_bracketed_list(
+                    let mut sg = new_sg(out);
+                    sg.child(e.func.make_segs(out, base_indent));
+                    append_bracketed_list_common(
                         out,
                         base_indent,
-                        Some(e.func.as_ref()),
+                        &mut sg,
                         e.paren_token.span.start(),
                         "(",
                         &e.args,
                         e.paren_token.span.end().prev(),
                         ")",
-                    )
+                    );
+                    sg.build(out)
                 },
             ),
             Expr::Cast(e) => new_sg_outer_attrs(
@@ -352,10 +367,9 @@ impl Formattable for &Expr {
                             prefix.push_str(" ");
                         }
                         prefix.push_str("|");
-                        new_sg_comma_bracketed_list(
+                        new_sg_bracketed_list_common(
                             out,
                             base_indent,
-                            None::<Expr>,
                             e.or1_token.span.start(),
                             &prefix,
                             &e.inputs,
@@ -725,64 +739,20 @@ impl Formattable for &Expr {
                         sg.initial_split();
                     }
                     sg.child(build_path(out, base_indent, &e.path));
-                    sg.seg(out, " {");
-                    sg.seg_unsplit(out, " ");
-                    let indent = base_indent.indent();
-                    let mut i = 0;
-                    for pair in e.fields.pairs() {
-                        if i > 0 {
-                            sg.seg(out, ",");
-                            sg.seg_unsplit(out, " ");
-                        }
-                        sg.split(out, indent.clone(), true);
-                        let v = pair.value();
-                        sg.child(
-                            new_sg_outer_attrs(
-                                out,
-                                &indent,
-                                &v.attrs,
-                                |out: &mut MakeSegsState, base_indent: &Alignment| {
-                                    let mut sg = new_sg(out);
-                                    if let Some(col) = &v.colon_token {
-                                        match &v.member {
-                                            syn::Member::Named(n) => {
-                                                append_comments(out, &indent, &mut sg, n.span().start());
-                                                sg.seg(out, n);
-                                            },
-                                            syn::Member::Unnamed(i) => {
-                                                append_comments(out, &indent, &mut sg, i.span.start());
-                                                sg.seg(out, i.index);
-                                            },
-                                        };
-                                        append_comments(out, &indent, &mut sg, col.span.start());
-                                        sg.seg(out, ": ");
-                                    }
-                                    sg.child(pair.value().expr.make_segs(out, base_indent));
-                                    sg.build(out)
-                                },
-                            ),
-                        );
-                        i += 1;
-                    }
-                    if let Some(dots) = &e.dot2_token {
-                        if i > 0 {
-                            sg.seg(out, ",");
-                            sg.seg_unsplit(out, " ");
-                        }
-                        sg.split(out, indent.clone(), true);
-                        append_comments(out, base_indent, &mut sg, dots.spans[0].start());
-                        sg.seg(out, "..");
-                        if let Some(rem) = &e.rest {
-                            sg.child(rem.make_segs(out, &indent));
-                        }
-                        sg.seg_unsplit(out, " ");
-                    } else {
-                        sg.seg_split(out, ",");
-                        sg.seg_unsplit(out, " ");
-                    }
-                    sg.split(out, base_indent.clone(), false);
-                    append_comments(out, base_indent, &mut sg, e.brace_token.span.end().prev());
-                    sg.seg(out, "}");
+                    append_bracketed_list_curly(
+                        out,
+                        base_indent,
+                        &mut sg,
+                        e.brace_token.span.start(),
+                        &e.fields,
+                        e.dot2_token.as_ref().map(|d| |out: &mut MakeSegsState, base_indent: &Alignment| {
+                            let mut sg = new_sg(out);
+                            append_comments(out, base_indent, &mut sg, d.spans[0].start());
+                            sg.seg(out, "..");
+                            sg.build(out)
+                        }),
+                        e.brace_token.span.end().prev(),
+                    );
                     sg.build(out)
                 },
             ),
@@ -826,10 +796,9 @@ impl Formattable for &Expr {
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    new_sg_comma_bracketed_list(
+                    new_sg_bracketed_list_common(
                         out,
                         base_indent,
-                        None::<Expr>,
                         e.paren_token.span.start(),
                         "(",
                         &e.elems,
@@ -930,5 +899,29 @@ impl Formattable for &Expr {
             ),
             _ => unreachable!(),
         }
+    }
+}
+
+impl Formattable for FieldValue {
+    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
+        new_sg_outer_attrs(out, base_indent, &self.attrs, |out: &mut MakeSegsState, base_indent: &Alignment| {
+            let mut sg = new_sg(out);
+            if let Some(col) = &self.colon_token {
+                match &self.member {
+                    syn::Member::Named(n) => {
+                        append_comments(out, base_indent, &mut sg, n.span().start());
+                        sg.seg(out, n);
+                    },
+                    syn::Member::Unnamed(i) => {
+                        append_comments(out, base_indent, &mut sg, i.span.start());
+                        sg.seg(out, i.index);
+                    },
+                };
+                append_comments(out, base_indent, &mut sg, col.span.start());
+                sg.seg(out, ": ");
+            }
+            sg.child(self.expr.make_segs(out, base_indent));
+            sg.build(out)
+        })
     }
 }
