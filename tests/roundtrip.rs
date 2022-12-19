@@ -34,22 +34,18 @@ fn rt_field2() {
 
 #[test]
 fn rt_macro1() {
-    rt(
-        r#"macro_rules! err(($l: expr, $($args: tt) *) => {
+    rt(r#"macro_rules! err(($l: expr, $($args: tt) *) => {
     log!($l, slog::Level::Error, "", $($args) *)
 });
-"#,
-    );
+"#);
 }
 
 #[test]
 fn rt_macro2() {
-    rt(
-        r#"fn g(f: Foo) {
+    rt(r#"fn g(f: Foo) {
     assert!(matches!(f, Foo { yes: yes, .. } if yes))
 }
-"#,
-    );
+"#);
 }
 
 #[test]
