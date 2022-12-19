@@ -59,6 +59,8 @@ pub(crate) fn append_inline_list_raw<
             if let Some(p) = next_punct {
                 append_comments(out, base_indent, sg, p.span_start());
                 sg.seg_split(out, punct);
+            } else if !exprs.is_empty() {
+                sg.seg_split(out, punct);
             }
         },
         InlineListSuffix::Extra(e) => {
@@ -69,6 +71,7 @@ pub(crate) fn append_inline_list_raw<
                 sg.seg(out, punct);
             }
             if !exprs.is_empty() {
+                sg.split(out, base_indent.clone(), true);
                 sg.seg_unsplit(out, " ");
             }
             e.make_segs(out, base_indent);
@@ -111,13 +114,17 @@ pub(crate) fn append_bracketed_list<
 ) {
     append_comments(out, base_indent, sg, prefix_start);
     sg.seg(out, prefix);
-    if bracket_space && !exprs.is_empty() {
+    let need_pad = bracket_space && (!exprs.is_empty() || match &list_suffix {
+        InlineListSuffix::Extra(_) => true,
+        _ => false,
+    });
+    if need_pad {
         sg.seg_unsplit(out, " ");
     }
     let indent = base_indent.indent();
     sg.split(out, indent.clone(), true);
     append_inline_list_raw(out, &indent, sg, ",", exprs, list_suffix);
-    if bracket_space && !exprs.is_empty() {
+    if need_pad {
         sg.seg_unsplit(out, " ");
     }
     append_comments(out, &indent, sg, suffix_start);
@@ -146,7 +153,7 @@ pub(crate) fn append_bracketed_list_common<
         prefix,
         false,
         exprs,
-        InlineListSuffix::<Expr>::None,
+        InlineListSuffix::<Expr>::Punct,
         suffix_start,
         suffix,
     );
@@ -166,7 +173,7 @@ pub(crate) fn append_bracketed_list_curly<
 ) {
     append_bracketed_list(out, base_indent, sg, prefix_start, " {", true, exprs, match extra {
         Some(e) => InlineListSuffix::Extra(e),
-        None => InlineListSuffix::None,
+        None => InlineListSuffix::Punct,
     }, suffix_start, "}")
 }
 
@@ -220,7 +227,7 @@ pub(crate) fn new_sg_bracketed_list_common<
         prefix,
         false,
         exprs,
-        InlineListSuffix::<Expr>::None,
+        InlineListSuffix::<Expr>::Punct,
         suffix_start,
         suffix,
     )

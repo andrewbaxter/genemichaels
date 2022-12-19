@@ -33,6 +33,29 @@ fn rt_field2() {
 }
 
 #[test]
+fn rt_struct1() {
+    rt(r#"fn main() {
+    x(MyStruct {
+        y: z,
+        ..Default::default()
+    })
+}
+"#)
+}
+
+#[test]
+fn rt_pat_field1() {
+    rt(
+        r#"fn main() {
+    match x {
+        Expr::MethodCall(ExprMethodCall { args, receiver: func, .. }) => { },
+    }
+}
+"#,
+    )
+}
+
+#[test]
 fn rt_macro1() {
     rt(r#"macro_rules! err(($l: expr, $($args: tt) *) => {
     log!($l, slog::Level::Error, "", $($args) *)

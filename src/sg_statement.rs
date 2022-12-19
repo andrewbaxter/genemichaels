@@ -132,7 +132,7 @@ fn new_sg_sig(out: &mut MakeSegsState, base_indent: &Alignment, sig: &Signature)
                         new_sg_lit(out, Some((base_indent, v.dots.spans[0].start())), "...")
                     })
                 } else {
-                    InlineListSuffix::None
+                    InlineListSuffix::Punct
                 },
                 sig.paren_token.span.end().prev(),
                 ")",

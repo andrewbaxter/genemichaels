@@ -749,6 +749,9 @@ impl Formattable for &Expr {
                             let mut sg = new_sg(out);
                             append_comments(out, base_indent, &mut sg, d.spans[0].start());
                             sg.seg(out, "..");
+                            if let Some(rem) = &e.rest {
+                                sg.child(rem.make_segs(out, base_indent));
+                            }
                             sg.build(out)
                         }),
                         e.brace_token.span.end().prev(),

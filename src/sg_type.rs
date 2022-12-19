@@ -500,7 +500,7 @@ impl Formattable for &Type {
                             Some(v) => InlineListSuffix::Extra(|out: &mut MakeSegsState, _base_indent: &Alignment| {
                                 new_sg_lit(out, Some((base_indent, v.dots.spans[0].start())), "...")
                             }),
-                            None => InlineListSuffix::None,
+                            None => InlineListSuffix::Punct,
                         },
                         x.paren_token.span.end().prev(),
                         ")",
