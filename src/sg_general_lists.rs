@@ -50,8 +50,8 @@ pub(crate) fn append_inline_list_raw<
             sg.split(out, base_indent.clone(), true);
             sg.seg_unsplit(out, " ");
         }
-        sg.child(pair.value().make_segs(out, &base_indent));
-        next_punct = pair.punct().map(|p| *p);
+        sg.child(pair.value().make_segs(out, base_indent));
+        next_punct = pair.punct().copied();
     }
     match suffix {
         InlineListSuffix::None => { },
@@ -114,10 +114,7 @@ pub(crate) fn append_bracketed_list<
 ) {
     append_comments(out, base_indent, sg, prefix_start);
     sg.seg(out, prefix);
-    let need_pad = bracket_space && (!exprs.is_empty() || match &list_suffix {
-        InlineListSuffix::Extra(_) => true,
-        _ => false,
-    });
+    let need_pad = bracket_space && (!exprs.is_empty() || matches!(&list_suffix, InlineListSuffix::Extra(_)));
     if need_pad {
         sg.seg_unsplit(out, " ");
     }

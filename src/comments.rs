@@ -37,7 +37,7 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
         let mut offset = 0usize;
         loop {
             line_lookup.push(offset);
-            offset += match (&source[offset..]).find('\n') {
+            offset += match source[offset..].find('\n') {
                 Some(r) => r,
                 None => {
                     break;
@@ -64,7 +64,7 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
             }
             let line_start_offset = *self.line_lookup.get(loc.line - 1).unwrap();
             line_start_offset +
-                (&self.source[line_start_offset..]).chars().take(loc.column).map(char::len_utf8).sum::<usize>()
+                self.source[line_start_offset..].chars().take(loc.column).map(char::len_utf8).sum::<usize>()
         }
 
         fn add_comments(&mut self, end: LineColumn, whole_text: &str) {
@@ -113,7 +113,7 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
             'comment_loop : loop {
                 match start_re.captures(text) {
                     Some(found_start) => {
-                        let start_prefix_match = found_start.get(1).or(found_start.get(3)).unwrap();
+                        let start_prefix_match = found_start.get(1).or_else(|| found_start.get(3)).unwrap();
                         match start_prefix_match.as_str() {
                             "//" => {
                                 let mode = {
@@ -157,7 +157,7 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
                                     let found_event =
                                         block_event_re.captures(&text[search_end_at..]).unwrap().get(1).unwrap();
                                     let event_start = search_end_at + found_event.start();
-                                    search_end_at = search_end_at + found_event.end();
+                                    search_end_at += found_event.end();
                                     match found_event.as_str() {
                                         "/*" => {
                                             nesting += 1;
@@ -196,13 +196,13 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
             // Transpose line-end comments to line-start
             if if let Some(previous_start) = &self.line_start {
                 if end.line > previous_start.line {
-                    let eol = match (&self.source[start..]).find('\n') {
+                    let eol = match self.source[start..].find('\n') {
                         Some(n) => start + n,
                         None => self.source.len(),
                     };
                     let text = &self.source[start .. eol];
                     if text.trim_start().starts_with("//") {
-                        self.add_comments(previous_start.clone(), text);
+                        self.add_comments(*previous_start, text);
                     }
                     start = eol;
                     true
@@ -227,8 +227,8 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
 
     // Extract comments
     let mut state = State {
-        source: source,
-        line_lookup: line_lookup,
+        source,
+        line_lookup,
         comments: HashMap::new(),
         last_offset: 0usize,
         line_start: None,
@@ -317,7 +317,7 @@ struct LineState_ {
 
 impl LineState_ {
     fn flush_always(&mut self, state: &mut State, out: &mut String, wrapping: bool) {
-        out.push_str(&format!("{}{}{}{}", if state.need_nl {
+        out.push_str(format!("{}{}{}{}", if state.need_nl {
             "\n"
         } else {
             ""
@@ -370,11 +370,11 @@ impl LineState {
         explicit_wrap: bool,
     ) -> LineState {
         LineState(Rc::new(RefCell::new(LineState_ {
-            first_prefix: first_prefix,
-            prefix: prefix,
-            explicit_wrap: explicit_wrap,
-            max_width: max_width,
-            rel_max_width: rel_max_width,
+            first_prefix,
+            prefix,
+            explicit_wrap,
+            max_width,
+            rel_max_width,
         })))
     }
 
@@ -421,8 +421,8 @@ impl LineState {
                 match get_splits(text).take_while(|b| state.line_buffer.chars().count() + *b < max_width).last() {
                     Some(b) => {
                         // Doesn't fit, but can split to get within line
-                        state.line_buffer.push_str(&text[..b].trim_end());
-                        text = (&text[b..]).trim_start();
+                        state.line_buffer.push_str(text[..b].trim_end());
+                        text = text[b..].trim_start();
                         s.flush(state, out, !text.is_empty());
                     },
                     None => {
@@ -474,7 +474,7 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
             let mut line = *line;
             if i > 0 {
                 line = line.trim_start();
-                joined.push_str(" ");
+                joined.push(' ');
             }
             if i < lines.len() - 1 {
                 line = line.trim_end();
@@ -559,7 +559,7 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
         Node::Heading(x) => {
             let line = line.clone_indent(Some(format!("{} ", "#".repeat(x.depth as usize))), "  ".into(), true);
             for child in &x.children {
-                recurse_write(state, out, line.clone_inline(), &child);
+                recurse_write(state, out, line.clone_inline(), child);
             }
             line.flush_always(state, out);
         },
@@ -578,7 +578,7 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
             line.write_unbreakable(state, out, &format!("[{}]: {}", x.identifier.trim(), x.url));
             if let Some(title) = &x.title {
                 line.write_unbreakable(state, out, " \"");
-                line.write_breakable(state, out, &title);
+                line.write_breakable(state, out, title);
                 line.write_unbreakable(state, out, "\"");
             }
             line.flush_always(state, out);
@@ -631,20 +631,20 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
                 (false, Some(t)) => {
                     line.write_unbreakable(state, out, &format!("![{}]({}", x.alt, x.url));
                     line.write_unbreakable(state, out, " \"");
-                    line.write_breakable(state, out, &t);
+                    line.write_breakable(state, out, t);
                     line.write_unbreakable(state, out, "\")");
                 },
                 (true, None) => {
-                    line.write_unbreakable(state, out, &format!("!["));
+                    line.write_unbreakable(state, out, "![");
                     line.write_breakable(state, out, &x.alt);
                     line.write_unbreakable(state, out, &format!("]({})", x.url));
                 },
                 (true, Some(t)) => {
-                    line.write_unbreakable(state, out, &format!("!["));
+                    line.write_unbreakable(state, out, "![");
                     line.write_breakable(state, out, &x.alt);
                     line.write_unbreakable(state, out, &format!("]({}", x.url));
                     line.write_unbreakable(state, out, " \"");
-                    line.write_breakable(state, out, &t);
+                    line.write_breakable(state, out, t);
                     line.write_unbreakable(state, out, "\")");
                 },
             }
@@ -681,24 +681,24 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
                 (Some(c), Some(title)) => {
                     line.write_unbreakable(state, out, &format!("[{}]({}", c, x.url));
                     line.write_unbreakable(state, out, " \"");
-                    line.write_breakable(state, out, &title);
+                    line.write_breakable(state, out, title);
                     line.write_unbreakable(state, out, "\")");
                 },
                 (None, None) => {
-                    line.write_unbreakable(state, out, &format!("["));
+                    line.write_unbreakable(state, out, "[");
                     for child in &x.children {
                         recurse_write(state, out, line.clone_inline(), child);
                     }
                     line.write_unbreakable(state, out, &format!("]({})", x.url));
                 },
                 (None, Some(title)) => {
-                    line.write_unbreakable(state, out, &format!("["));
+                    line.write_unbreakable(state, out, "[");
                     for child in &x.children {
                         recurse_write(state, out, line.clone_inline(), child);
                     }
                     line.write_unbreakable(state, out, &format!("]({}", x.url));
                     line.write_unbreakable(state, out, " \"");
-                    line.write_breakable(state, out, &title);
+                    line.write_breakable(state, out, title);
                     line.write_unbreakable(state, out, "\")");
                 },
             }
@@ -728,7 +728,7 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
                     line.write_unbreakable(state, out, &format!("[{}]", t));
                 },
                 _ => {
-                    line.write_unbreakable(state, out, &format!("["));
+                    line.write_unbreakable(state, out, "[");
                     for child in &x.children {
                         recurse_write(state, out, line.clone_inline(), child);
                     }

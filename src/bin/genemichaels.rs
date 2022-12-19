@@ -80,7 +80,7 @@ fn main() {
 
         fn from_str(s: &str) -> Result<Self, Self::Err> {
             if s == "on" {
-                return Ok(On)
+                Ok(On)
             } else {
                 return Err(OnErr(format!("[{}] not allowed, must be on or off", s)))
             }
@@ -151,7 +151,7 @@ fn main() {
             return Err(
                 anyhow!(
                     "The following comments were missed during formatting: {:?}",
-                    res.lost_comments.values().flat_map(|x| x).collect::<Vec<&Comment>>()
+                    res.lost_comments.values().flatten().collect::<Vec<&Comment>>()
                 ),
             );
         }
@@ -198,7 +198,7 @@ fn main() {
     };
 
     fn skip(src: &str) -> bool {
-        (&src).lines().take(5).any(|l| l.contains("`nogenemichaels`"))
+        src.lines().take(5).any(|l| l.contains("`nogenemichaels`"))
     }
 
     if args.files.is_empty() {
@@ -231,7 +231,7 @@ fn main() {
                 }
                 eprintln!("Formatting {}", &file.to_string_lossy());
                 let out = process(&config, &source)?;
-                fs::write(&file, out.as_bytes())?;
+                fs::write(file, out.as_bytes())?;
                 Ok(())
             }) {
                 Ok(_) => { },

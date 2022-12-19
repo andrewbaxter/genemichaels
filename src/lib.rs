@@ -1,3 +1,10 @@
+#![allow(
+    clippy::too_many_arguments,
+    clippy::field_reassign_with_default,
+    clippy::never_loop,
+    clippy::derive_hash_xor_eq,
+)]
+
 use anyhow::{
     Result,
     anyhow,
@@ -38,7 +45,7 @@ pub(crate) trait TrivialLineColMath {
 
 impl TrivialLineColMath for LineColumn {
     fn prev(&self) -> LineColumn {
-        let mut out = self.clone();
+        let mut out = *self;
         out.column -= 1;
         out
     }
@@ -120,7 +127,7 @@ pub struct MakeSegsState {
 }
 
 pub(crate) fn check_split_brace_threshold(out: &MakeSegsState, count: usize) -> bool {
-    return out.split_brace_threshold.map(|t| count >= t).unwrap_or(false)
+    out.split_brace_threshold.map(|t| count >= t).unwrap_or(false)
 }
 
 pub(crate) fn line_length(out: &MakeSegsState, lines: &Lines, line_i: LineIdx) -> usize {
@@ -154,11 +161,8 @@ pub(crate) fn split_group(out: &mut MakeSegsState, lines: &mut Lines, sg_i: Spli
                 _ => None,
             }
         };
-        match res {
-            Some((line_i, off)) => {
-                split_line_at(out, lines, line_i, off, None);
-            },
-            None => { },
+        if let Some((line_i, off)) = res {
+            split_line_at(out, lines, line_i, off, None);
         };
     }
 }
@@ -199,7 +203,7 @@ pub(crate) fn insert_line(out: &mut MakeSegsState, lines: &mut Lines, at: usize,
     let line_i = LineIdx(lines.owned_lines.len());
     lines.owned_lines.push(Line {
         index: at,
-        segs: segs,
+        segs,
     });
     for (i, seg_i) in lines.owned_lines.get(line_i.0).unwrap().segs.iter().enumerate() {
         let mut seg = out.segs.get_mut(seg_i.0).unwrap();
@@ -315,7 +319,7 @@ impl SplitGroupBuilder {
         for seg in &sg.segments {
             out.segs.get_mut(seg.0).unwrap().node = self.node;
         }
-        return self.node;
+        self.node
     }
 
     pub(crate) fn seg(&mut self, out: &mut MakeSegsState, text: impl ToString) {
@@ -504,7 +508,7 @@ pub fn format_ast(
     let mut out = MakeSegsState {
         nodes: vec![],
         segs: vec![],
-        comments: comments,
+        comments,
         split_brace_threshold: config.split_brace_threshold,
         split_attributes: config.split_attributes,
         split_where: config.split_where,
@@ -580,12 +584,12 @@ pub fn format_ast(
                             (SegmentMode::Split, false) => false,
                         }) {
                             (SegmentContent::Break(_, _), true) => {
-                                res = Some((line_i.clone(), i, None));
+                                res = Some((*line_i, i, None));
                                 prev_comment = None;
                                 break 'segs;
                             },
                             (SegmentContent::Comment(c), _) => {
-                                res = Some((line_i.clone(), i, None));
+                                res = Some((*line_i, i, None));
                                 prev_comment = Some(c.0.clone());
                                 break 'segs;
                             },
@@ -593,7 +597,7 @@ pub fn format_ast(
                                 if let Some(a) = prev_comment.take() {
                                     let seg_i = SegmentIdx(out.segs.len());
                                     out.segs.push(Segment {
-                                        node: synth_seg_node.clone(),
+                                        node: synth_seg_node,
                                         line: None,
                                         mode: SegmentMode::All,
                                         content: SegmentContent::Break(a, true),
@@ -657,7 +661,7 @@ pub fn format_ast(
                     .segs
                     .iter()
                     .filter_map(|seg_i| {
-                        if {
+                        let res = {
                             let seg = out.segs.get(seg_i.0).unwrap();
                             let node = out.nodes.get(seg.node.0).unwrap();
                             match (&seg.mode, node.split) {
@@ -667,7 +671,8 @@ pub fn format_ast(
                                 (SegmentMode::Split, true) => true,
                                 (SegmentMode::Split, false) => false,
                             }
-                        } {
+                        };
+                        if res {
                             Some(*seg_i)
                         } else {
                             None
@@ -685,27 +690,26 @@ pub fn format_ast(
                             // Work around comments splitting lines at weird places
                             t.trim_start()
                         } else {
-                            &t
+                            t
                         };
                         rendered.push_str(t);
                     },
                     SegmentContent::Break(b, activate) => {
-                        // since comments are always new lines we end up with duped newlines sometimes if there's a (break),
-                        // (comment) on consec lines. skip the break
-                        if segs.len() == 1 &&
+                        let comment_bool =
                             lines
                                 .lines
                                 .get(line_i_i + 1)
                                 .map(|i| lines.owned_lines.get(i.0).unwrap())
-                                .and_then(|l| l.segs.iter().next())
+                                .and_then(|l| l.segs.first())
                                 .map(|seg_i| {
                                     let seg = out.segs.get(seg_i.0).unwrap();
-                                    match &seg.content {
-                                        SegmentContent::Comment(_) => true,
-                                        _ => false,
-                                    }
+                                    matches!(&seg.content, SegmentContent::Comment(_))
                                 })
-                                .unwrap_or(false) {
+                                .unwrap_or(false);
+
+                        // since comments are always new lines we end up with duped newlines sometimes if there's a (break),
+                        // (comment) on consec lines. skip the break
+                        if segs.len() == 1 && comment_bool {
                             break 'continue_lineloop;
                         }
                         if *activate {
@@ -719,7 +723,7 @@ pub fn format_ast(
                     SegmentContent::Comment((b, comments)) => {
                         for (i, comment) in comments.iter().enumerate() {
                             if i > 0 {
-                                rendered.push_str("\n");
+                                rendered.push('\n');
                             }
                             let prefix = format!("{}//{} ", " ".repeat(b.get()), match comment.mode {
                                 CommentMode::Normal => "",
@@ -763,20 +767,20 @@ pub fn format_ast(
                             if verbatim {
                                 for line in comment.lines.lines() {
                                     rendered.push_str(format!("{}{}", prefix, line).trim());
-                                    rendered.push_str("\n");
+                                    rendered.push('\n');
                                 }
                             }
                         }
                     },
                 }
             }
-            rendered.push_str("\n");
+            rendered.push('\n');
             break;
         }
         line_i_i += 1;
     }
     Ok(FormatRes {
-        rendered: rendered,
+        rendered,
         lost_comments: out.comments,
     })
 }

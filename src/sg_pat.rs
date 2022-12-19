@@ -269,7 +269,7 @@ impl Formattable for FieldPat {
                     syn::Member::Named(x) => sg.seg(out, x),
                     syn::Member::Unnamed(x) => sg.seg(out, x.index),
                 };
-                append_comments(out, &base_indent, &mut sg, col.span.start());
+                append_comments(out, base_indent, &mut sg, col.span.start());
                 sg.seg(out, ": ");
             }
             sg.child(self.pat.make_segs(out, base_indent));
