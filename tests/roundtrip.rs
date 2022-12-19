@@ -39,3 +39,14 @@ fn g(f: Foo) {
 "#,
     );
 }
+
+#[test]
+fn rt_comments_numbered_list1() {
+    rt(r#"// 1. list item one
+//
+// 2. list item 2
+//
+// 3. list item 3
+static _x: i32 = 4i32;
+"#)
+}

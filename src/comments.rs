@@ -1,8 +1,8 @@
 use anyhow::{
     anyhow,
     Result,
-    Context,
 };
+use markdown::mdast::Node;
 use crate::{
     Comment,
     CommentMode,
@@ -13,7 +13,6 @@ use proc_macro2::{
     TokenStream,
     Group,
 };
-use pulldown_cmark::Event;
 use std::cell::RefCell;
 use std::collections::{
     HashMap,
@@ -303,15 +302,8 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
 }
 
 struct State {
-    stack: Vec<Box<dyn StackEl>>,
     line_buffer: String,
     need_nl: bool,
-}
-
-enum StackRes {
-    Push(Box<dyn StackEl>),
-    Keep,
-    Pop,
 }
 
 #[derive(Debug)]
@@ -378,11 +370,11 @@ impl LineState {
         })))
     }
 
-    fn share(&self) -> LineState {
+    fn clone_inline(&self) -> LineState {
         LineState(self.0.clone())
     }
 
-    fn zero_indent(&self) -> LineState {
+    fn clone_zero_indent(&self) -> LineState {
         let mut s = self.0.as_ref().borrow_mut();
         LineState(Rc::new(RefCell::new(LineState_ {
             first_prefix: s.first_prefix.take(),
@@ -393,7 +385,7 @@ impl LineState {
         })))
     }
 
-    fn indent(&self, first_prefix: Option<String>, prefix: String, explicit_wrap: bool) -> LineState {
+    fn clone_indent(&self, first_prefix: Option<String>, prefix: String, explicit_wrap: bool) -> LineState {
         let mut s = self.0.as_ref().borrow_mut();
         LineState(Rc::new(RefCell::new(LineState_ {
             first_prefix: match (s.first_prefix.take(), first_prefix) {
@@ -456,10 +448,6 @@ impl LineState {
         self.0.as_ref().borrow_mut().flush_always(state, out, false);
     }
 
-    fn flush(&self, state: &mut State, out: &mut String) {
-        self.0.as_ref().borrow_mut().flush(state, out, false);
-    }
-
     fn write_unbreakable(&self, state: &mut State, out: &mut String, text: &str) {
         let mut s = self.0.as_ref().borrow_mut();
         let max_width = s.calc_max_width();
@@ -467,20 +455,6 @@ impl LineState {
             s.flush(state, out, true);
         }
         state.line_buffer.push_str(text);
-    }
-
-    fn write_whitespace(&self, state: &mut State, out: &mut String, text: &str) {
-        let mut s = self.0.as_ref().borrow_mut();
-        let max_width = s.max_width - if s.explicit_wrap {
-            2
-        } else {
-            0
-        };
-        if state.line_buffer.chars().count() + text.chars().count() >= max_width {
-            s.flush(state, out, true);
-        } else {
-            state.line_buffer.push_str(text);
-        }
     }
 
     fn write_newline(&self, state: &mut State, out: &mut String) {
@@ -492,541 +466,214 @@ impl LineState {
     }
 }
 
-fn write_image(state: &mut State, out: &mut String, line: &LineState, url: &str, title: &str) {
-    line.write_unbreakable(state, out, &format!("![]({}", url));
-    if title.is_empty() {
-        line.write_unbreakable(state, out, ")");
-    } else {
-        line.write_unbreakable(state, out, " \"");
-        line.write_breakable(state, out, &title);
-        line.write_unbreakable(state, out, "\")");
-    }
-}
-
-fn push_emphasis(state: &mut State, out: &mut String, line: LineState, line_root: bool) -> Result<StackRes> {
-    Ok(StackRes::Push(StackInline::new(state, out, StackInlineArgs {
-        start_bound: Some("_".into()),
-        end_bound: Some("_".into()),
-        line_state: line,
-        line_root: line_root,
-    })))
-}
-
-fn push_strong(state: &mut State, out: &mut String, line: LineState, line_root: bool) -> Result<StackRes> {
-    Ok(StackRes::Push(StackInline::new(state, out, StackInlineArgs {
-        start_bound: Some("**".into()),
-        end_bound: Some("**".into()),
-        line_state: line,
-        line_root: line_root,
-    })))
-}
-
-fn push_strikethrough(state: &mut State, out: &mut String, line: LineState, line_root: bool) -> Result<StackRes> {
-    Ok(StackRes::Push(StackInline::new(state, out, StackInlineArgs {
-        start_bound: Some("~~".into()),
-        end_bound: Some("~~".into()),
-        line_state: line,
-        line_root: line_root,
-    })))
-}
-
-fn push_link(
-    state: &mut State,
-    out: &mut String,
-    line: LineState,
-    line_root: bool,
-    url: &str,
-    _title: &str,
-) -> Result<StackRes> {
-    Ok(StackRes::Push(StackInline::new(state, out, StackInlineArgs {
-        start_bound: Some("[".into()),
-        end_bound: Some(format!("]({})", url)),
-        line_state: line,
-        line_root: line_root,
-    })))
-}
-
-trait StackEl {
-    fn handle(&mut self, state: &mut State, out: &mut String, e: &Event) -> Result<StackRes>;
-}
-
-struct StackInline {
-    end_bound: Option<String>,
-    line: LineState,
-    line_root: bool,
-}
-
-struct StackInlineArgs {
-    start_bound: Option<String>,
-    end_bound: Option<String>,
-    line_state: LineState,
-    line_root: bool,
-}
-
-impl StackInline {
-    fn new(state: &mut State, out: &mut String, args: StackInlineArgs) -> Box<dyn StackEl> {
-        if let Some(b) = args.start_bound {
-            args.line_state.write_unbreakable(state, out, &b);
+fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &Node) {
+    fn join_lines(text: &str) -> String {
+        let lines = text.lines().collect::<Vec<&str>>();
+        let mut joined = String::new();
+        for (i, line) in lines.iter().enumerate() {
+            let mut line = *line;
+            if i > 0 {
+                line = line.trim_start();
+                joined.push_str(" ");
+            }
+            if i < lines.len() - 1 {
+                line = line.trim_end();
+            }
+            joined.push_str(line);
         }
-        Box::new(StackInline {
-            end_bound: args.end_bound,
-            line: args.line_state,
-            line_root: args.line_root,
-        })
+        joined
     }
-}
 
-impl StackEl for StackInline {
-    fn handle(&mut self, state: &mut State, out: &mut String, e: &Event) -> Result<StackRes> {
-        match e {
-            Event::End(_) => {
-                if let Some(b) = &self.end_bound {
-                    self.line.write_unbreakable(state, out, &b);
+    match node {
+        // block->block elements (newline between)
+        Node::Root(x) => {
+            for (i, child) in x.children.iter().enumerate() {
+                if i > 0 {
+                    line.write_newline(state, out);
                 }
-                if self.line_root {
-                    self.line.flush(state, out);
+                recurse_write(state, out, line.clone_zero_indent(), child);
+            }
+        },
+        Node::BlockQuote(x) => {
+            let line = line.clone_indent(None, "> ".into(), false);
+            for (i, child) in x.children.iter().enumerate() {
+                if i > 0 {
+                    line.write_newline(state, out);
                 }
-                Ok(StackRes::Pop)
-            },
-            Event::Text(x) => {
-                self.line.write_breakable(state, out, &x);
-                Ok(StackRes::Keep)
-            },
-            Event::Code(x) => {
-                self.line.write_unbreakable(state, out, &format!("`{}`", x));
-                Ok(StackRes::Keep)
-            },
-            Event::Start(x) => match x {
-                pulldown_cmark::Tag::Emphasis => push_emphasis(state, out, self.line.share(), false),
-                pulldown_cmark::Tag::Strong => push_strong(state, out, self.line.share(), false),
-                pulldown_cmark::Tag::Strikethrough => push_strikethrough(state, out, self.line.share(), false),
-                pulldown_cmark::Tag::Link(_, url, title) => {
-                    push_link(state, out, self.line.share(), false, &url, &title)
-                },
-                pulldown_cmark::Tag::Image(_, url, title) => {
-                    write_image(state, out, &self.line, &url, &title);
-                    Ok(StackRes::Keep)
-                },
-                pulldown_cmark::Tag::Paragraph => Err(anyhow!("Unimplemented markdown paragraph in inline")),
-                pulldown_cmark::Tag::Heading(_, _, _) => Err(anyhow!("Unimplemented markdown heading in inline")),
-                pulldown_cmark::Tag::BlockQuote => Err(anyhow!("Unimplemented markdown block quote in inline")),
-                pulldown_cmark::Tag::CodeBlock(_) => Err(anyhow!("Unimplemented markdown code block in inline")),
-                pulldown_cmark::Tag::List(_) => Err(anyhow!("Unimplemented markdown list in inline")),
-                pulldown_cmark::Tag::Item => Err(anyhow!("Unimplemented markdown item in inline")),
-                pulldown_cmark::Tag::FootnoteDefinition(_) => Err(
-                    anyhow!("Unimplemented markdown footnote def in inline"),
-                ),
-                pulldown_cmark::Tag::Table(_) => Err(anyhow!("Unimplemented markdown table in inline")),
-                pulldown_cmark::Tag::TableHead => Err(anyhow!("Unimplemented markdown table head in inline")),
-                pulldown_cmark::Tag::TableRow => Err(anyhow!("Unimplemented markdown table row in inline")),
-                pulldown_cmark::Tag::TableCell => Err(anyhow!("Unimplemented markdown table cell in inline")),
-            },
-            Event::SoftBreak => {
-                self.line.write_whitespace(state, out, " ");
-                Ok(StackRes::Keep)
-            },
-            Event::HardBreak => {
-                self.line.write_whitespace(state, out, " ");
-                Ok(StackRes::Keep)
-            },
-            Event::Html(x) => {
-                for line in x.lines() {
-                    self.line.write_unbreakable(state, out, &line);
-                    self.line.flush_always(state, out);
-                }
-                Ok(StackRes::Keep)
-            },
-            Event::FootnoteReference(_) => Err(anyhow!("Unimplemented markdown footnote ref in inline")),
-            Event::Rule => Err(anyhow!("Unimplemented markdown rule in inline")),
-            Event::TaskListMarker(_) => Err(anyhow!("Unimplemented markdown task in inline")),
-        }
-    }
-}
-
-struct StackBlock {
-    line: LineState,
-    first: bool,
-    was_inline: bool,
-    end_bound: Option<&'static str>,
-}
-
-struct StackBlockArgs {
-    line: LineState,
-    start_bound: Option<String>,
-    end_bound: Option<&'static str>,
-}
-
-impl StackBlock {
-    fn new(state: &mut State, out: &mut String, args: StackBlockArgs) -> Box<dyn StackEl> {
-        if let Some(b) = args.start_bound {
-            args.line.write_unbreakable(state, out, &b);
-        }
-        Box::new(StackBlock {
-            line: args.line,
-            end_bound: args.end_bound,
-            first: true,
-            was_inline: false,
-        })
-    }
-
-    fn block_ev(&mut self, state: &mut State, out: &mut String) {
-        if self.was_inline {
-            self.line.flush(state, out);
-            self.was_inline = false;
-        }
-        if !self.first {
-            self.line.write_newline(state, out);
-        }
-        self.first = false;
-    }
-
-    fn inline_ev(&mut self) {
-        self.was_inline = true;
-        self.first = false;
-    }
-}
-
-impl StackEl for StackBlock {
-    fn handle(&mut self, state: &mut State, out: &mut String, e: &Event) -> Result<StackRes> {
-        match e {
-            Event::Start(x) => match x {
-                pulldown_cmark::Tag::Paragraph => {
-                    self.block_ev(state, out);
-                    Ok(StackRes::Push(StackInline::new(state, out, StackInlineArgs {
-                        start_bound: None,
-                        end_bound: None,
-                        line_state: self.line.indent(None, "".into(), false),
-                        line_root: true,
-                    })))
-                },
-                pulldown_cmark::Tag::Heading(level, _, _) => {
-                    self.block_ev(state, out);
-                    Ok(StackRes::Push(StackInline::new(state, out, StackInlineArgs {
-                        start_bound: None,
-                        end_bound: None,
-                        line_state: self
-                            .line
-                            .indent(Some(format!("{} ", "#".repeat(*level as i32 as usize))), "  ".into(), true),
-                        line_root: true,
-                    })))
-                },
-                pulldown_cmark::Tag::BlockQuote => {
-                    self.block_ev(state, out);
-                    Ok(StackRes::Push(StackBlock::new(state, out, StackBlockArgs {
-                        line: self.line.indent(None, "> ".into(), false),
-                        start_bound: None,
-                        end_bound: None,
-                    })))
-                },
-                pulldown_cmark::Tag::CodeBlock(lang) => {
-                    self.block_ev(state, out);
-                    self.line.write_unbreakable(state, out, &format!("```{}", match &lang {
-                        pulldown_cmark::CodeBlockKind::Indented => "",
-                        pulldown_cmark::CodeBlockKind::Fenced(x) => x,
-                    }));
-                    self.line.flush(state, out);
-                    Ok(StackRes::Push(Box::new(StackCodeBlock { line: self.line.zero_indent() })))
-                },
-                pulldown_cmark::Tag::List(ordered) => {
-                    self.block_ev(state, out);
-                    match ordered {
-                        Some(index) => Ok(StackRes::Push(Box::new(StackNumberList {
-                            count: *index,
-                            line: self.line.zero_indent(),
-                            first: true,
-                        }))),
-                        None => Ok(StackRes::Push(Box::new(StackBulletList {
-                            line: self.line.zero_indent(),
-                            first: true,
-                        }))),
-                    }
-                },
-                pulldown_cmark::Tag::Link(_, url, title) => {
-                    self.inline_ev();
-                    push_link(state, out, self.line.share(), true, &url, &title)
-                },
-                pulldown_cmark::Tag::Image(_, url, title) => {
-                    self.inline_ev();
-                    write_image(state, out, &self.line, &url, &title);
-                    Ok(StackRes::Keep)
-                },
-                pulldown_cmark::Tag::Emphasis => {
-                    self.inline_ev();
-                    push_emphasis(state, out, self.line.share(), true)
-                },
-                pulldown_cmark::Tag::Strong => {
-                    self.inline_ev();
-                    push_strong(state, out, self.line.share(), true)
-                },
-                pulldown_cmark::Tag::Strikethrough => {
-                    self.inline_ev();
-                    push_strikethrough(state, out, self.line.share(), true)
-                },
-                pulldown_cmark::Tag::Item => {
-                    // What is this... this feels like a bug.
-                    self.block_ev(state, out);
-                    push_bullet_item(state, out, &self.line).unwrap();
-                    panic!()
-                },
-                pulldown_cmark::Tag::Table(_) => {
-                    Err(anyhow!("Unimplemented markdown table in block"))
-                },
-                pulldown_cmark::Tag::TableHead => Err(anyhow!("Unimplemented markdown table head in block")),
-                pulldown_cmark::Tag::TableRow => Err(anyhow!("Unimplemented markdown table row in block")),
-                pulldown_cmark::Tag::TableCell => Err(anyhow!("Unimplemented markdown table cell in block")),
-                pulldown_cmark::Tag::FootnoteDefinition(_) => Err(
-                    anyhow!("Unimplemented markdown footnote in block"),
-                ),
-            },
-            Event::End(_) => {
-                if self.was_inline {
-                    self.line.flush(state, out);
-                }
-                if let Some(b) = self.end_bound {
-                    self.line.write_unbreakable(state, out, b);
-                    self.line.flush(state, out);
-                }
-                Ok(StackRes::Pop)
-            },
-            Event::Text(t) => {
-                self.inline_ev();
-                self.line.write_breakable(state, out, &t);
-                Ok(StackRes::Keep)
-            },
-            Event::Code(x) => {
-                self.inline_ev();
-                self.line.write_unbreakable(state, out, &format!("`{}`", x));
-                Ok(StackRes::Keep)
-            },
-            Event::SoftBreak => {
-                Ok(StackRes::Keep)
-            },
-            Event::Html(x) => {
-                self.inline_ev();
-                for line in x.lines() {
-                    self.line.write_unbreakable(state, out, &line);
-                    self.line.flush_always(state, out);
-                }
-                Ok(StackRes::Keep)
-            },
-            Event::Rule => {
-                self.block_ev(state, out);
-                self.line.write_unbreakable(state, out, "---");
-                self.line.flush_always(state, out);
-                Ok(StackRes::Keep)
-            },
-            Event::FootnoteReference(_) => Err(anyhow!("Unimplemented markdown footnote ref in block")),
-            Event::HardBreak => Err(anyhow!("Unimplemented markdown hard break in block")),
-            Event::TaskListMarker(_) => Err(anyhow!("Unimplemented markdown task in block")),
-        }
-    }
-}
-
-struct StackNumberList {
-    count: u64,
-    line: LineState,
-    first: bool,
-}
-
-impl StackNumberList {
-    fn indent(&mut self, use_count: u64) -> LineState {
-        self.line.indent(Some(format!("{}. ", use_count)), "   ".into(), false)
-    }
-}
-
-impl StackEl for StackNumberList {
-    fn handle(&mut self, state: &mut State, out: &mut String, e: &Event) -> Result<StackRes> {
-        let use_count = self.count;
-        self.count += 1;
-        match e {
-            Event::Start(e) => {
-                match e {
-                    pulldown_cmark::Tag::Item => {
-                        if self.first {
-                            self.first = false;
-                        } else {
-                            self.line.write_newline(state, out);
+                recurse_write(state, out, line.clone_inline(), child);
+            }
+        },
+        Node::List(x) => {
+            match &x.start {
+                Some(i) => {
+                    // bug in markdown lib, start is actually the number of the last child:
+                    // https://github.com/wooorm/markdown-rs/issues/38
+                    for (j, child) in x.children.iter().enumerate() {
+                        if j > 0 {
+                            line.write_newline(state, out);
                         }
-                        Ok(StackRes::Push(StackBlock::new(state, out, StackBlockArgs {
-                            line: self.indent(use_count),
-                            start_bound: None,
-                            end_bound: None,
-                        })))
-                    },
-                    pulldown_cmark::Tag::Link(_, url, title) => {
-                        push_link(state, out, self.indent(use_count), true, &url, &title)
-                    },
-                    pulldown_cmark::Tag::Paragraph => Err(anyhow!("Unimplemented paragraph in numbered list")),
-                    pulldown_cmark::Tag::Heading(_, _, _) => Err(anyhow!("Unimplemented heading in numbered list")),
-                    pulldown_cmark::Tag::BlockQuote => Err(
-                        anyhow!("Unimplemented markdown block quote in numbered list"),
-                    ),
-                    pulldown_cmark::Tag::CodeBlock(_) => Err(
-                        anyhow!("Unimplemented markdown codeblock in numbered list"),
-                    ),
-                    pulldown_cmark::Tag::List(_) => Err(anyhow!("Unimplemented markdown list in numbered list")),
-                    pulldown_cmark::Tag::FootnoteDefinition(_) => Err(
-                        anyhow!("Unimplemented markdown footnote in numbered list"),
-                    ),
-                    pulldown_cmark::Tag::Table(_) => Err(anyhow!("Unimplemented markdown table in numbered list")),
-                    pulldown_cmark::Tag::TableHead => Err(
-                        anyhow!("Unimplemented markdown table head in numbered list"),
-                    ),
-                    pulldown_cmark::Tag::TableRow => Err(
-                        anyhow!("Unimplemented markdown table row in numbered list"),
-                    ),
-                    pulldown_cmark::Tag::TableCell => Err(
-                        anyhow!("Unimplemented markdown table cell in numbered list"),
-                    ),
-                    pulldown_cmark::Tag::Emphasis => Err(anyhow!("Unimplemented markdown em in numbered list")),
-                    pulldown_cmark::Tag::Strong => Err(anyhow!("Unimplemented markdown strong in numbered list")),
-                    pulldown_cmark::Tag::Strikethrough => Err(
-                        anyhow!("Unimplemented markdown strike in numbered list"),
-                    ),
-                    pulldown_cmark::Tag::Image(_, _, _) => Err(
-                        anyhow!("Unimplemented markdown image in numbered list"),
-                    ),
-                }
-            },
-            Event::Text(t) => {
-                if self.first {
-                    self.first = false;
-                } else {
-                    self.line.write_newline(state, out);
-                }
-                let line = self.indent(use_count);
-                line.write_breakable(state, out, &t);
-                line.flush(state, out);
-                Ok(StackRes::Keep)
-            },
-            Event::Code(x) => {
-                if self.first {
-                    self.first = false;
-                } else {
-                    self.line.write_newline(state, out);
-                }
-                let line = self.indent(use_count);
-                line.write_unbreakable(state, out, &format!("`{}`", x));
-                line.flush(state, out);
-                Ok(StackRes::Keep)
-            },
-            Event::End(_) => Ok(StackRes::Pop),
-            _ => Err(anyhow!("Unimplemented markdown branch")),
-        }
-    }
-}
-
-struct StackBulletList {
-    line: LineState,
-    first: bool,
-}
-
-impl StackBulletList {
-    fn indent(&mut self) -> LineState {
-        bullet_indent(&self.line)
-    }
-}
-
-fn bullet_indent(line: &LineState) -> LineState {
-    line.indent(Some("* ".into()), "   ".into(), false)
-}
-
-fn push_bullet_item(state: &mut State, out: &mut String, line: &LineState) -> Result<StackRes> {
-    Ok(StackRes::Push(StackBlock::new(state, out, StackBlockArgs {
-        line: bullet_indent(line),
-        start_bound: None,
-        end_bound: None,
-    })))
-}
-
-impl StackEl for StackBulletList {
-    fn handle(&mut self, state: &mut State, out: &mut String, e: &Event) -> Result<StackRes> {
-        match e {
-            Event::Start(e) => match e {
-                pulldown_cmark::Tag::Item => {
-                    if self.first {
-                        self.first = false;
-                    } else {
-                        self.line.write_newline(state, out);
+                        recurse_write(
+                            state,
+                            out,
+                            line.clone_indent(
+                                Some(format!("{}. ", *i as usize - x.children.len() + 1 + j)),
+                                "   ".into(),
+                                false,
+                            ),
+                            child,
+                        );
                     }
-                    push_bullet_item(state, out, &self.line)
                 },
-                pulldown_cmark::Tag::Link(_, url, title) => {
-                    push_link(state, out, self.indent(), true, &url, &title)
+                None => {
+                    for (i, child) in x.children.iter().enumerate() {
+                        if i > 0 {
+                            line.write_newline(state, out);
+                        }
+                        recurse_write(state, out, line.clone_indent(Some("* ".into()), "   ".into(), false), child);
+                    }
                 },
-                pulldown_cmark::Tag::Paragraph => Err(anyhow!("Unimplemented paragraph in bullet list")),
-                pulldown_cmark::Tag::Heading(_, _, _) => Err(anyhow!("Unimplemented heading in bullet list")),
-                pulldown_cmark::Tag::BlockQuote => Err(anyhow!("Unimplemented markdown block quote in bullet list")),
-                pulldown_cmark::Tag::CodeBlock(_) => Err(anyhow!("Unimplemented markdown codeblock in bullet list")),
-                pulldown_cmark::Tag::List(_) => Err(anyhow!("Unimplemented markdown list in bullet list")),
-                pulldown_cmark::Tag::FootnoteDefinition(_) => Err(
-                    anyhow!("Unimplemented markdown footnote in bullet list"),
-                ),
-                pulldown_cmark::Tag::Table(_) => Err(anyhow!("Unimplemented markdown table in bullet list")),
-                pulldown_cmark::Tag::TableHead => Err(anyhow!("Unimplemented markdown table head in bullet list")),
-                pulldown_cmark::Tag::TableRow => Err(anyhow!("Unimplemented markdown table row in bullet list")),
-                pulldown_cmark::Tag::TableCell => Err(anyhow!("Unimplemented markdown table cell in bullet list")),
-                pulldown_cmark::Tag::Emphasis => Err(anyhow!("Unimplemented markdown em in bullet list")),
-                pulldown_cmark::Tag::Strong => Err(anyhow!("Unimplemented markdown strong in bullet list")),
-                pulldown_cmark::Tag::Strikethrough => Err(anyhow!("Unimplemented markdown strike in bullet list")),
-                pulldown_cmark::Tag::Image(_, _, _) => Err(anyhow!("Unimplemented markdown image in bullet list")),
-            },
-            Event::End(_) => Ok(StackRes::Pop),
-            Event::Text(t) => {
-                if self.first {
-                    self.first = false;
-                } else {
-                    self.line.write_newline(state, out);
+            };
+        },
+        Node::ListItem(x) => {
+            for (i, child) in x.children.iter().enumerate() {
+                if i > 0 {
+                    line.write_newline(state, out);
                 }
-                let line = self.indent();
-                line.write_breakable(state, out, &t);
-                line.flush(state, out);
-                Ok(StackRes::Keep)
+                recurse_write(state, out, line.clone_zero_indent(), child);
+            }
+        },
+        // block->inline elements (flush after)
+        Node::Code(x) => {
+            line.write_unbreakable(state, out, &format!("```{}", match &x.lang {
+                None => "",
+                Some(x) => x,
+            }));
+            line.flush_always(state, out);
+            for l in x.value.as_str().lines() {
+                line.write_unbreakable(state, out, l);
+                line.flush_always(state, out);
+            }
+            line.write_unbreakable(state, out, "```");
+            line.flush_always(state, out);
+        },
+        Node::Heading(x) => {
+            let line = line.clone_indent(Some(format!("{} ", "#".repeat(x.depth as usize))), "  ".into(), true);
+            for child in &x.children {
+                recurse_write(state, out, line.clone_inline(), &child);
+            }
+            line.flush_always(state, out);
+        },
+        Node::FootnoteDefinition(x) => {
+            let line = line.clone_indent(Some(format!("[^{}]: ", x.identifier)), "   ".into(), false);
+            for child in &x.children {
+                recurse_write(state, out, line.clone_inline(), child);
+            }
+            line.flush_always(state, out);
+        },
+        Node::ThematicBreak(_) => {
+            line.write_unbreakable(state, out, "---");
+            line.flush_always(state, out);
+        },
+        Node::Definition(x) => {
+            line.write_unbreakable(state, out, &format!("[{}]: {}", x.identifier.trim(), x.url));
+            if let Some(title) = &x.title {
+                line.write_unbreakable(state, out, " \"");
+                line.write_breakable(state, out, &title);
+                line.write_unbreakable(state, out, "\"");
+            }
+            line.flush_always(state, out);
+        },
+        Node::Paragraph(x) => {
+            for child in &x.children {
+                recurse_write(state, out, line.clone_inline(), child);
+            }
+            line.flush_always(state, out);
+        },
+        // inline elements
+        Node::Text(x) => {
+            line.write_breakable(state, out, &join_lines(&x.value));
+        },
+        Node::InlineCode(x) => {
+            line.write_unbreakable(state, out, &format!("`{}`", join_lines(&x.value)));
+        },
+        Node::Strong(x) => {
+            line.write_unbreakable(state, out, "**");
+            for child in &x.children {
+                recurse_write(state, out, line.clone_inline(), child);
+            }
+            line.write_unbreakable(state, out, "**");
+        },
+        Node::Delete(x) => {
+            line.write_unbreakable(state, out, "~~");
+            for child in &x.children {
+                recurse_write(state, out, line.clone_inline(), child);
+            }
+            line.write_unbreakable(state, out, "~~");
+        },
+        Node::Emphasis(x) => {
+            line.write_unbreakable(state, out, "_");
+            for child in &x.children {
+                recurse_write(state, out, line.clone_inline(), child);
+            }
+            line.write_unbreakable(state, out, "_");
+        },
+        Node::FootnoteReference(x) => {
+            line.write_unbreakable(state, out, &format!("[^{}]", x.identifier));
+        },
+        Node::Html(x) => {
+            line.write_unbreakable(state, out, &x.value);
+        },
+        Node::Image(x) => {
+            line.write_unbreakable(state, out, &format!("!["));
+            line.write_breakable(state, out, &x.alt);
+            line.write_unbreakable(state, out, &format!("]({}", x.url));
+            if let Some(title) = &x.title {
+                line.write_unbreakable(state, out, " \"");
+                line.write_breakable(state, out, &title);
+                line.write_unbreakable(state, out, "\")");
+            } else {
+                line.write_unbreakable(state, out, ")");
+            }
+        },
+        Node::ImageReference(x) => {
+            line.write_unbreakable(state, out, &format!("![][{}]", x.identifier));
+        },
+        Node::Link(x) => {
+            line.write_unbreakable(state, out, &format!("["));
+            for child in &x.children {
+                recurse_write(state, out, line.clone_inline(), child);
+            }
+            line.write_unbreakable(state, out, &format!("]({}", x.url));
+            if let Some(title) = &x.title {
+                line.write_unbreakable(state, out, " \"");
+                line.write_breakable(state, out, &title);
+                line.write_unbreakable(state, out, "\")");
+            } else {
+                line.write_unbreakable(state, out, ")");
+            }
+        },
+        Node::LinkReference(x) => {
+            line.write_unbreakable(state, out, &format!("["));
+            for child in &x.children {
+                recurse_write(state, out, line.clone_inline(), child);
+            }
+            line.write_unbreakable(state, out, &format!("][{}]", x.identifier));
+        },
+        Node::Break(_) => { 
+            // normalized out
             },
-            Event::Code(x) => {
-                if self.first {
-                    self.first = false;
-                } else {
-                    self.line.write_newline(state, out);
-                }
-                let line = self.indent();
-                line.write_unbreakable(state, out, &format!("`{}`", x));
-                line.flush(state, out);
-                Ok(StackRes::Keep)
-            },
-            x => unreachable!("non-item in list: {:?}", x),
-        }
-    }
-}
-
-struct StackCodeBlock {
-    line: LineState,
-}
-
-impl StackEl for StackCodeBlock {
-    fn handle(&mut self, state: &mut State, out: &mut String, e: &Event) -> Result<StackRes> {
-        match e {
-            Event::Text(t) => {
-                for l in t.lines() {
-                    self.line.write_unbreakable(state, out, l);
-                    self.line.flush_always(state, out);
-                }
-                Ok(StackRes::Keep)
-            },
-            Event::End(_) => {
-                self.line.write_unbreakable(state, out, "```");
-                self.line.flush(state, out);
-                Ok(StackRes::Pop)
-            },
-            Event::Start(_) => Err(anyhow!("Unimplemented start in code block")),
-            Event::Code(_) => Err(anyhow!("Unimplemented code in code block")),
-            Event::Html(_) => Err(anyhow!("Unimplemented html in code block")),
-            Event::FootnoteReference(_) => Err(anyhow!("Unimplemented footnote ref in code block")),
-            Event::SoftBreak => Err(anyhow!("Unimplemented soft break in code block")),
-            Event::HardBreak => Err(anyhow!("Unimplemented hard break in code block")),
-            Event::Rule => Err(anyhow!("Unimplemented hr in code block")),
-            Event::TaskListMarker(_) => Err(anyhow!("Unimplemented task list in code block")),
-        }
+        Node::Math(_) => unreachable!(),
+        Node::Table(_) => unreachable!(),
+        Node::TableRow(_) => unreachable!(),
+        Node::TableCell(_) => unreachable!(),
+        Node::MdxJsxTextElement(_) => unreachable!(),
+        Node::MdxFlowExpression(_) => unreachable!(),
+        Node::MdxJsxFlowElement(_) => unreachable!(),
+        Node::MdxjsEsm(_) => unreachable!(),
+        Node::Toml(_) => unreachable!(),
+        Node::Yaml(_) => unreachable!(),
+        Node::InlineMath(_) => unreachable!(),
+        Node::MdxTextExpression(_) => unreachable!(),
     }
 }
 
@@ -1043,31 +690,19 @@ pub(crate) fn format_md(
     match es!({
         let mut out = String::new();
         let mut state = State {
-            stack: vec![],
             line_buffer: String::new(),
             need_nl: false,
         };
-        let start_state = StackBlock::new(&mut state, &mut out, StackBlockArgs {
-            line: LineState::new(None, prefix.to_string(), max_width, rel_max_width, false),
-            start_bound: None,
-            end_bound: None,
-        });
-        state.stack.push(start_state);
-        for e in pulldown_cmark::Parser::new(source) {
-            let mut top = state.stack.pop().ok_or_else(|| anyhow!("Markdown parser stack emptied"))?;
-            match top
-                .handle(&mut state, &mut out, &e)
-                .with_context(|| format!("Error handling markdown event {:?}", e))? {
-                StackRes::Push(e) => {
-                    state.stack.push(top);
-                    state.stack.push(e);
-                },
-                StackRes::Keep => {
-                    state.stack.push(top);
-                },
-                StackRes::Pop => { },
-            }
-        }
+        let ast = markdown::to_mdast(source, &markdown::ParseOptions {
+            constructs: markdown::Constructs { ..Default::default() },
+            ..Default::default()
+        }).map_err(|e| anyhow!("{}", e))?;
+        recurse_write(
+            &mut state,
+            &mut out,
+            LineState::new(None, prefix.to_string(), max_width, rel_max_width, false),
+            &ast,
+        );
         Ok(out)
     }) {
         Ok(o) => {
