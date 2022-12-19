@@ -61,19 +61,18 @@ fn get_dotted<'a>(e: &'a Expr) -> DottedRes<'a> {
     }
 }
 
-fn gather_dotted<'a, 'b: 'a>(out: &'a mut Vec<Dotted<'b>>, root: Dotted<'b>) -> &'b dyn Formattable {
-    out.push(root.clone());
-    match match root {
+fn get_dotted2<'a>(d: &Dotted<'a>) -> DottedRes<'a> {
+    match d {
         Dotted::Await(x) => get_dotted(&x.base),
         Dotted::Field(x) => get_dotted(&x.base),
         Dotted::Method(x) => get_dotted(&x.receiver),
-        Dotted::Try(e) => match &*e {
-            Dotted::Await(x) => get_dotted(&x.base),
-            Dotted::Field(x) => get_dotted(&x.base),
-            Dotted::Method(x) => get_dotted(&x.receiver),
-            Dotted::Try(_) => unreachable!(),
-        },
-    } {
+        Dotted::Try(e) => get_dotted2(e.as_ref()),
+    }
+}
+
+fn gather_dotted<'a, 'b: 'a>(out: &'a mut Vec<Dotted<'b>>, root: Dotted<'b>) -> &'b dyn Formattable {
+    out.push(root.clone());
+    match get_dotted2(&root) {
         DottedRes::Dotted(d) => gather_dotted(out, d),
         DottedRes::Leaf(l) => l,
     }
