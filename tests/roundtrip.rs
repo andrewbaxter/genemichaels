@@ -6,7 +6,10 @@ use genemichaels::{
 };
 
 fn rt(text: &str) {
-    assert_eq!(text, &format_str(text, &FormatConfig::default()).unwrap().rendered);
+    assert_eq!(text, &format_str(text, &FormatConfig {
+        max_width: 120,
+        ..Default::default()
+    }).unwrap().rendered);
 }
 
 #[test]
@@ -49,4 +52,16 @@ fn rt_comments_numbered_list1() {
 // 3. list item 3
 static _x: i32 = 4i32;
 "#)
+}
+
+#[test]
+fn rt_comments_unbreakable_links1() {
+    rt(
+        r#"//! This is a very long line that will get wrapped right around check_store
+//! [`check_store()`].
+//!
+//! [`check_store()`]: a::b::c
+fn main() { }
+"#,
+    );
 }

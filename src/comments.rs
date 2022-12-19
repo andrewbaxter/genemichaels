@@ -351,6 +351,14 @@ impl LineState_ {
     }
 }
 
+/// Line split points, must be interior indexes (no 0 and no text.len())
+fn get_splits(text: &str) -> impl Iterator<Item = usize> + '_ {
+    // let segmenter =
+    // LineBreakSegmenter::try_new_unstable(&icu_testdata::unstable()).unwrap(); match
+    // segmenter .segment_str(&text)
+    text.char_indices().filter(|i| i.1 == ' ').map(|i| i.0 + 1)
+}
+
 struct LineState(Rc<RefCell<LineState_>>);
 
 impl LineState {
@@ -404,21 +412,13 @@ impl LineState {
     fn write_breakable(&self, state: &mut State, out: &mut String, text: &str) {
         let mut s = self.0.as_ref().borrow_mut();
         let max_width = s.calc_max_width();
-
-        // let segmenter = LineBreakSegmenter::try_new_unstable(&icu_testdata::unstable()).unwrap();
         let mut text = text;
         if state.line_buffer.is_empty() {
             text = text.trim_start();
         }
         while !text.is_empty() {
             if state.line_buffer.chars().count() + text.chars().count() > max_width {
-                // match segmenter .segment_str(&text)
-                match text
-                    .char_indices()
-                    .filter(|i| i.1 == ' ')
-                    .map(|i| i.0 + 1)
-                    .take_while(|b| state.line_buffer.chars().count() + *b < max_width)
-                    .last() {
+                match get_splits(text).take_while(|b| state.line_buffer.chars().count() + *b < max_width).last() {
                     Some(b) => {
                         // Doesn't fit, but can split to get within line
                         state.line_buffer.push_str(&text[..b].trim_end());
@@ -624,40 +624,117 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
             line.write_unbreakable(state, out, &x.value);
         },
         Node::Image(x) => {
-            line.write_unbreakable(state, out, &format!("!["));
-            line.write_breakable(state, out, &x.alt);
-            line.write_unbreakable(state, out, &format!("]({}", x.url));
-            if let Some(title) = &x.title {
-                line.write_unbreakable(state, out, " \"");
-                line.write_breakable(state, out, &title);
-                line.write_unbreakable(state, out, "\")");
-            } else {
-                line.write_unbreakable(state, out, ")");
+            match (get_splits(&x.alt).next().is_some(), &x.title) {
+                (false, None) => {
+                    line.write_unbreakable(state, out, &format!("![{}]({})", x.alt, x.url));
+                },
+                (false, Some(t)) => {
+                    line.write_unbreakable(state, out, &format!("![{}]({}", x.alt, x.url));
+                    line.write_unbreakable(state, out, " \"");
+                    line.write_breakable(state, out, &t);
+                    line.write_unbreakable(state, out, "\")");
+                },
+                (true, None) => {
+                    line.write_unbreakable(state, out, &format!("!["));
+                    line.write_breakable(state, out, &x.alt);
+                    line.write_unbreakable(state, out, &format!("]({})", x.url));
+                },
+                (true, Some(t)) => {
+                    line.write_unbreakable(state, out, &format!("!["));
+                    line.write_breakable(state, out, &x.alt);
+                    line.write_unbreakable(state, out, &format!("]({}", x.url));
+                    line.write_unbreakable(state, out, " \"");
+                    line.write_breakable(state, out, &t);
+                    line.write_unbreakable(state, out, "\")");
+                },
             }
         },
         Node::ImageReference(x) => {
             line.write_unbreakable(state, out, &format!("![][{}]", x.identifier));
         },
         Node::Link(x) => {
-            line.write_unbreakable(state, out, &format!("["));
-            for child in &x.children {
-                recurse_write(state, out, line.clone_inline(), child);
-            }
-            line.write_unbreakable(state, out, &format!("]({}", x.url));
-            if let Some(title) = &x.title {
-                line.write_unbreakable(state, out, " \"");
-                line.write_breakable(state, out, &title);
-                line.write_unbreakable(state, out, "\")");
+            let simple_text = if x.children.len() != 1 {
+                None
             } else {
-                line.write_unbreakable(state, out, ")");
+                x.children.get(0)
+            }.and_then(|c| match c {
+                Node::Text(t) => if get_splits(&t.value).next().is_some() {
+                    None
+                } else {
+                    Some(t.value.clone())
+                },
+                Node::InlineCode(t) => if get_splits(&t.value).next().is_some() {
+                    None
+                } else {
+                    Some(format!("`{}`", t.value))
+                },
+                _ => None,
+            });
+            match (simple_text, &x.title) {
+                (Some(unbroken_content), None) => {
+                    if unbroken_content.as_str() == x.url.as_str() {
+                        line.write_unbreakable(state, out, &format!("<{}>", x.url));
+                    } else {
+                        line.write_unbreakable(state, out, &format!("[{}]({})", unbroken_content, x.url));
+                    }
+                },
+                (Some(c), Some(title)) => {
+                    line.write_unbreakable(state, out, &format!("[{}]({}", c, x.url));
+                    line.write_unbreakable(state, out, " \"");
+                    line.write_breakable(state, out, &title);
+                    line.write_unbreakable(state, out, "\")");
+                },
+                (None, None) => {
+                    line.write_unbreakable(state, out, &format!("["));
+                    for child in &x.children {
+                        recurse_write(state, out, line.clone_inline(), child);
+                    }
+                    line.write_unbreakable(state, out, &format!("]({})", x.url));
+                },
+                (None, Some(title)) => {
+                    line.write_unbreakable(state, out, &format!("["));
+                    for child in &x.children {
+                        recurse_write(state, out, line.clone_inline(), child);
+                    }
+                    line.write_unbreakable(state, out, &format!("]({}", x.url));
+                    line.write_unbreakable(state, out, " \"");
+                    line.write_breakable(state, out, &title);
+                    line.write_unbreakable(state, out, "\")");
+                },
             }
         },
         Node::LinkReference(x) => {
-            line.write_unbreakable(state, out, &format!("["));
-            for child in &x.children {
-                recurse_write(state, out, line.clone_inline(), child);
+            let simple_text = if x.children.len() != 1 {
+                None
+            } else {
+                x.children.get(0)
+            }.and_then(|c| match c {
+                Node::Text(t) => if get_splits(&t.value).next().is_some() {
+                    None
+                } else {
+                    Some(t.value.clone())
+                },
+                Node::InlineCode(t) => if get_splits(&t.value).next().is_some() {
+                    None
+                } else {
+                    Some(format!("`{}`", t.value))
+                },
+                _ => {
+                    None
+                },
+            });
+            match simple_text {
+                Some(t) if t == x.identifier => {
+                    line.write_unbreakable(state, out, &format!("[{}]", t));
+                },
+                _ => {
+                    line.write_unbreakable(state, out, &format!("["));
+                    for child in &x.children {
+                        recurse_write(state, out, line.clone_inline(), child);
+                    }
+                    line.write_unbreakable(state, out, &format!("][{}]", x.identifier));
+                },
             }
-            line.write_unbreakable(state, out, &format!("][{}]", x.identifier));
         },
         Node::Break(_) => { 
             // normalized out
