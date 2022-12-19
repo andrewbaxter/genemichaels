@@ -676,11 +676,17 @@ pub fn format_ast(
             if segs.is_empty() {
                 break 'continue_lineloop;
             }
-            for seg_i in &segs {
+            for (seg_i_i, seg_i) in segs.iter().enumerate() {
                 let seg = out.segs.get(seg_i.0).unwrap();
                 match &seg.content {
                     SegmentContent::Text(t) => {
-                        rendered.push_str(&t);
+                        let t = if seg_i_i == 1 {
+                            // Work around comments splitting lines at weird places
+                            t.trim_start()
+                        } else {
+                            &t
+                        };
+                        rendered.push_str(t);
                     },
                     SegmentContent::Break(b, activate) => {
                         // since comments are always new lines we end up with duped newlines sometimes if there's a (break),

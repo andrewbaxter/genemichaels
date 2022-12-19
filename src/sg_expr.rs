@@ -432,6 +432,7 @@ impl Formattable for &Expr {
                         sg.child(e.expr.make_segs(out, base_indent));
                         sg.build(out)
                     });
+                    append_comments(out, base_indent, &mut sg, e.body.brace_token.span.start());
                     append_bracketed_statement_list(
                         out,
                         base_indent,
@@ -467,6 +468,7 @@ impl Formattable for &Expr {
                             sg.child(e.cond.make_segs(out, base_indent));
                             sg.build(out)
                         });
+                        append_comments(out, base_indent, &mut sg, e.then_branch.brace_token.span.start());
                         append_bracketed_statement_list(
                             out,
                             base_indent,
@@ -806,6 +808,7 @@ impl Formattable for &Expr {
                     let mut sg = new_sg(out);
                     append_comments(out, base_indent, &mut sg, e.try_token.span.start());
                     sg.seg(out, "try ");
+                    append_comments(out, base_indent, &mut sg, e.block.brace_token.span.start());
                     append_bracketed_statement_list(
                         out,
                         base_indent,
@@ -897,6 +900,7 @@ impl Formattable for &Expr {
                     append_comments(out, base_indent, &mut sg, e.while_token.span.start());
                     sg.seg(out, "while ");
                     sg.child(e.cond.make_segs(out, base_indent));
+                    append_comments(out, base_indent, &mut sg, e.body.brace_token.span.start());
                     append_bracketed_statement_list(
                         out,
                         base_indent,

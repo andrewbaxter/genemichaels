@@ -73,3 +73,13 @@ fn rt_try_try1() {
 }
 "#);
 }
+
+#[test]
+fn rt_comment_before_if_brace1() {
+    rt(r#"fn main() {
+    if true
+    // hi
+    { }
+}
+"#)
+}
