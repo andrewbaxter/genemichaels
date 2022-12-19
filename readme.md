@@ -60,6 +60,30 @@ At a very high level:
 
 Then the algorithm basically wraps nodes until all lines are less than the max line width.
 
+### Leaveraging multi-threading
+
+`genemichaels` now uses multi-threading!
+
+This is the `time` output of a single threaded run, formatting a large codebase (78730 lines of rust):
+```
+    Finished workspace formatting successfully in 15.99s
+
+________________________________________________________
+Executed in   16.00 secs    fish           external
+   usr time   14.59 secs  331.00 micros   14.59 secs
+   sys time    1.19 secs  174.00 micros    1.19 secs
+```
+and with multi-threading:
+```
+    Finished workspace formatting successfully in 11.99s
+
+________________________________________________________
+Executed in   12.06 secs    fish           external
+   usr time   35.99 secs  349.00 micros   35.99 secs
+   sys time    4.87 secs   64.00 micros    4.87 secs
+```
+
+
 ## Comments
 
 Comments deserve a special mention since they're handled out of band.
