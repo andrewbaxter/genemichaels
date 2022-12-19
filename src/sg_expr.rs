@@ -868,12 +868,11 @@ impl Formattable for &Expr {
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     append_comments(out, base_indent, &mut sg, e.unsafe_token.span.start());
-                    sg.seg(out, "unsafe ");
                     append_bracketed_statement_list(
                         out,
                         base_indent,
                         &mut sg,
-                        " {",
+                        "unsafe {",
                         Some(&e.attrs),
                         &e.block.stmts,
                         e.block.brace_token.span.end().prev(),
