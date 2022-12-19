@@ -465,6 +465,7 @@ impl Formattable for &Ident {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
 pub struct FormatConfig {
     pub quiet: bool,
     /// Try to wrap to this width
@@ -784,6 +785,7 @@ pub fn format_ast(
                                             if config.comment_errors_fatal {
                                                 return Err(e.context(message));
                                             } else if !config.quiet {
+                                                print_error_text();
                                                 eprintln!("{:?}", e.context(message));
                                             }
                                             true
@@ -816,4 +818,22 @@ pub fn format_ast(
         rendered,
         lost_comments: out.comments,
     })
+}
+
+pub fn print_error_text() {
+    // bold red
+    eprint!("\x1B[1;38;5;9m");
+    eprint!("       Error ");
+
+    // reset
+    eprint!("\x1B[0;22m");
+}
+
+pub fn print_skipping_text() {
+    // bold red
+    eprint!("\x1B[1;33m");
+    eprint!("    Skipping ");
+
+    // reset
+    eprint!("\x1B[0;22m");
 }
