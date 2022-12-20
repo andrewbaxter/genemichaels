@@ -10,7 +10,7 @@ readme = "readme.md"
 [dependencies]
 anyhow = "1.0.68"
 clap = { version = "4.0.29", features = ["derive"] }
-markdown = { git = "https://github.com/wooorm/markdown-rs", rev = "af202d3f0ea24e0a957b02a6f9fb23c6c3b4afe7" }
+markdown = { git = "https://github.com/wooorm/markdown-rs", rev = "af202d3f0ea24e0a957b02a6f9fb23c6c3b4afe7", version = "1.0.0-alpha.5" }
 proc-macro2 = { version = "1.0.49", features = ["span-locations"] }
 quote = "1.0.23"
 structre = "0.0.1"
