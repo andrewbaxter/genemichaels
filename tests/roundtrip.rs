@@ -193,3 +193,11 @@ where
 "#,
     );
 }
+
+#[test]
+fn rt_trait2() {
+    rt(r#"pub trait X {
+    type Z;
+}
+"#)
+}
