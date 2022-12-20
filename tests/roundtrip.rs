@@ -11,7 +11,7 @@ fn rt(text: &str) {
         ..Default::default()
     }).unwrap();
     assert!(res.lost_comments.is_empty(), "Comments remain: {:?}", res.lost_comments);
-    assert!(text == &res.rendered, "Formatted text changed:\n\nBefore:\n{}\n\nAfter:\n{}\n", text, res.rendered);
+    assert!(text == res.rendered, "Formatted text changed:\n\nBefore:\n{}\n\nAfter:\n{}\n", text, res.rendered);
 }
 
 #[test]

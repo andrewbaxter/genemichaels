@@ -53,6 +53,7 @@ enum DottedRes<'a> {
     Leaf(&'a Expr),
 }
 
+#[allow(clippy::needless_lifetimes)]
 fn get_dotted<'a>(e: &'a Expr) -> DottedRes<'a> {
     match e {
         Expr::Await(x) => DottedRes::Dotted(Dotted::Await(x)),
@@ -155,7 +156,7 @@ fn new_sg_dotted(out: &mut MakeSegsState, base_indent: &Alignment, root: Dotted)
             sg.child(build_child(out, &indent, &child));
         }
     } else {
-        sg.child(build_child(out, base_indent, &children.get(0).unwrap()));
+        sg.child(build_child(out, base_indent, children.get(0).unwrap()));
     }
     sg.build(out)
 }
@@ -351,22 +352,22 @@ impl Formattable for &Expr {
                         }
                         if e.asyncness.is_some() {
                             if need_space {
-                                prefix.push_str(" ");
+                                prefix.push(' ');
                             }
                             prefix.push_str("async");
                             need_space = true;
                         }
                         if e.capture.is_some() {
                             if need_space {
-                                prefix.push_str(" ");
+                                prefix.push(' ');
                             }
                             prefix.push_str("move");
                             need_space = true;
                         }
                         if need_space {
-                            prefix.push_str(" ");
+                            prefix.push(' ');
                         }
-                        prefix.push_str("|");
+                        prefix.push('|');
                         new_sg_bracketed_list_common(
                             out,
                             base_indent,
@@ -407,7 +408,7 @@ impl Formattable for &Expr {
                 |out: &mut MakeSegsState, _base_indent: &Alignment| {
                     let mut prefix = "continue".to_string();
                     if let Some(label) = &e.label {
-                        prefix.push_str(" ");
+                        prefix.push(' ');
                         prefix.push_str(&label.to_string());
                     }
                     let mut sg = new_sg(out);
@@ -590,7 +591,7 @@ impl Formattable for &Expr {
                         sg.child(
                             new_sg_outer_attrs(
                                 out,
-                                &base_indent,
+                                base_indent,
                                 &arm.attrs,
                                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                                     let mut sg = new_sg(out);

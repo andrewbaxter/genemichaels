@@ -117,17 +117,11 @@ pub(crate) fn append_path<
         if i > 0 {
             node.split(out, indent.clone(), true);
         }
-        match prefix {
-            Some(d) => {
-                match d {
-                    Some(t) => {
-                        append_comments(out, base_indent, node, t);
-                    },
-                    None => { },
-                };
-                node.seg(out, "::");
-            },
-            None => { },
+        if let Some(d) = prefix {
+            if let Some(t) = d {
+                append_comments(out, base_indent, node, t);
+            };
+            node.seg(out, "::");
         }
         append_comments(out, base_indent, node, seg.value().ident.span().start());
         node.seg(out, &seg.value().ident.to_string());

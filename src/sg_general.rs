@@ -149,7 +149,7 @@ pub(crate) fn append_statement_list_raw(
             }
             sg.split(out, base_indent.clone(), true);
         }
-        sg.child((&el).make_segs(out, &base_indent));
+        sg.child((el).make_segs(out, base_indent));
         sg.seg_unsplit(out, " ");
         previous_margin_group = new_margin_group;
         i += 1;
@@ -260,7 +260,7 @@ pub(crate) fn append_macro_body_bracketed(
         syn::MacroDelimiter::Paren(x) => {
             sg.seg(out, "(");
             sg.split(out, indent.clone(), true);
-            append_macro_body(out, &indent, sg, tokens.clone());
+            append_macro_body(out, &indent, sg, tokens);
             append_comments(out, base_indent, sg, x.span.end().prev());
             sg.split(out, base_indent.clone(), false);
             sg.seg(out, ")");
@@ -269,7 +269,7 @@ pub(crate) fn append_macro_body_bracketed(
             sg.seg(out, "{");
             sg.initial_split();
             sg.split(out, indent.clone(), true);
-            append_macro_body(out, &indent, sg, tokens.clone());
+            append_macro_body(out, &indent, sg, tokens);
             append_comments(out, base_indent, sg, x.span.end().prev());
             sg.split(out, base_indent.clone(), false);
             sg.seg(out, "}");
@@ -277,7 +277,7 @@ pub(crate) fn append_macro_body_bracketed(
         syn::MacroDelimiter::Bracket(x) => {
             sg.seg(out, "[");
             sg.split(out, indent.clone(), true);
-            append_macro_body(out, &indent, sg, tokens.clone());
+            append_macro_body(out, &indent, sg, tokens);
             append_comments(out, base_indent, sg, x.span.end().prev());
             sg.split(out, base_indent.clone(), false);
             sg.seg(out, "]");
@@ -319,16 +319,10 @@ pub(crate) fn append_macro_body(
             let mut top = vec![];
             for t in tokens {
                 let (push, break_) = match &t {
-                    proc_macro2::TokenTree::Punct(p) if match p.as_char() {
-                        ';' | ',' => true,
-                        _ => false,
-                    } => {
+                    proc_macro2::TokenTree::Punct(p) if matches!(p.as_char(), ';' | ',') => {
                         (false, Some(Some(p.clone())))
                     },
-                    proc_macro2::TokenTree::Group(g) if match g.delimiter() {
-                        proc_macro2::Delimiter::Brace => true,
-                        _ => false,
-                    } => {
+                    proc_macro2::TokenTree::Group(g) if matches!(g.delimiter(), proc_macro2::Delimiter::Brace) => {
                         (true, Some(None))
                     },
                     _ => {

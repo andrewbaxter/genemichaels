@@ -109,7 +109,7 @@ fn new_sg_sig(out: &mut MakeSegsState, base_indent: &Alignment, sig: &Signature)
             prefix.push_str("extern ");
             if let Some(name) = &abi.name {
                 prefix.push_str(&name.to_token_stream().to_string());
-                prefix.push_str(" ");
+                prefix.push(' ');
             }
         }
         append_comments(out, base_indent, sg, sig.fn_token.span.start());
@@ -533,10 +533,7 @@ impl FormattableStmt for Item {
             Item::Impl(_) => (MarginGroup::BlockDef, true),
             Item::Macro(_) => (MarginGroup::BlockDef, true),
             Item::Macro2(_) => (MarginGroup::BlockDef, true),
-            Item::Mod(m) => (MarginGroup::BlockDef, match &m.content {
-                Some(_) => true,
-                None => false,
-            }),
+            Item::Mod(m) => (MarginGroup::BlockDef, m.content.is_some()),
             Item::Static(_) => (MarginGroup::None, false),
             Item::Struct(s) => (MarginGroup::BlockDef, match &s.fields {
                 syn::Fields::Named(_) => true,
@@ -695,7 +692,7 @@ impl Formattable for Item {
                             if bang.is_some() {
                                 sg.seg(out, "!");
                             }
-                            sg.child(build_path(out, base_indent, &base));
+                            sg.child(build_path(out, base_indent, base));
                             sg.seg(out, " for ");
                         }
                         sg.child(x.self_ty.make_segs(out, base_indent));
@@ -1050,7 +1047,7 @@ impl Formattable for Field {
                 append_comments(out, base_indent, &mut sg, n.span().start());
                 sg.seg(out, &format!("{}: ", n));
             }
-            sg.child((&self.ty).make_segs(out, base_indent));
+            sg.child(self.ty.make_segs(out, base_indent));
             sg.build(out)
         })
     }
