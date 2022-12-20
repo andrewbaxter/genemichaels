@@ -44,6 +44,18 @@ fn rt_struct1() {
 }
 
 #[test]
+fn rt_struct_generic1() {
+    rt(
+        r#"struct DefaultTupleStruct<A, B, C>(A, #[serde(default)]
+B, #[serde(default = "MyDefault::my_default")]
+C)
+where
+    C: MyDefault;
+"#,
+    );
+}
+
+#[test]
 fn rt_tuple_unit1() {
     rt(r#"fn main() {
     x((7,));
