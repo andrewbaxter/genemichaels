@@ -6,6 +6,7 @@ use syn::{
     ExprField,
     ExprMethodCall,
     FieldValue,
+    ExprTry,
 };
 use crate::{
     new_sg,
@@ -47,7 +48,7 @@ enum Dotted<'a> {
     Field(&'a ExprField),
     Method(&'a ExprMethodCall),
     // only if base is dotted
-    Try(Box<Dotted<'a>>),
+    Try(&'a ExprTry, Box<Dotted<'a>>),
 }
 
 enum DottedRes<'a> {
@@ -62,7 +63,7 @@ fn get_dotted<'a>(e: &'a Expr) -> DottedRes<'a> {
         Expr::Field(x) => DottedRes::Dotted(Dotted::Field(x)),
         Expr::MethodCall(x) => DottedRes::Dotted(Dotted::Method(x)),
         Expr::Try(x) => match get_dotted(&x.expr) {
-            DottedRes::Dotted(d) => DottedRes::Dotted(Dotted::Try(Box::new(d))),
+            DottedRes::Dotted(d) => DottedRes::Dotted(Dotted::Try(x, Box::new(d))),
             DottedRes::Leaf(_) => DottedRes::Leaf(e),
         },
         _ => DottedRes::Leaf(e),
@@ -74,7 +75,7 @@ fn get_dotted2<'a>(d: &Dotted<'a>) -> DottedRes<'a> {
         Dotted::Await(x) => get_dotted(&x.base),
         Dotted::Field(x) => get_dotted(&x.base),
         Dotted::Method(x) => get_dotted(&x.receiver),
-        Dotted::Try(e) => get_dotted2(e.as_ref()),
+        Dotted::Try(_, e) => get_dotted2(e.as_ref()),
     }
 }
 
@@ -140,9 +141,10 @@ fn new_sg_dotted(out: &mut MakeSegsState, base_indent: &Alignment, root: Dotted)
                 );
                 sg.build(out)
             },
-            Dotted::Try(inner) => {
+            Dotted::Try(e, inner) => {
                 let mut sg = new_sg(out);
                 sg.child(build_child(out, base_indent, inner.as_ref()));
+                append_comments(out, base_indent, &mut sg, e.question_token.span.start());
                 sg.seg(out, "?");
                 sg.build(out)
             },
@@ -769,10 +771,11 @@ impl Formattable for &Expr {
                 |out: &mut MakeSegsState, base_indent: &Alignment| match get_dotted(self) {
                     DottedRes::Dotted(d) => new_sg_dotted(out, base_indent, d),
                     DottedRes::Leaf(_) => {
-                        let mut node = new_sg(out);
-                        node.child(e.expr.make_segs(out, base_indent));
-                        node.seg(out, "?");
-                        node.build(out)
+                        let mut sg = new_sg(out);
+                        sg.child(e.expr.make_segs(out, base_indent));
+                        append_comments(out, base_indent, &mut sg, e.question_token.span.start());
+                        sg.seg(out, "?");
+                        sg.build(out)
                     },
                 },
             ),
