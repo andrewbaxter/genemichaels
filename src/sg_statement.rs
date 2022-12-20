@@ -496,24 +496,27 @@ impl Formattable for TraitItem {
                         prefix.push_str(&x.ident.to_string());
                         sg.seg(out, &prefix);
                         append_generics(out, base_indent, &mut sg, &x.generics);
-                        append_binary(
-                            out,
-                            base_indent,
-                            &mut sg,
-                            ":",
-                            |out: &mut MakeSegsState, base_indent: &Alignment| {
-                                let mut node = new_sg(out);
-                                append_inline_list(
-                                    out,
-                                    base_indent,
-                                    &mut node,
-                                    " +",
-                                    &x.bounds,
-                                    InlineListSuffix::<Expr>::None,
-                                );
-                                node.build(out)
-                            },
-                        );
+                        if let Some(c) = &x.colon_token {
+                            append_comments(out, base_indent, &mut sg, c.span.start());
+                            append_binary(
+                                out,
+                                base_indent,
+                                &mut sg,
+                                ":",
+                                |out: &mut MakeSegsState, base_indent: &Alignment| {
+                                    let mut node = new_sg(out);
+                                    append_inline_list(
+                                        out,
+                                        base_indent,
+                                        &mut node,
+                                        " +",
+                                        &x.bounds,
+                                        InlineListSuffix::<Expr>::None,
+                                    );
+                                    node.build(out)
+                                },
+                            );
+                        }
                         sg.build(out)
                     };
                     let mut sg = new_sg(out);
