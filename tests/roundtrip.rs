@@ -126,6 +126,16 @@ fn main() { }
 }
 
 #[test]
+fn rt_comments_try1() {
+    rt(r#"fn main() {
+    x()
+    // failed
+    ?;
+}
+"#);
+}
+
+#[test]
 fn rt_try_try1() {
     rt(r#"fn main() {
     x().hello()??.await;
