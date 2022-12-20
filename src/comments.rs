@@ -466,7 +466,7 @@ impl LineState {
     }
 }
 
-fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &Node) {
+fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &Node, inline: bool) {
     fn join_lines(text: &str) -> String {
         let lines = text.lines().collect::<Vec<&str>>();
         let mut joined = String::new();
@@ -491,7 +491,7 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
                 if i > 0 {
                     line.write_newline(state, out);
                 }
-                recurse_write(state, out, line.clone_zero_indent(), child);
+                recurse_write(state, out, line.clone_zero_indent(), child, false);
             }
         },
         Node::BlockQuote(x) => {
@@ -500,7 +500,7 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
                 if i > 0 {
                     line.write_newline(state, out);
                 }
-                recurse_write(state, out, line.clone_inline(), child);
+                recurse_write(state, out, line.clone_inline(), child, false);
             }
         },
         Node::List(x) => {
@@ -517,6 +517,7 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
                             out,
                             line.clone_indent(Some(format!("{}. ", *i as usize + j)), "   ".into(), false),
                             child,
+                            false,
                         );
                     }
                 },
@@ -525,7 +526,13 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
                         if i > 0 {
                             line.write_newline(state, out);
                         }
-                        recurse_write(state, out, line.clone_indent(Some("* ".into()), "   ".into(), false), child);
+                        recurse_write(
+                            state,
+                            out,
+                            line.clone_indent(Some("* ".into()), "   ".into(), false),
+                            child,
+                            false,
+                        );
                     }
                 },
             };
@@ -535,7 +542,7 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
                 if i > 0 {
                     line.write_newline(state, out);
                 }
-                recurse_write(state, out, line.clone_zero_indent(), child);
+                recurse_write(state, out, line.clone_zero_indent(), child, false);
             }
         },
         // block->inline elements (flush after)
@@ -555,14 +562,14 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
         Node::Heading(x) => {
             let line = line.clone_indent(Some(format!("{} ", "#".repeat(x.depth as usize))), "  ".into(), true);
             for child in &x.children {
-                recurse_write(state, out, line.clone_inline(), child);
+                recurse_write(state, out, line.clone_inline(), child, true);
             }
             line.flush_always(state, out);
         },
         Node::FootnoteDefinition(x) => {
             let line = line.clone_indent(Some(format!("[^{}]: ", x.identifier)), "   ".into(), false);
             for child in &x.children {
-                recurse_write(state, out, line.clone_inline(), child);
+                recurse_write(state, out, line.clone_inline(), child, true);
             }
             line.flush_always(state, out);
         },
@@ -581,8 +588,12 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
         },
         Node::Paragraph(x) => {
             for child in &x.children {
-                recurse_write(state, out, line.clone_inline(), child);
+                recurse_write(state, out, line.clone_inline(), child, true);
             }
+            line.flush_always(state, out);
+        },
+        Node::Html(x) if !inline => {
+            line.write_unbreakable(state, out, &format!("`{}`", join_lines(&x.value)));
             line.flush_always(state, out);
         },
         // inline elements
@@ -595,21 +606,21 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
         Node::Strong(x) => {
             line.write_unbreakable(state, out, "**");
             for child in &x.children {
-                recurse_write(state, out, line.clone_inline(), child);
+                recurse_write(state, out, line.clone_inline(), child, true);
             }
             line.write_unbreakable(state, out, "**");
         },
         Node::Delete(x) => {
             line.write_unbreakable(state, out, "~~");
             for child in &x.children {
-                recurse_write(state, out, line.clone_inline(), child);
+                recurse_write(state, out, line.clone_inline(), child, true);
             }
             line.write_unbreakable(state, out, "~~");
         },
         Node::Emphasis(x) => {
             line.write_unbreakable(state, out, "_");
             for child in &x.children {
-                recurse_write(state, out, line.clone_inline(), child);
+                recurse_write(state, out, line.clone_inline(), child, true);
             }
             line.write_unbreakable(state, out, "_");
         },
@@ -617,7 +628,7 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
             line.write_unbreakable(state, out, &format!("[^{}]", x.identifier));
         },
         Node::Html(x) => {
-            line.write_unbreakable(state, out, &x.value);
+            line.write_unbreakable(state, out, &format!("`{}`", join_lines(&x.value)));
         },
         Node::Image(x) => {
             match (get_splits(&x.alt).next().is_some(), &x.title) {
@@ -683,14 +694,14 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
                 (None, None) => {
                     line.write_unbreakable(state, out, "[");
                     for child in &x.children {
-                        recurse_write(state, out, line.clone_inline(), child);
+                        recurse_write(state, out, line.clone_inline(), child, true);
                     }
                     line.write_unbreakable(state, out, &format!("]({})", x.url));
                 },
                 (None, Some(title)) => {
                     line.write_unbreakable(state, out, "[");
                     for child in &x.children {
-                        recurse_write(state, out, line.clone_inline(), child);
+                        recurse_write(state, out, line.clone_inline(), child, true);
                     }
                     line.write_unbreakable(state, out, &format!("]({}", x.url));
                     line.write_unbreakable(state, out, " \"");
@@ -726,7 +737,7 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
                 _ => {
                     line.write_unbreakable(state, out, "[");
                     for child in &x.children {
-                        recurse_write(state, out, line.clone_inline(), child);
+                        recurse_write(state, out, line.clone_inline(), child, true);
                     }
                     line.write_unbreakable(state, out, &format!("][{}]", x.identifier));
                 },
@@ -775,6 +786,7 @@ pub(crate) fn format_md(
             &mut out,
             LineState::new(None, prefix.to_string(), max_width, rel_max_width, false),
             &ast,
+            false,
         );
         Ok(out)
     }) {
