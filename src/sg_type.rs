@@ -29,7 +29,6 @@ use crate::{
         new_sg_outer_attrs,
         new_sg_binary,
         new_sg_macro,
-        InlineListSuffix,
     },
     Alignment,
     Formattable,
@@ -42,6 +41,7 @@ use crate::{
         new_sg_bracketed_list_common,
         append_bracketed_list_common,
         new_sg_bracketed_list,
+        InlineListSuffix,
     },
 };
 
@@ -479,6 +479,7 @@ impl Formattable for &Type {
                         x.paren_token.span.start(),
                         "(",
                         false,
+                        ",",
                         &x.inputs,
                         match &x.variadic {
                             Some(v) => InlineListSuffix::Extra(|out: &mut MakeSegsState, _base_indent: &Alignment| {
@@ -563,12 +564,15 @@ impl Formattable for &Type {
                 });
                 node.build(out)
             },
-            Type::Tuple(x) => new_sg_bracketed_list_common(
+            Type::Tuple(x) => new_sg_bracketed_list(
                 out,
                 base_indent,
                 x.paren_token.span.start(),
                 "(",
+                false,
+                ",",
                 &x.elems,
+                InlineListSuffix::UnitPunct::<Expr>,
                 x.paren_token.span.end().prev(),
                 ")",
             ),

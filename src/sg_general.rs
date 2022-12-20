@@ -39,7 +39,10 @@ use crate::{
     check_split_brace_threshold,
     SplitGroupIdx,
     FormattablePunct,
-    sg_general_lists::append_inline_list_raw,
+    sg_general_lists::{
+        append_inline_list_raw,
+        InlineListSuffix,
+    },
 };
 
 pub(crate) fn build_rev_pair(
@@ -187,12 +190,6 @@ pub(crate) fn new_sg_block(
     append_comments(out, base_indent, &mut sg, start);
     append_bracketed_statement_list(out, base_indent, &mut sg, prefix, attrs, block, end);
     sg.build(out)
-}
-
-pub(crate) enum InlineListSuffix<T: Formattable> {
-    None,
-    Punct,
-    Extra(T),
 }
 
 pub(crate) fn new_sg_outer_attrs(

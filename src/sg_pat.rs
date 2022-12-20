@@ -14,7 +14,6 @@ use crate::{
         new_sg_binary,
         new_sg_macro,
         append_comments,
-        InlineListSuffix,
     },
     sg_type::{
         build_extended_path,
@@ -31,6 +30,8 @@ use crate::{
         append_bracketed_list_curly,
         new_sg_bracketed_list_common,
         append_bracketed_list_common,
+        InlineListSuffix,
+        new_sg_bracketed_list,
     },
 };
 
@@ -201,12 +202,15 @@ impl Formattable for &Pat {
                 base_indent,
                 &x.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    new_sg_bracketed_list_common(
+                    new_sg_bracketed_list(
                         out,
                         base_indent,
                         x.paren_token.span.start(),
                         "(",
+                        false,
+                        ",",
                         &x.elems,
+                        InlineListSuffix::UnitPunct::<Expr>,
                         x.paren_token.span.end().prev(),
                         ")",
                     )
