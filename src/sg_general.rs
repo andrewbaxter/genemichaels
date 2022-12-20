@@ -171,6 +171,9 @@ pub(crate) fn append_bracketed_statement_list(
     stmts: &Vec<impl FormattableStmt>,
     end: LineColumn,
 ) {
+    if out.comments.contains_key(&HashLineColumn(end)) {
+        sg.initial_split();
+    }
     sg.seg(out, prefix);
     let indent = base_indent.indent();
     sg.split(out, indent.clone(), true);

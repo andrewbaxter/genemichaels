@@ -27,6 +27,7 @@ use crate::{
     },
     SplitGroupIdx,
     new_sg,
+    comments::HashLineColumn,
 };
 
 pub(crate) enum InlineListSuffix<T: Formattable> {
@@ -133,6 +134,9 @@ pub(crate) fn append_bracketed_list<
     suffix_start: LineColumn,
     suffix: &str,
 ) {
+    if out.comments.contains_key(&HashLineColumn(suffix_start)) {
+        sg.initial_split();
+    }
     append_comments(out, base_indent, sg, prefix_start);
     sg.seg(out, prefix);
     let need_pad = bracket_space && (!exprs.is_empty() || matches!(&list_suffix, InlineListSuffix::Extra(_)));
