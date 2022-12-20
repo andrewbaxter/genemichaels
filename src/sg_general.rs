@@ -24,6 +24,8 @@ use syn::{
     },
     MacroDelimiter,
     Expr,
+    Item,
+    Stmt,
 };
 use crate::{
     comments::HashLineColumn,
@@ -291,54 +293,75 @@ pub(crate) fn append_macro_body(
     if let Ok(exprs) = syn::parse2::<ExprCall>(quote!{
         f(#tokens)
     }) {
-        append_inline_list_raw(out, base_indent, sg, ",", &exprs.args, InlineListSuffix::<Expr>::None);
-    } else if let Ok(block) = syn::parse2::<Block>(quote!{
+        if exprs.args.len() == 1 && match exprs.args.iter().next() {
+            Some(Expr::Verbatim(_)) => true,
+            _ => false,
+        } { 
+            // not really parsed, continue
+            } else {
+            append_inline_list_raw(out, base_indent, sg, ",", &exprs.args, InlineListSuffix::<Expr>::None);
+            return;
+        }
+    }
+    if let Ok(block) = syn::parse2::<Block>(quote!{
         {
             #tokens
         }
     }) {
-        append_statement_list_raw(out, base_indent, sg, None, &block.stmts);
-    } else {
-        #[derive(PartialEq)]
-        enum ConsecMode {
-            // Start, joining punct (.)
-            ConnectForward,
-            // Idents, literals
-            NoConnect,
-            // Other punctuation
-            Punct,
+        if block.stmts.len() == 1 && match block.stmts.iter().next() {
+            Some(Stmt::Item(Item::Verbatim(_))) => true,
+            Some(Stmt::Expr(Expr::Verbatim(_))) => true,
+            Some(Stmt::Semi(Expr::Verbatim(_), _)) => true,
+            _ => false,
+        } { 
+            // not really parsed, continue
+            } else {
+            append_statement_list_raw(out, base_indent, sg, None, &block.stmts);
+            return;
         }
+    }
 
-        // Split token stream into "expressions" using `;` and `,` and then try to re-evaluate each
-        // expression to use normal formatting.
-        let mut substreams = vec![];
-        {
-            let mut top = vec![];
-            for t in tokens {
-                let (push, break_) = match &t {
-                    proc_macro2::TokenTree::Punct(p) if matches!(p.as_char(), ';' | ',') => {
-                        (false, Some(Some(p.clone())))
-                    },
-                    proc_macro2::TokenTree::Group(g) if matches!(g.delimiter(), proc_macro2::Delimiter::Brace) => {
-                        (true, Some(None))
-                    },
-                    _ => {
-                        (true, None)
-                    },
-                };
-                if push {
-                    top.push(t);
-                }
-                if let Some(b) = break_ {
-                    substreams.push((top.split_off(0), b));
-                }
+    #[derive(PartialEq)]
+    enum ConsecMode {
+        // Start, joining punct (.)
+        ConnectForward,
+        // Idents, literals
+        NoConnect,
+        // Other punctuation
+        Punct,
+    }
+
+    // Split token stream into "expressions" using `;` and `,` and then try to re-evaluate
+    // each expression to use normal formatting.
+    let mut substreams = vec![];
+    {
+        let mut top = vec![];
+        for t in tokens {
+            let (push, break_) = match &t {
+                proc_macro2::TokenTree::Punct(p) if matches!(p.as_char(), ';' | ',') => {
+                    (false, Some(Some(p.clone())))
+                },
+                proc_macro2::TokenTree::Group(g) if matches!(g.delimiter(), proc_macro2::Delimiter::Brace) => {
+                    (true, Some(None))
+                },
+                _ => {
+                    (true, None)
+                },
+            };
+            if push {
+                top.push(t);
             }
-            if !top.is_empty() {
-                substreams.push((top, None));
+            if let Some(b) = break_ {
+                substreams.push((top.split_off(0), b));
             }
         }
-        let substreams_len = substreams.len();
-        for (i, sub) in substreams.into_iter().enumerate() {
+        if !top.is_empty() {
+            substreams.push((top, None));
+        }
+    }
+    let substreams_len = substreams.len();
+    for (i, sub) in substreams.into_iter().enumerate() {
+        'nextsub : loop {
             if i > 0 {
                 sg.split(out, base_indent.clone(), true);
             }
@@ -348,20 +371,40 @@ pub(crate) fn append_macro_body(
                 f(#tokens #punct)
             }) {
                 assert!(exprs.args.len() <= 1);
-                if let Some(e) = exprs.args.iter().next() {
-                    sg.child(e.make_segs(out, base_indent));
+                if exprs.args.len() == 1 && match exprs.args.iter().next() {
+                    Some(Expr::Verbatim(_)) => true,
+                    _ => false,
+                } { 
+                    // not really parsed, continue
+                    } else {
+                    if let Some(e) = exprs.args.iter().next() {
+                        sg.child(e.make_segs(out, base_indent));
+                    }
+                    if let Some(suf) = punct {
+                        append_comments(out, base_indent, sg, suf.span().start());
+                        sg.seg(out, suf);
+                    }
+                    break 'nextsub;
                 }
-                if let Some(suf) = punct {
-                    append_comments(out, base_indent, sg, suf.span().start());
-                    sg.seg(out, suf);
-                }
-            } else if let Ok(block) = syn::parse2::<Block>(quote!{
+            }
+            if let Ok(block) = syn::parse2::<Block>(quote!{
                 {
                     #tokens #punct
                 }
             }) {
-                append_statement_list_raw(out, base_indent, sg, None, &block.stmts);
-            } else {
+                if block.stmts.len() == 1 && match block.stmts.iter().next() {
+                    Some(Stmt::Item(Item::Verbatim(_))) => true,
+                    Some(Stmt::Expr(Expr::Verbatim(_))) => true,
+                    Some(Stmt::Semi(Expr::Verbatim(_), _)) => true,
+                    _ => false,
+                } { 
+                    // not really parsed, continue
+                    } else {
+                    append_statement_list_raw(out, base_indent, sg, None, &block.stmts);
+                    break 'nextsub;
+                }
+            }
+            {
                 let mut mode = ConsecMode::ConnectForward;
                 for t in tokens {
                     match t {
@@ -471,9 +514,10 @@ pub(crate) fn append_macro_body(
                     sg.seg(out, suf);
                 }
             }
-            if i < substreams_len - 1 {
-                sg.seg_unsplit(out, " ");
-            }
+            break;
+        }
+        if i < substreams_len - 1 {
+            sg.seg_unsplit(out, " ");
         }
     }
 }

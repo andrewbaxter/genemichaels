@@ -88,31 +88,31 @@ fn append_vis(out: &mut MakeSegsState, base_indent: &Alignment, node: &mut Split
 
 fn new_sg_sig(out: &mut MakeSegsState, base_indent: &Alignment, sig: &Signature) -> SplitGroupIdx {
     let mut sg = new_sg(out);
-    let mut prefix = String::new();
     if let Some(x) = sig.constness {
         append_comments(out, base_indent, &mut sg, x.span.start());
-        prefix.push_str("const ");
+        sg.seg(out, "const ");
     }
     if let Some(x) = sig.asyncness {
         append_comments(out, base_indent, &mut sg, x.span.start());
-        prefix.push_str("async ");
+        sg.seg(out, "async ");
     }
     if let Some(x) = sig.unsafety {
         append_comments(out, base_indent, &mut sg, x.span.start());
-        prefix.push_str("unsafe ");
+        sg.seg(out, "unsafe ");
     }
     if let Some(abi) = &sig.abi {
         append_comments(out, base_indent, &mut sg, abi.extern_token.span.start());
-        prefix.push_str("extern ");
+        sg.seg(out, "extern ");
         if let Some(name) = &abi.name {
-            prefix.push_str(&name.to_token_stream().to_string());
-            prefix.push(' ');
+            append_comments(out, base_indent, &mut sg, name.span().start());
+            sg.seg(out, name.to_token_stream().to_string());
+            sg.seg(out, " ");
         }
     }
     append_comments(out, base_indent, &mut sg, sig.fn_token.span.start());
-    prefix.push_str("fn ");
-    prefix.push_str(&sig.ident.to_string());
-    sg.seg(out, &prefix);
+    sg.seg(out, "fn ");
+    append_comments(out, base_indent, &mut sg, sig.ident.span().start());
+    sg.seg(out, &sig.ident);
     if !sig.generics.params.is_empty() {
         sg.child(build_generics_part_a(out, base_indent, &sig.generics));
     }
@@ -261,7 +261,11 @@ impl Formattable for ForeignItem {
                     new_sg_macro(out, base_indent, &x.mac, x.semi_token.is_some())
                 },
             ),
-            ForeignItem::Verbatim(x) => new_sg_lit(out, None, x),
+            ForeignItem::Verbatim(x) => {
+                let mut sg = new_sg(out);
+                append_macro_body(out, base_indent, &mut sg, x.clone());
+                sg.build(out)
+            },
             _ => unreachable!(),
         }
     }
@@ -364,7 +368,11 @@ impl Formattable for ImplItem {
                     new_sg_macro(out, base_indent, &x.mac, x.semi_token.is_some())
                 },
             ),
-            ImplItem::Verbatim(x) => new_sg_lit(out, None, x),
+            ImplItem::Verbatim(x) => {
+                let mut sg = new_sg(out);
+                append_macro_body(out, base_indent, &mut sg, x.clone());
+                sg.build(out)
+            },
             _ => unreachable!(),
         }
     }
@@ -506,7 +514,11 @@ impl Formattable for TraitItem {
                     new_sg_macro(out, base_indent, &x.mac, x.semi_token.is_some())
                 },
             ),
-            TraitItem::Verbatim(x) => new_sg_lit(out, None, x),
+            TraitItem::Verbatim(x) => {
+                let mut sg = new_sg(out);
+                append_macro_body(out, base_indent, &mut sg, x.clone());
+                sg.build(out)
+            },
             _ => unreachable!(),
         }
     }
@@ -784,9 +796,14 @@ impl Formattable for Item {
                     append_comments(out, base_indent, &mut sg, x.struct_token.span.start());
                     sg.seg(out, "struct ");
                     sg.seg(out, &x.ident.to_string());
-                    append_generics(out, base_indent, &mut sg, &x.generics);
+                    if !x.generics.params.is_empty() {
+                        sg.child(build_generics_part_a(out, base_indent, &x.generics));
+                    }
                     match &x.fields {
                         syn::Fields::Named(s) => {
+                            if let Some(wh) = &x.generics.where_clause {
+                                sg.child(build_generics_part_b(out, base_indent, &wh));
+                            }
                             if check_split_brace_threshold(out, s.named.len()) {
                                 sg.initial_split();
                             }
@@ -811,10 +828,16 @@ impl Formattable for Item {
                                 t.paren_token.span.end().prev(),
                                 ")",
                             );
+                            if let Some(wh) = &x.generics.where_clause {
+                                sg.child(build_generics_part_b(out, base_indent, &wh));
+                            }
                             append_comments(out, base_indent, &mut sg, x.semi_token.unwrap().span.start());
                             sg.seg(out, ";");
                         },
                         syn::Fields::Unit => {
+                            if let Some(wh) = &x.generics.where_clause {
+                                sg.child(build_generics_part_b(out, base_indent, &wh));
+                            }
                             append_comments(out, base_indent, &mut sg, x.semi_token.unwrap().span.start());
                             sg.seg(out, ";");
                         },
@@ -967,9 +990,9 @@ impl Formattable for Item {
                 },
             ),
             Item::Verbatim(x) => {
-                let mut node = new_sg(out);
-                node.seg(out, &x.to_string());
-                node.build(out)
+                let mut sg = new_sg(out);
+                append_macro_body(out, base_indent, &mut sg, x.clone());
+                sg.build(out)
             },
             _ => unreachable!(),
         }

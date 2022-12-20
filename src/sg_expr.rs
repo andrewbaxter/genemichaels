@@ -20,6 +20,7 @@ use crate::{
         new_sg_binary,
         new_sg_block,
         new_sg_macro,
+        append_macro_body,
     },
     sg_type::{
         build_array_type,
@@ -864,9 +865,9 @@ impl Formattable for &Expr {
                 },
             ),
             Expr::Verbatim(e) => {
-                let mut node = new_sg(out);
-                node.seg(out, &e.to_string());
-                node.build(out)
+                let mut sg = new_sg(out);
+                append_macro_body(out, base_indent, &mut sg, e.clone());
+                sg.build(out)
             },
             Expr::While(e) => new_sg_outer_attrs(
                 out,

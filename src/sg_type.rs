@@ -460,18 +460,20 @@ impl Formattable for &Type {
                         "> ",
                     );
                 }
-                let mut prefix = String::new();
-                if x.unsafety.is_some() {
-                    prefix.push_str("unsafe ");
+                if let Some(un) = &x.unsafety {
+                    append_comments(out, base_indent, &mut sg, un.span.start());
+                    sg.seg(out, "unsafe ");
                 }
                 if let Some(abi) = &x.abi {
-                    prefix.push_str("extern ");
+                    append_comments(out, base_indent, &mut sg, abi.extern_token.span.start());
+                    sg.seg(out, "extern ");
                     if let Some(name) = &abi.name {
-                        prefix.push_str(&name.to_token_stream().to_string());
+                        append_comments(out, base_indent, &mut sg, name.span().start());
+                        sg.seg(out, name.to_token_stream().to_string());
                     }
                 }
-                prefix.push_str("fn");
-                sg.seg(out, &prefix);
+                append_comments(out, base_indent, &mut sg, x.fn_token.span.start());
+                sg.seg(out, "fn");
                 sg.child(
                     new_sg_bracketed_list(
                         out,
