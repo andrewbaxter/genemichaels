@@ -230,33 +230,23 @@ pub(crate) fn append_generics(
     if generics.params.is_empty() {
         return;
     }
-    sg.child({
-        if let Some(wh) = &generics.where_clause {
-            build_generics_part_b(
-                out,
-                base_indent,
-                |out: &mut MakeSegsState, base_indent: &Alignment| build_generics_part_a(out, base_indent, generics),
-                wh,
-            )
-        } else {
-            build_generics_part_a(out, base_indent, generics)
-        }
-    });
+    sg.child(build_generics_part_a(out, base_indent, generics));
+    if let Some(wh) = &generics.where_clause {
+        sg.child(build_generics_part_b(out, base_indent, wh));
+    }
 }
 
 pub(crate) fn build_generics_part_b(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
-    base: impl Formattable,
     wh: &WhereClause,
 ) -> SplitGroupIdx {
     let mut sg = new_sg(out);
     if out.split_where {
         sg.initial_split();
     }
-    sg.child(base.make_segs(out, base_indent));
-    append_comments(out, base_indent, &mut sg, wh.where_token.span.start());
     sg.seg_unsplit(out, " ");
+    append_comments(out, base_indent, &mut sg, wh.where_token.span.start());
     sg.split(out, base_indent.clone(), true);
     sg.seg(out, "where");
     sg.seg_unsplit(out, " ");

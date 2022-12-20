@@ -51,7 +51,6 @@ use syn::{
     UseTree,
     Variant,
     Visibility,
-    ItemImpl,
 };
 
 fn append_vis(out: &mut MakeSegsState, base_indent: &Alignment, node: &mut SplitGroupBuilder, vis: &Visibility) {
@@ -89,72 +88,62 @@ fn append_vis(out: &mut MakeSegsState, base_indent: &Alignment, node: &mut Split
 
 fn new_sg_sig(out: &mut MakeSegsState, base_indent: &Alignment, sig: &Signature) -> SplitGroupIdx {
     let mut sg = new_sg(out);
-
-    fn build_base(out: &mut MakeSegsState, base_indent: &Alignment, sg: &mut SplitGroupBuilder, sig: &Signature) {
-        let mut prefix = String::new();
-        if let Some(x) = sig.constness {
-            append_comments(out, base_indent, sg, x.span.start());
-            prefix.push_str("const ");
-        }
-        if let Some(x) = sig.asyncness {
-            append_comments(out, base_indent, sg, x.span.start());
-            prefix.push_str("async ");
-        }
-        if let Some(x) = sig.unsafety {
-            append_comments(out, base_indent, sg, x.span.start());
-            prefix.push_str("unsafe ");
-        }
-        if let Some(abi) = &sig.abi {
-            append_comments(out, base_indent, sg, abi.extern_token.span.start());
-            prefix.push_str("extern ");
-            if let Some(name) = &abi.name {
-                prefix.push_str(&name.to_token_stream().to_string());
-                prefix.push(' ');
-            }
-        }
-        append_comments(out, base_indent, sg, sig.fn_token.span.start());
-        prefix.push_str("fn ");
-        prefix.push_str(&sig.ident.to_string());
-        sg.seg(out, &prefix);
-        if !sig.generics.params.is_empty() {
-            sg.child(build_generics_part_a(out, base_indent, &sig.generics));
-        }
-        sg.child(
-            new_sg_bracketed_list(
-                out,
-                base_indent,
-                sig.paren_token.span.start(),
-                "(",
-                false,
-                &sig.inputs,
-                if let Some(v) = &sig.variadic {
-                    InlineListSuffix::Extra(|out: &mut MakeSegsState, base_indent: &Alignment| {
-                        new_sg_lit(out, Some((base_indent, v.dots.spans[0].start())), "...")
-                    })
-                } else {
-                    InlineListSuffix::Punct
-                },
-                sig.paren_token.span.end().prev(),
-                ")",
-            ),
-        );
-        match &sig.output {
-            ReturnType::Default => { },
-            ReturnType::Type(_, t) => {
-                sg.seg(out, " -> ");
-                sg.child(t.make_segs(out, base_indent));
-            },
+    let mut prefix = String::new();
+    if let Some(x) = sig.constness {
+        append_comments(out, base_indent, &mut sg, x.span.start());
+        prefix.push_str("const ");
+    }
+    if let Some(x) = sig.asyncness {
+        append_comments(out, base_indent, &mut sg, x.span.start());
+        prefix.push_str("async ");
+    }
+    if let Some(x) = sig.unsafety {
+        append_comments(out, base_indent, &mut sg, x.span.start());
+        prefix.push_str("unsafe ");
+    }
+    if let Some(abi) = &sig.abi {
+        append_comments(out, base_indent, &mut sg, abi.extern_token.span.start());
+        prefix.push_str("extern ");
+        if let Some(name) = &abi.name {
+            prefix.push_str(&name.to_token_stream().to_string());
+            prefix.push(' ');
         }
     }
-
+    append_comments(out, base_indent, &mut sg, sig.fn_token.span.start());
+    prefix.push_str("fn ");
+    prefix.push_str(&sig.ident.to_string());
+    sg.seg(out, &prefix);
+    if !sig.generics.params.is_empty() {
+        sg.child(build_generics_part_a(out, base_indent, &sig.generics));
+    }
+    sg.child(
+        new_sg_bracketed_list(
+            out,
+            base_indent,
+            sig.paren_token.span.start(),
+            "(",
+            false,
+            &sig.inputs,
+            if let Some(v) = &sig.variadic {
+                InlineListSuffix::Extra(|out: &mut MakeSegsState, base_indent: &Alignment| {
+                    new_sg_lit(out, Some((base_indent, v.dots.spans[0].start())), "...")
+                })
+            } else {
+                InlineListSuffix::Punct
+            },
+            sig.paren_token.span.end().prev(),
+            ")",
+        ),
+    );
+    match &sig.output {
+        ReturnType::Default => { },
+        ReturnType::Type(_, t) => {
+            sg.seg(out, " -> ");
+            sg.child(t.make_segs(out, base_indent));
+        },
+    }
     if let Some(wh) = &sig.generics.where_clause {
-        sg.child(build_generics_part_b(out, base_indent, |out: &mut MakeSegsState, base_indent: &Alignment| {
-            let mut sg = new_sg(out);
-            build_base(out, base_indent, &mut sg, sig);
-            sg.build(out)
-        }, wh))
-    } else {
-        build_base(out, base_indent, &mut sg, sig)
+        sg.child(build_generics_part_b(out, base_indent, wh));
     }
     sg.build(out)
 }
@@ -670,47 +659,33 @@ impl Formattable for Item {
                 base_indent,
                 &x.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    fn build_base(out: &mut MakeSegsState, base_indent: &Alignment, x: &ItemImpl) -> SplitGroupIdx {
-                        let mut sg = new_sg(out);
-                        let mut prefix = String::new();
-                        if let Some(d) = x.defaultness {
-                            append_comments(out, base_indent, &mut sg, d.span.start());
-                            prefix.push_str("default ");
-                        }
-                        if let Some(u) = x.unsafety {
-                            append_comments(out, base_indent, &mut sg, u.span.start());
-                            prefix.push_str("unsafe ");
-                        }
-                        append_comments(out, base_indent, &mut sg, x.impl_token.span.start());
-                        prefix.push_str("impl");
-                        sg.seg(out, &prefix);
-                        if !x.generics.params.is_empty() {
-                            sg.child(build_generics_part_a(out, base_indent, &x.generics));
-                        }
-                        sg.seg(out, " ");
-                        if let Some((bang, base, _)) = &x.trait_ {
-                            if bang.is_some() {
-                                sg.seg(out, "!");
-                            }
-                            sg.child(build_path(out, base_indent, base));
-                            sg.seg(out, " for ");
-                        }
-                        sg.child(x.self_ty.make_segs(out, base_indent));
-                        sg.build(out)
-                    }
-
                     let mut sg = new_sg(out);
+                    let mut prefix = String::new();
+                    if let Some(d) = x.defaultness {
+                        append_comments(out, base_indent, &mut sg, d.span.start());
+                        prefix.push_str("default ");
+                    }
+                    if let Some(u) = x.unsafety {
+                        append_comments(out, base_indent, &mut sg, u.span.start());
+                        prefix.push_str("unsafe ");
+                    }
+                    append_comments(out, base_indent, &mut sg, x.impl_token.span.start());
+                    prefix.push_str("impl");
+                    sg.seg(out, &prefix);
+                    if !x.generics.params.is_empty() {
+                        sg.child(build_generics_part_a(out, base_indent, &x.generics));
+                    }
+                    sg.seg(out, " ");
+                    if let Some((bang, base, _)) = &x.trait_ {
+                        if bang.is_some() {
+                            sg.seg(out, "!");
+                        }
+                        sg.child(build_path(out, base_indent, base));
+                        sg.seg(out, " for ");
+                    }
+                    sg.child(x.self_ty.make_segs(out, base_indent));
                     if let Some(wh) = &x.generics.where_clause {
-                        sg.child(
-                            build_generics_part_b(
-                                out,
-                                base_indent,
-                                |out: &mut MakeSegsState, base_indent: &Alignment| build_base(out, base_indent, x),
-                                wh,
-                            ),
-                        );
-                    } else {
-                        sg.child(build_base(out, base_indent, x));
+                        sg.child(build_generics_part_b(out, base_indent, wh));
                     }
                     append_bracketed_statement_list(
                         out,
@@ -866,7 +841,9 @@ impl Formattable for Item {
                     prefix.push_str("trait ");
                     prefix.push_str(&x.ident.to_string());
                     sg.seg(out, &prefix);
-                    append_generics(out, base_indent, &mut sg, &x.generics);
+                    if !x.generics.params.is_empty() {
+                        sg.child(build_generics_part_a(out, base_indent, &x.generics));
+                    }
                     if x.colon_token.is_some() {
                         sg.seg(out, ": ");
                         append_inline_list(
@@ -877,6 +854,9 @@ impl Formattable for Item {
                             &x.supertraits,
                             InlineListSuffix::<Expr>::None,
                         );
+                    }
+                    if let Some(wh) = &x.generics.where_clause {
+                        build_generics_part_b(out, base_indent, wh);
                     }
                     sg.child(
                         new_sg_block(

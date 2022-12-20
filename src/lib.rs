@@ -410,7 +410,7 @@ pub(crate) fn new_sg_lit(
     sg.build(out)
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub(crate) enum MarginGroup {
     Attr,
     BlockDef,

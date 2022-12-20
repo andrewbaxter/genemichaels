@@ -132,3 +132,18 @@ fn rt_comment_before_semi1() {
 }
 "#)
 }
+
+#[test]
+fn rt_trait1() {
+    rt(
+        r#"pub trait MyTrait<T, D>: Sized
+where
+    T: MyTrait2,
+    D: MyTrait3 {
+    fn is_empty(&self) -> bool;
+    #[allow(clippy::needless_lifetimes)]
+    fn another_method<'a>(&'a self) -> ReturnValue<T, D>;
+}
+"#,
+    );
+}
