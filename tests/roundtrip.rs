@@ -83,6 +83,17 @@ static _x: i32 = 4i32;
 }
 
 #[test]
+fn rt_comments_numbered_list2() {
+    rt(r#"// 3. list item one
+//
+// 4. list item 2
+//
+// 5. list item 3
+static _x: i32 = 4i32;
+"#)
+}
+
+#[test]
 fn rt_comments_unbreakable_links1() {
     rt(
         r#"//! This is a very long line that will get wrapped right around check_store
