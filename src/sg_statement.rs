@@ -11,7 +11,6 @@ use crate::{
         new_sg_block,
         new_sg_macro,
         append_macro_bracketed,
-        InlineListSuffix,
     },
     sg_type::{
         append_path,
@@ -35,6 +34,7 @@ use crate::{
         append_bracketed_list_curly,
         new_sg_bracketed_list,
         append_bracketed_list_common,
+        InlineListSuffix,
     },
 };
 use quote::ToTokens;
@@ -123,6 +123,7 @@ fn new_sg_sig(out: &mut MakeSegsState, base_indent: &Alignment, sig: &Signature)
             sig.paren_token.span.start(),
             "(",
             false,
+            ",",
             &sig.inputs,
             if let Some(v) = &sig.variadic {
                 InlineListSuffix::Extra(|out: &mut MakeSegsState, base_indent: &Alignment| {
@@ -1065,6 +1066,7 @@ impl Formattable for &UseTree {
                     x.brace_token.span.start(),
                     "{",
                     true,
+                    ",",
                     &x.items,
                     InlineListSuffix::<Expr>::Punct,
                     x.brace_token.span.end().prev(),

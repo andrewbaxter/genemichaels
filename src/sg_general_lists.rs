@@ -20,13 +20,18 @@ use crate::{
     MakeSegsState,
     Alignment,
     SplitGroupBuilder,
-    sg_general::{
-        InlineListSuffix,
-        append_comments,
-    },
+    sg_general::append_comments,
     SplitGroupIdx,
     new_sg,
 };
+
+pub(crate) enum InlineListSuffix<T: Formattable> {
+    None,
+    Punct,
+    // unit tuples only
+    UnitPunct,
+    Extra(T),
+}
 
 pub(crate) fn append_inline_list_raw<
     E: Formattable,
@@ -55,7 +60,15 @@ pub(crate) fn append_inline_list_raw<
     }
     match suffix {
         InlineListSuffix::None => { },
-        InlineListSuffix::Punct => {
+        InlineListSuffix::UnitPunct if exprs.len() == 1 => {
+            if let Some(p) = next_punct {
+                append_comments(out, base_indent, sg, p.span_start());
+                sg.seg(out, punct);
+            } else if !exprs.is_empty() {
+                sg.seg(out, punct);
+            }
+        },
+        InlineListSuffix::Punct | InlineListSuffix::UnitPunct => {
             if let Some(p) = next_punct {
                 append_comments(out, base_indent, sg, p.span_start());
                 sg.seg_split(out, punct);
@@ -107,6 +120,7 @@ pub(crate) fn append_bracketed_list<
     prefix_start: LineColumn,
     prefix: &str,
     bracket_space: bool,
+    punct: &str,
     exprs: &Punctuated<E, T>,
     list_suffix: InlineListSuffix<F>,
     suffix_start: LineColumn,
@@ -120,7 +134,7 @@ pub(crate) fn append_bracketed_list<
     }
     let indent = base_indent.indent();
     sg.split(out, indent.clone(), true);
-    append_inline_list_raw(out, &indent, sg, ",", exprs, list_suffix);
+    append_inline_list_raw(out, &indent, sg, punct, exprs, list_suffix);
     if need_pad {
         sg.seg_unsplit(out, " ");
     }
@@ -149,6 +163,7 @@ pub(crate) fn append_bracketed_list_common<
         prefix_start,
         prefix,
         false,
+        ",",
         exprs,
         InlineListSuffix::<Expr>::Punct,
         suffix_start,
@@ -168,7 +183,7 @@ pub(crate) fn append_bracketed_list_curly<
     extra: Option<impl Formattable>,
     suffix_start: LineColumn,
 ) {
-    append_bracketed_list(out, base_indent, sg, prefix_start, " {", true, exprs, match extra {
+    append_bracketed_list(out, base_indent, sg, prefix_start, " {", true, ",", exprs, match extra {
         Some(e) => InlineListSuffix::Extra(e),
         None => InlineListSuffix::Punct,
     }, suffix_start, "}")
@@ -184,6 +199,7 @@ pub(crate) fn new_sg_bracketed_list<
     prefix_start: LineColumn,
     prefix: &str,
     bracket_space: bool,
+    punct: &str,
     exprs: &Punctuated<E, T>,
     list_suffix: InlineListSuffix<F>,
     suffix_start: LineColumn,
@@ -197,6 +213,7 @@ pub(crate) fn new_sg_bracketed_list<
         prefix_start,
         prefix,
         bracket_space,
+        punct,
         exprs,
         list_suffix,
         suffix_start,
@@ -223,6 +240,7 @@ pub(crate) fn new_sg_bracketed_list_common<
         prefix_start,
         prefix,
         false,
+        ",",
         exprs,
         InlineListSuffix::<Expr>::Punct,
         suffix_start,

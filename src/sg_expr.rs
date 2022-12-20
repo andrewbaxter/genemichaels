@@ -36,6 +36,8 @@ use crate::{
         append_bracketed_list_curly,
         new_sg_bracketed_list_common,
         append_bracketed_list_common,
+        new_sg_bracketed_list,
+        InlineListSuffix,
     },
 };
 
@@ -800,12 +802,15 @@ impl Formattable for &Expr {
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    new_sg_bracketed_list_common(
+                    new_sg_bracketed_list(
                         out,
                         base_indent,
                         e.paren_token.span.start(),
                         "(",
+                        false,
+                        ",",
                         &e.elems,
+                        InlineListSuffix::UnitPunct::<Expr>,
                         e.paren_token.span.end().prev(),
                         ")",
                     )

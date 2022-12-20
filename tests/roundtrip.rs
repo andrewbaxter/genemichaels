@@ -44,6 +44,26 @@ fn rt_struct1() {
 }
 
 #[test]
+fn rt_tuple_unit1() {
+    rt(r#"fn main() {
+    x((7,));
+}
+"#);
+}
+
+#[test]
+fn rt_tuple_unit2() {
+    rt(r#"fn main(x: (i32,)) { }
+"#);
+}
+
+#[test]
+fn rt_tuple_unit3() {
+    rt(r#"fn main((x,): (i32,)) { }
+"#);
+}
+
+#[test]
 fn rt_pat_field1() {
     rt(
         r#"fn main() {
