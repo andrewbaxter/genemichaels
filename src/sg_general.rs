@@ -123,7 +123,8 @@ pub(crate) fn append_statement_list_raw(
     attrs: Option<&Vec<Attribute>>,
     block: &Vec<impl FormattableStmt>,
 ) {
-    if check_split_brace_threshold(out, block.len()) {
+    if check_split_brace_threshold(out, block.len()) ||
+        block.iter().any(|s| has_comments(out, s) || (s.has_attrs() && out.split_attributes)) {
         sg.initial_split();
     }
     sg.seg_unsplit(out, " ");

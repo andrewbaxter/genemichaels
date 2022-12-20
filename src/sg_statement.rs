@@ -191,6 +191,15 @@ impl Formattable for Stmt {
             },
         }
     }
+
+    fn has_attrs(&self) -> bool {
+        match self {
+            Stmt::Local(l) => !l.attrs.is_empty(),
+            Stmt::Item(i) => i.has_attrs(),
+            Stmt::Expr(e) => e.has_attrs(),
+            Stmt::Semi(e, _) => e.has_attrs(),
+        }
+    }
 }
 
 impl FormattableStmt for ForeignItem {
@@ -266,6 +275,17 @@ impl Formattable for ForeignItem {
                 append_macro_body(out, base_indent, &mut sg, x.clone());
                 sg.build(out)
             },
+            _ => unreachable!(),
+        }
+    }
+
+    fn has_attrs(&self) -> bool {
+        match self {
+            ForeignItem::Fn(x) => !x.attrs.is_empty(),
+            ForeignItem::Static(x) => !x.attrs.is_empty(),
+            ForeignItem::Type(x) => !x.attrs.is_empty(),
+            ForeignItem::Macro(x) => !x.attrs.is_empty(),
+            ForeignItem::Verbatim(_) => false,
             _ => unreachable!(),
         }
     }
@@ -373,6 +393,17 @@ impl Formattable for ImplItem {
                 append_macro_body(out, base_indent, &mut sg, x.clone());
                 sg.build(out)
             },
+            _ => unreachable!(),
+        }
+    }
+
+    fn has_attrs(&self) -> bool {
+        match self {
+            ImplItem::Const(x) => !x.attrs.is_empty(),
+            ImplItem::Method(x) => !x.attrs.is_empty(),
+            ImplItem::Type(x) => !x.attrs.is_empty(),
+            ImplItem::Macro(x) => !x.attrs.is_empty(),
+            ImplItem::Verbatim(_) => false,
             _ => unreachable!(),
         }
     }
@@ -519,6 +550,17 @@ impl Formattable for TraitItem {
                 append_macro_body(out, base_indent, &mut sg, x.clone());
                 sg.build(out)
             },
+            _ => unreachable!(),
+        }
+    }
+
+    fn has_attrs(&self) -> bool {
+        match self {
+            TraitItem::Const(x) => !x.attrs.is_empty(),
+            TraitItem::Method(x) => !x.attrs.is_empty(),
+            TraitItem::Type(x) => !x.attrs.is_empty(),
+            TraitItem::Macro(x) => !x.attrs.is_empty(),
+            TraitItem::Verbatim(_) => false,
             _ => unreachable!(),
         }
     }
@@ -997,6 +1039,29 @@ impl Formattable for Item {
             _ => unreachable!(),
         }
     }
+
+    fn has_attrs(&self) -> bool {
+        match self {
+            Item::Const(x) => !x.attrs.is_empty(),
+            Item::Enum(x) => !x.attrs.is_empty(),
+            Item::ExternCrate(x) => !x.attrs.is_empty(),
+            Item::Fn(x) => !x.attrs.is_empty(),
+            Item::ForeignMod(x) => !x.attrs.is_empty(),
+            Item::Impl(x) => !x.attrs.is_empty(),
+            Item::Macro(x) => !x.attrs.is_empty(),
+            Item::Macro2(x) => !x.attrs.is_empty(),
+            Item::Mod(x) => !x.attrs.is_empty(),
+            Item::Static(x) => !x.attrs.is_empty(),
+            Item::Struct(x) => !x.attrs.is_empty(),
+            Item::Trait(x) => !x.attrs.is_empty(),
+            Item::TraitAlias(x) => !x.attrs.is_empty(),
+            Item::Type(x) => !x.attrs.is_empty(),
+            Item::Union(x) => !x.attrs.is_empty(),
+            Item::Use(x) => !x.attrs.is_empty(),
+            Item::Verbatim(_) => false,
+            _ => unreachable!(),
+        }
+    }
 }
 
 impl Formattable for Variant {
@@ -1040,6 +1105,10 @@ impl Formattable for Variant {
             sg.build(out)
         })
     }
+
+    fn has_attrs(&self) -> bool {
+        !self.attrs.is_empty()
+    }
 }
 
 impl Formattable for Field {
@@ -1054,6 +1123,10 @@ impl Formattable for Field {
             sg.child(self.ty.make_segs(out, base_indent));
             sg.build(out)
         })
+    }
+
+    fn has_attrs(&self) -> bool {
+        !self.attrs.is_empty()
     }
 }
 
@@ -1099,10 +1172,18 @@ impl Formattable for &UseTree {
         }
         sg.build(out)
     }
+
+    fn has_attrs(&self) -> bool {
+        false
+    }
 }
 
 impl Formattable for UseTree {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
         (&self).make_segs(out, base_indent)
+    }
+
+    fn has_attrs(&self) -> bool {
+        (&self).has_attrs()
     }
 }
