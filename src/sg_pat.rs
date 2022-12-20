@@ -256,11 +256,37 @@ impl Formattable for &Pat {
             _ => unreachable!(),
         }
     }
+
+    fn has_attrs(&self) -> bool {
+        match self {
+            Pat::Box(x) => !x.attrs.is_empty(),
+            Pat::Ident(x) => !x.attrs.is_empty(),
+            Pat::Lit(x) => !x.attrs.is_empty(),
+            Pat::Macro(x) => !x.attrs.is_empty(),
+            Pat::Or(x) => !x.attrs.is_empty(),
+            Pat::Path(x) => !x.attrs.is_empty(),
+            Pat::Range(x) => !x.attrs.is_empty(),
+            Pat::Reference(x) => !x.attrs.is_empty(),
+            Pat::Rest(x) => !x.attrs.is_empty(),
+            Pat::Slice(x) => !x.attrs.is_empty(),
+            Pat::Struct(x) => !x.attrs.is_empty(),
+            Pat::Tuple(x) => !x.attrs.is_empty(),
+            Pat::TupleStruct(x) => !x.attrs.is_empty(),
+            Pat::Type(x) => !x.attrs.is_empty(),
+            Pat::Verbatim(_) => false,
+            Pat::Wild(x) => !x.attrs.is_empty(),
+            _ => unreachable!(),
+        }
+    }
 }
 
 impl Formattable for Pat {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
         (&self).make_segs(out, base_indent)
+    }
+
+    fn has_attrs(&self) -> bool {
+        (&self).has_attrs()
     }
 }
 
@@ -279,5 +305,9 @@ impl Formattable for FieldPat {
             sg.child(self.pat.make_segs(out, base_indent));
             sg.build(out)
         })
+    }
+
+    fn has_attrs(&self) -> bool {
+        !self.attrs.is_empty()
     }
 }

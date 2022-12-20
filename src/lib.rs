@@ -428,11 +428,16 @@ pub(crate) trait FormattableStmt: ToTokens + Formattable {
 
 pub trait Formattable {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx;
+    fn has_attrs(&self) -> bool;
 }
 
 impl<F: Fn(&mut MakeSegsState, &Alignment) -> SplitGroupIdx> Formattable for F {
     fn make_segs(&self, line: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
         self(line, base_indent)
+    }
+
+    fn has_attrs(&self) -> bool {
+        false
     }
 }
 
@@ -440,11 +445,19 @@ impl Formattable for Ident {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
         new_sg_lit(out, Some((base_indent, self.span().start())), self)
     }
+
+    fn has_attrs(&self) -> bool {
+        false
+    }
 }
 
 impl Formattable for &Ident {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
         (*self).make_segs(out, base_indent)
+    }
+
+    fn has_attrs(&self) -> bool {
+        false
     }
 }
 

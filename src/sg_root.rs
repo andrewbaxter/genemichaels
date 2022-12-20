@@ -32,4 +32,8 @@ impl Formattable for File {
             build_inner(out, base_indent, self)
         }
     }
+
+    fn has_attrs(&self) -> bool {
+        !self.attrs.is_empty()
+    }
 }

@@ -10,6 +10,7 @@
 //!
 //! * curly bracketed: `{ a, b, c }` - inline within brackets with spaces
 use proc_macro2::LineColumn;
+use quote::ToTokens;
 use syn::{
     punctuated::Punctuated,
     Expr,
@@ -20,9 +21,13 @@ use crate::{
     MakeSegsState,
     Alignment,
     SplitGroupBuilder,
-    sg_general::append_comments,
+    sg_general::{
+        append_comments,
+        has_comments,
+    },
     SplitGroupIdx,
     new_sg,
+    comments::HashLineColumn,
 };
 
 pub(crate) enum InlineListSuffix<T: Formattable> {
@@ -34,7 +39,7 @@ pub(crate) enum InlineListSuffix<T: Formattable> {
 }
 
 pub(crate) fn append_inline_list_raw<
-    E: Formattable,
+    E: Formattable + ToTokens,
     T: FormattablePunct,
     F: Formattable,
 >(
@@ -45,6 +50,9 @@ pub(crate) fn append_inline_list_raw<
     exprs: &Punctuated<E, T>,
     suffix: InlineListSuffix<F>,
 ) {
+    if exprs.pairs().any(|s| has_comments(out, s.value()) || (s.value().has_attrs() && out.split_attributes)) {
+        sg.initial_split();
+    }
     let mut next_punct: Option<&T> = None;
     for (i, pair) in exprs.pairs().enumerate() {
         if i > 0 {
@@ -93,7 +101,7 @@ pub(crate) fn append_inline_list_raw<
 }
 
 pub(crate) fn append_inline_list<
-    E: Formattable,
+    E: Formattable + ToTokens,
     T: FormattablePunct,
     F: Formattable,
 >(
@@ -110,7 +118,7 @@ pub(crate) fn append_inline_list<
 }
 
 pub(crate) fn append_bracketed_list<
-    E: Formattable,
+    E: Formattable + ToTokens,
     T: FormattablePunct,
     F: Formattable,
 >(
@@ -126,6 +134,9 @@ pub(crate) fn append_bracketed_list<
     suffix_start: LineColumn,
     suffix: &str,
 ) {
+    if out.comments.contains_key(&HashLineColumn(suffix_start)) {
+        sg.initial_split();
+    }
     append_comments(out, base_indent, sg, prefix_start);
     sg.seg(out, prefix);
     let need_pad = bracket_space && (!exprs.is_empty() || matches!(&list_suffix, InlineListSuffix::Extra(_)));
@@ -144,7 +155,7 @@ pub(crate) fn append_bracketed_list<
 }
 
 pub(crate) fn append_bracketed_list_common<
-    E: Formattable,
+    E: Formattable + ToTokens,
     T: FormattablePunct,
 >(
     out: &mut MakeSegsState,
@@ -172,7 +183,7 @@ pub(crate) fn append_bracketed_list_common<
 }
 
 pub(crate) fn append_bracketed_list_curly<
-    E: Formattable,
+    E: Formattable + ToTokens,
     T: FormattablePunct,
 >(
     out: &mut MakeSegsState,
@@ -190,7 +201,7 @@ pub(crate) fn append_bracketed_list_curly<
 }
 
 pub(crate) fn new_sg_bracketed_list<
-    E: Formattable,
+    E: Formattable + ToTokens,
     T: FormattablePunct,
     F: Formattable,
 >(
@@ -223,7 +234,7 @@ pub(crate) fn new_sg_bracketed_list<
 }
 
 pub(crate) fn new_sg_bracketed_list_common<
-    E: Formattable,
+    E: Formattable + ToTokens,
     T: FormattablePunct,
 >(
     out: &mut MakeSegsState,

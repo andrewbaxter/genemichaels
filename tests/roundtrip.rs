@@ -46,9 +46,13 @@ fn rt_struct1() {
 #[test]
 fn rt_struct_generic1() {
     rt(
-        r#"struct DefaultTupleStruct<A, B, C>(A, #[serde(default)]
-B, #[serde(default = "MyDefault::my_default")]
-C)
+        r#"struct DefaultTupleStruct<A, B, C>(
+    A,
+    #[serde(default)]
+    B,
+    #[serde(default = "MyDefault::my_default")]
+    C,
+)
 where
     C: MyDefault;
 "#,

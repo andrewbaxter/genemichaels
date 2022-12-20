@@ -21,6 +21,7 @@ use crate::{
         new_sg_block,
         new_sg_macro,
         append_macro_body,
+        has_comments,
     },
     sg_type::{
         build_array_type,
@@ -169,6 +170,10 @@ fn new_sg_dotted(out: &mut MakeSegsState, base_indent: &Alignment, root: Dotted)
 impl Formattable for Expr {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
         (&self).make_segs(out, base_indent)
+    }
+
+    fn has_attrs(&self) -> bool {
+        (&self).has_attrs()
     }
 }
 
@@ -582,7 +587,8 @@ impl Formattable for &Expr {
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
-                    if check_split_brace_threshold(out, e.arms.len()) {
+                    if check_split_brace_threshold(out, e.arms.len()) ||
+                        e.arms.iter().any(|s| has_comments(out, s) || (s.pat.has_attrs() && out.split_attributes)) {
                         sg.initial_split();
                     }
                     append_comments(out, base_indent, &mut sg, e.match_token.span.start());
@@ -913,6 +919,52 @@ impl Formattable for &Expr {
             _ => unreachable!(),
         }
     }
+
+    fn has_attrs(&self) -> bool {
+        match self {
+            Expr::Array(x) => !x.attrs.is_empty(),
+            Expr::Assign(x) => !x.attrs.is_empty(),
+            Expr::AssignOp(x) => !x.attrs.is_empty(),
+            Expr::Async(x) => !x.attrs.is_empty(),
+            Expr::Await(x) => !x.attrs.is_empty(),
+            Expr::Binary(x) => !x.attrs.is_empty(),
+            Expr::Block(x) => !x.attrs.is_empty(),
+            Expr::Box(x) => !x.attrs.is_empty(),
+            Expr::Break(x) => !x.attrs.is_empty(),
+            Expr::Call(x) => !x.attrs.is_empty(),
+            Expr::Cast(x) => !x.attrs.is_empty(),
+            Expr::Closure(x) => !x.attrs.is_empty(),
+            Expr::Continue(x) => !x.attrs.is_empty(),
+            Expr::Field(x) => !x.attrs.is_empty(),
+            Expr::ForLoop(x) => !x.attrs.is_empty(),
+            Expr::Group(x) => !x.attrs.is_empty(),
+            Expr::If(x) => !x.attrs.is_empty(),
+            Expr::Index(x) => !x.attrs.is_empty(),
+            Expr::Let(x) => !x.attrs.is_empty(),
+            Expr::Lit(x) => !x.attrs.is_empty(),
+            Expr::Loop(x) => !x.attrs.is_empty(),
+            Expr::Macro(x) => !x.attrs.is_empty(),
+            Expr::Match(x) => !x.attrs.is_empty(),
+            Expr::MethodCall(x) => !x.attrs.is_empty(),
+            Expr::Paren(x) => !x.attrs.is_empty(),
+            Expr::Path(x) => !x.attrs.is_empty(),
+            Expr::Range(x) => !x.attrs.is_empty(),
+            Expr::Reference(x) => !x.attrs.is_empty(),
+            Expr::Repeat(x) => !x.attrs.is_empty(),
+            Expr::Return(x) => !x.attrs.is_empty(),
+            Expr::Struct(x) => !x.attrs.is_empty(),
+            Expr::Try(x) => !x.attrs.is_empty(),
+            Expr::TryBlock(x) => !x.attrs.is_empty(),
+            Expr::Tuple(x) => !x.attrs.is_empty(),
+            Expr::Type(x) => !x.attrs.is_empty(),
+            Expr::Unary(x) => !x.attrs.is_empty(),
+            Expr::Unsafe(x) => !x.attrs.is_empty(),
+            Expr::Verbatim(_) => false,
+            Expr::While(x) => !x.attrs.is_empty(),
+            Expr::Yield(x) => !x.attrs.is_empty(),
+            _ => unreachable!(),
+        }
+    }
 }
 
 impl Formattable for FieldValue {
@@ -936,5 +988,9 @@ impl Formattable for FieldValue {
             sg.child(self.expr.make_segs(out, base_indent));
             sg.build(out)
         })
+    }
+
+    fn has_attrs(&self) -> bool {
+        !self.attrs.is_empty()
     }
 }

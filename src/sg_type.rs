@@ -299,6 +299,10 @@ impl Formattable for WherePredicate {
             ),
         }
     }
+
+    fn has_attrs(&self) -> bool {
+        false
+    }
 }
 
 impl Formattable for GenericParam {
@@ -357,6 +361,10 @@ impl Formattable for GenericParam {
             ),
         }
     }
+
+    fn has_attrs(&self) -> bool {
+        false
+    }
 }
 
 impl Formattable for TypeParamBound {
@@ -402,6 +410,10 @@ impl Formattable for TypeParamBound {
         }
         sg.build(out)
     }
+
+    fn has_attrs(&self) -> bool {
+        false
+    }
 }
 
 impl Formattable for LifetimeDef {
@@ -426,11 +438,19 @@ impl Formattable for LifetimeDef {
             node.build(out)
         })
     }
+
+    fn has_attrs(&self) -> bool {
+        !self.attrs.is_empty()
+    }
 }
 
 impl Formattable for syn::Lifetime {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
         new_sg_lit(out, Some((base_indent, self.apostrophe.start())), self)
+    }
+
+    fn has_attrs(&self) -> bool {
+        false
     }
 }
 
@@ -582,11 +602,19 @@ impl Formattable for &Type {
             _ => unreachable!(),
         }
     }
+
+    fn has_attrs(&self) -> bool {
+        false
+    }
 }
 
 impl Formattable for Type {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
         (&self).make_segs(out, base_indent)
+    }
+
+    fn has_attrs(&self) -> bool {
+        (&self).has_attrs()
     }
 }
 
@@ -602,6 +630,10 @@ impl Formattable for BareFnArg {
                 self.ty.make_segs(out, base_indent)
             }
         })
+    }
+
+    fn has_attrs(&self) -> bool {
+        !self.attrs.is_empty()
     }
 }
 
@@ -652,6 +684,13 @@ impl Formattable for FnArg {
             ),
         }
     }
+
+    fn has_attrs(&self) -> bool {
+        match self {
+            FnArg::Receiver(x) => !x.attrs.is_empty(),
+            FnArg::Typed(x) => !x.attrs.is_empty(),
+        }
+    }
 }
 
 impl Formattable for GenericArgument {
@@ -680,6 +719,10 @@ impl Formattable for GenericArgument {
             },
         }
     }
+
+    fn has_attrs(&self) -> bool {
+        false
+    }
 }
 
 impl Formattable for GenericMethodArgument {
@@ -689,10 +732,18 @@ impl Formattable for GenericMethodArgument {
             GenericMethodArgument::Const(c) => c.make_segs(out, base_indent),
         }
     }
+
+    fn has_attrs(&self) -> bool {
+        false
+    }
 }
 
 impl Formattable for &Path {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
         build_path(out, base_indent, self)
+    }
+
+    fn has_attrs(&self) -> bool {
+        false
     }
 }
