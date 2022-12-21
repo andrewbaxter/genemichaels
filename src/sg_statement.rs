@@ -847,7 +847,7 @@ impl Formattable for Item {
                     match &x.fields {
                         syn::Fields::Named(s) => {
                             if let Some(wh) = &x.generics.where_clause {
-                                sg.child(build_generics_part_b(out, base_indent, &wh));
+                                sg.child(build_generics_part_b(out, base_indent, wh));
                             }
                             if check_split_brace_threshold(out, s.named.len()) {
                                 sg.initial_split();
@@ -874,14 +874,14 @@ impl Formattable for Item {
                                 ")",
                             );
                             if let Some(wh) = &x.generics.where_clause {
-                                sg.child(build_generics_part_b(out, base_indent, &wh));
+                                sg.child(build_generics_part_b(out, base_indent, wh));
                             }
                             append_comments(out, base_indent, &mut sg, x.semi_token.unwrap().span.start());
                             sg.seg(out, ";");
                         },
                         syn::Fields::Unit => {
                             if let Some(wh) = &x.generics.where_clause {
-                                sg.child(build_generics_part_b(out, base_indent, &wh));
+                                sg.child(build_generics_part_b(out, base_indent, wh));
                             }
                             append_comments(out, base_indent, &mut sg, x.semi_token.unwrap().span.start());
                             sg.seg(out, ";");
