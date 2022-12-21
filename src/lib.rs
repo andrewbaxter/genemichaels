@@ -462,6 +462,7 @@ impl Formattable for &Ident {
 }
 
 pub struct FormatConfig {
+    pub quiet: bool,
     /// Try to wrap to this width
     pub max_width: usize,
     /// If a node is split, all parents of the node must also be split
@@ -483,6 +484,7 @@ impl Default for FormatConfig {
             split_where: true,
             comment_width: Some(80usize),
             comment_errors_fatal: false,
+            quiet: false,
         }
     }
 }
@@ -766,7 +768,7 @@ pub fn format_ast(
                                                 );
                                             if config.comment_errors_fatal {
                                                 return Err(e.context(message));
-                                            } else {
+                                            } else if !config.quiet {
                                                 eprintln!("{:?}", e.context(message));
                                             }
                                             true

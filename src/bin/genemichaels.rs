@@ -143,7 +143,7 @@ fn skip(src: &str) -> bool {
     src.lines().take(5).any(|l| l.contains("`nogenemichaels`"))
 }
 
-fn process(config: &FormatConfig, source: &str) -> Result<String> {
+fn process(args: &Args, config: &FormatConfig, source: &str) -> Result<String> {
     let res = format_str(source, config)?;
     if !res.lost_comments.is_empty() {
         return Err(
@@ -156,7 +156,9 @@ fn process(config: &FormatConfig, source: &str) -> Result<String> {
     match syn::parse_str::<File>(&res.rendered) {
         Ok(_) => { },
         Err(e) => {
-            eprintln!("{}", res.rendered);
+            if !args.quiet {
+                eprintln!("{}", res.rendered);
+            }
             return Err(
                 anyhow!(
                     "Rendered document couldn't be re-parsed in verification step: {}:{}: {}",
@@ -173,6 +175,7 @@ fn process(config: &FormatConfig, source: &str) -> Result<String> {
 fn main() {
     let args = Args::parse();
     let config = FormatConfig {
+        quiet: args.quiet,
         max_width: args.line_length,
         root_splits: args.root_splits,
         split_brace_threshold: match args.split_brace_threshold {
@@ -205,7 +208,7 @@ fn main() {
                 print!("{}", source);
                 anyhow::Ok(())
             } else {
-                let out = process(&config, &source)?;
+                let out = process(&args, &config, &source)?;
                 print!("{}", out);
                 anyhow::Ok(())
             }
@@ -213,7 +216,9 @@ fn main() {
         match res() {
             Ok(_) => { },
             Err(e) => {
-                eprintln!("Error formatting stdin: {:?}", e);
+                if !args.quiet {
+                    eprintln!("Error formatting stdin: {:?}", e);
+                }
                 process::exit(1);
             },
         };
@@ -223,18 +228,24 @@ fn main() {
             let res = || -> Result<()> {
                 let source = String::from_utf8(fs::read(file)?)?;
                 if skip(&source) {
-                    eprintln!("Skipping {}", &file.to_string_lossy());
+                    if !args.quiet {
+                        eprintln!("Skipping {}", &file.to_string_lossy());
+                    }
                     return Ok(());
                 }
-                eprintln!("Formatting {}", &file.to_string_lossy());
-                let out = process(&config, &source)?;
+                if !args.quiet {
+                    eprintln!("Formatting {}", &file.to_string_lossy());
+                }
+                let out = process(&args, &config, &source)?;
                 fs::write(file, out.as_bytes())?;
                 Ok(())
             };
             match res() {
                 Ok(_) => { },
                 Err(e) => {
-                    eprintln!("Error formatting {}: {:?}", &file.to_string_lossy(), e);
+                    if !args.quiet {
+                        eprintln!("Error formatting {}: {:?}", &file.to_string_lossy(), e);
+                    }
                     failed = true;
                 },
             };
