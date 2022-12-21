@@ -297,10 +297,7 @@ pub(crate) fn append_macro_body(
     if let Ok(exprs) = syn::parse2::<ExprCall>(quote!{
         f(#tokens)
     }) {
-        if exprs.args.len() == 1 && match exprs.args.iter().next() {
-            Some(Expr::Verbatim(_)) => true,
-            _ => false,
-        } { 
+        if exprs.args.len() == 1 && matches!(exprs.args.iter().next(), Some(Expr::Verbatim(_))) { 
             // not really parsed, continue
             } else {
             append_inline_list_raw(out, base_indent, sg, ",", &exprs.args, InlineListSuffix::<Expr>::None);
@@ -312,14 +309,15 @@ pub(crate) fn append_macro_body(
             #tokens
         }
     }) {
-        if block.stmts.len() == 1 && match block.stmts.iter().next() {
-            Some(Stmt::Item(Item::Verbatim(_))) => true,
-            Some(Stmt::Expr(Expr::Verbatim(_))) => true,
-            Some(Stmt::Semi(Expr::Verbatim(_), _)) => true,
-            _ => false,
-        } { 
+        if block.stmts.len() == 1 &&
+            matches!(
+                block.stmts.first(),
+                Some(Stmt::Item(Item::Verbatim(_))) | Some(Stmt::Expr(Expr::Verbatim(_))) |
+                    Some(Stmt::Semi(Expr::Verbatim(_), _))
+            ) {
             // not really parsed, continue
-            } else {
+
+        } else {
             append_statement_list_raw(out, base_indent, sg, None, &block.stmts);
             return;
         }
@@ -375,10 +373,7 @@ pub(crate) fn append_macro_body(
                 f(#tokens #punct)
             }) {
                 assert!(exprs.args.len() <= 1);
-                if exprs.args.len() == 1 && match exprs.args.iter().next() {
-                    Some(Expr::Verbatim(_)) => true,
-                    _ => false,
-                } { 
+                if exprs.args.len() == 1 && matches!(exprs.args.iter().next(), Some(Expr::Verbatim(_))) { 
                     // not really parsed, continue
                     } else {
                     if let Some(e) = exprs.args.iter().next() {
@@ -396,14 +391,15 @@ pub(crate) fn append_macro_body(
                     #tokens #punct
                 }
             }) {
-                if block.stmts.len() == 1 && match block.stmts.iter().next() {
-                    Some(Stmt::Item(Item::Verbatim(_))) => true,
-                    Some(Stmt::Expr(Expr::Verbatim(_))) => true,
-                    Some(Stmt::Semi(Expr::Verbatim(_), _)) => true,
-                    _ => false,
-                } { 
+                if block.stmts.len() == 1 &&
+                    matches!(
+                        block.stmts.first(),
+                        Some(Stmt::Item(Item::Verbatim(_))) | Some(Stmt::Expr(Expr::Verbatim(_))) |
+                            Some(Stmt::Semi(Expr::Verbatim(_), _))
+                    ) {
                     // not really parsed, continue
-                    } else {
+
+                } else {
                     append_statement_list_raw(out, base_indent, sg, None, &block.stmts);
                     break 'nextsub;
                 }
