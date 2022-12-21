@@ -166,19 +166,21 @@ pub(crate) fn append_bracketed_statement_list(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
     sg: &mut SplitGroupBuilder,
+    prefix_start: LineColumn,
     prefix: &'static str,
     attrs: Option<&Vec<Attribute>>,
     stmts: &Vec<impl FormattableStmt>,
-    end: LineColumn,
+    suffix_start: LineColumn,
 ) {
-    if out.comments.contains_key(&HashLineColumn(end)) {
+    if out.comments.contains_key(&HashLineColumn(suffix_start)) {
         sg.initial_split();
     }
+    append_comments(out, base_indent, sg, prefix_start);
     sg.seg(out, prefix);
     let indent = base_indent.indent();
     sg.split(out, indent.clone(), true);
     append_statement_list_raw(out, &indent, sg, attrs, stmts);
-    append_comments(out, &indent, sg, end);
+    append_comments(out, &indent, sg, suffix_start);
     sg.split(out, base_indent.clone(), false);
     sg.seg(out, "}");
 }
@@ -186,15 +188,14 @@ pub(crate) fn append_bracketed_statement_list(
 pub(crate) fn new_sg_block(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
-    start: LineColumn,
+    prefix_start: LineColumn,
     prefix: &'static str,
     attrs: Option<&Vec<Attribute>>,
     block: &Vec<impl FormattableStmt>,
-    end: LineColumn,
+    suffix_start: LineColumn,
 ) -> SplitGroupIdx {
     let mut sg = new_sg(out);
-    append_comments(out, base_indent, &mut sg, start);
-    append_bracketed_statement_list(out, base_indent, &mut sg, prefix, attrs, block, end);
+    append_bracketed_statement_list(out, base_indent, &mut sg, prefix_start, prefix, attrs, block, suffix_start);
     sg.build(out)
 }
 
@@ -297,9 +298,9 @@ pub(crate) fn append_macro_body(
     if let Ok(exprs) = syn::parse2::<ExprCall>(quote!{
         f(#tokens)
     }) {
-        if exprs.args.len() == 1 && matches!(exprs.args.iter().next(), Some(Expr::Verbatim(_))) { 
+        if exprs.args.len() == 1 && matches!(exprs.args.iter().next(), Some(Expr::Verbatim(_))) {
             // not really parsed, continue
-            } else {
+        } else {
             append_inline_list_raw(out, base_indent, sg, ",", &exprs.args, InlineListSuffix::<Expr>::None);
             return;
         }
@@ -316,7 +317,6 @@ pub(crate) fn append_macro_body(
                     Some(Stmt::Semi(Expr::Verbatim(_), _))
             ) {
             // not really parsed, continue
-
         } else {
             append_statement_list_raw(out, base_indent, sg, None, &block.stmts);
             return;
@@ -373,9 +373,9 @@ pub(crate) fn append_macro_body(
                 f(#tokens #punct)
             }) {
                 assert!(exprs.args.len() <= 1);
-                if exprs.args.len() == 1 && matches!(exprs.args.iter().next(), Some(Expr::Verbatim(_))) { 
+                if exprs.args.len() == 1 && matches!(exprs.args.iter().next(), Some(Expr::Verbatim(_))) {
                     // not really parsed, continue
-                    } else {
+                } else {
                     if let Some(e) = exprs.args.iter().next() {
                         sg.child(e.make_segs(out, base_indent));
                     }
@@ -398,7 +398,6 @@ pub(crate) fn append_macro_body(
                             Some(Stmt::Semi(Expr::Verbatim(_), _))
                     ) {
                     // not really parsed, continue
-
                 } else {
                     append_statement_list_raw(out, base_indent, sg, None, &block.stmts);
                     break 'nextsub;
