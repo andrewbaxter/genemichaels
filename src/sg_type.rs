@@ -54,7 +54,7 @@ pub(crate) fn build_extended_path(
     let mut node = new_sg(out);
     match qself {
         Some(qself) => {
-            append_comments(out, base_indent, &mut node, qself.gt_token.span.start());
+            append_comments(out, base_indent, &mut node, qself.lt_token.span.start());
             node.seg(out, "<");
             let taken = match qself.position {
                 0 => {
@@ -74,6 +74,7 @@ pub(crate) fn build_extended_path(
                     n
                 },
             };
+            append_comments(out, base_indent, &mut node, qself.gt_token.span.start());
             node.seg(out, ">");
             append_path(out, &mut node, base_indent, Some(None), p.segments.pairs().skip(taken));
         },
