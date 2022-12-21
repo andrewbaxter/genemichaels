@@ -224,27 +224,26 @@ impl Formattable for &Expr {
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
+                    let mut sg = new_sg(out);
+                    append_comments(out, base_indent, &mut sg, e.async_token.span.start());
+                    sg.seg(out, "async");
                     if let Some(c) = e.capture {
-                        new_sg_block(
-                            out,
-                            base_indent,
-                            c.span.start(),
-                            "async move {",
-                            Some(&e.attrs),
-                            &e.block.stmts,
-                            e.block.brace_token.span.end().prev(),
-                        )
-                    } else {
-                        new_sg_block(
-                            out,
-                            base_indent,
-                            e.async_token.span.start(),
-                            "async {",
-                            Some(&e.attrs),
-                            &e.block.stmts,
-                            e.block.brace_token.span.end().prev(),
-                        )
+                        append_comments(out, base_indent, &mut sg, c.span.start());
+                        sg.seg_unsplit(out, " ");
+                        sg.seg(out, "move");
                     }
+                    sg.seg_unsplit(out, " ");
+                    append_bracketed_statement_list(
+                        out,
+                        base_indent,
+                        &mut sg,
+                        e.block.brace_token.span.start(),
+                        "{",
+                        Some(&e.attrs),
+                        &e.block.stmts,
+                        e.block.brace_token.span.end().prev(),
+                    );
+                    sg.build(out)
                 },
             ),
             Expr::Await(e) => new_sg_outer_attrs(
@@ -354,39 +353,43 @@ impl Formattable for &Expr {
                         base_indent: &Alignment,
                         e: &ExprClosure,
                     ) -> SplitGroupIdx {
-                        let mut prefix = String::new();
+                        let mut sg = new_sg(out);
                         let mut need_space = false;
-                        if e.movability.is_some() {
-                            prefix.push_str("static");
+                        if let Some(x) = &e.movability {
+                            append_comments(out, base_indent, &mut sg, x.span.start());
+                            sg.seg(out, "static");
                             need_space = true;
                         }
-                        if e.asyncness.is_some() {
+                        if let Some(x) = &e.asyncness {
                             if need_space {
-                                prefix.push(' ');
+                                sg.seg(out, " ");
                             }
-                            prefix.push_str("async");
+                            append_comments(out, base_indent, &mut sg, x.span.start());
+                            sg.seg(out, "async");
                             need_space = true;
                         }
-                        if e.capture.is_some() {
+                        if let Some(x) = &e.capture {
                             if need_space {
-                                prefix.push(' ');
+                                sg.seg(out, " ");
                             }
-                            prefix.push_str("move");
+                            append_comments(out, base_indent, &mut sg, x.span.start());
+                            sg.seg(out, "move");
                             need_space = true;
                         }
                         if need_space {
-                            prefix.push(' ');
+                            sg.seg(out, " ");
                         }
-                        prefix.push('|');
-                        new_sg_bracketed_list_common(
+                        append_bracketed_list_common(
                             out,
                             base_indent,
+                            &mut sg,
                             e.or1_token.span.start(),
-                            &prefix,
+                            "|",
                             &e.inputs,
                             e.or2_token.span.start(),
                             "|",
-                        )
+                        );
+                        sg.build(out)
                     }
 
                     match &e.output {
@@ -457,11 +460,11 @@ impl Formattable for &Expr {
                         sg.child(e.expr.make_segs(out, base_indent));
                         sg.build(out)
                     });
-                    append_comments(out, base_indent, &mut sg, e.body.brace_token.span.start());
                     append_bracketed_statement_list(
                         out,
                         base_indent,
                         &mut sg,
+                        e.body.brace_token.span.start(),
                         " {",
                         Some(&e.attrs),
                         &e.body.stmts,
@@ -493,11 +496,11 @@ impl Formattable for &Expr {
                             sg.child(e.cond.make_segs(out, base_indent));
                             sg.build(out)
                         });
-                        append_comments(out, base_indent, &mut sg, e.then_branch.brace_token.span.start());
                         append_bracketed_statement_list(
                             out,
                             base_indent,
                             &mut sg,
+                            e.then_branch.brace_token.span.start(),
                             " {",
                             Some(&e.attrs),
                             &e.then_branch.stmts,
@@ -565,6 +568,7 @@ impl Formattable for &Expr {
                         out,
                         base_indent,
                         &mut sg,
+                        e.body.brace_token.span.start(),
                         "loop {",
                         Some(&e.attrs),
                         &e.body.stmts,
@@ -794,11 +798,11 @@ impl Formattable for &Expr {
                     let mut sg = new_sg(out);
                     append_comments(out, base_indent, &mut sg, e.try_token.span.start());
                     sg.seg(out, "try ");
-                    append_comments(out, base_indent, &mut sg, e.block.brace_token.span.start());
                     append_bracketed_statement_list(
                         out,
                         base_indent,
                         &mut sg,
+                        e.block.brace_token.span.start(),
                         " {",
                         Some(&e.attrs),
                         &e.block.stmts,
@@ -862,6 +866,7 @@ impl Formattable for &Expr {
                         out,
                         base_indent,
                         &mut sg,
+                        e.block.brace_token.span.start(),
                         "unsafe {",
                         Some(&e.attrs),
                         &e.block.stmts,
@@ -888,11 +893,11 @@ impl Formattable for &Expr {
                     append_comments(out, base_indent, &mut sg, e.while_token.span.start());
                     sg.seg(out, "while ");
                     sg.child(e.cond.make_segs(out, base_indent));
-                    append_comments(out, base_indent, &mut sg, e.body.brace_token.span.start());
                     append_bracketed_statement_list(
                         out,
                         base_indent,
                         &mut sg,
+                        e.body.brace_token.span.start(),
                         " {",
                         Some(&e.attrs),
                         &e.body.stmts,
