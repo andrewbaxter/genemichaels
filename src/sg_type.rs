@@ -156,10 +156,12 @@ pub(crate) fn append_path<
                         ")",
                     ),
                 );
-                node.seg(out, " -> ");
                 match &a.output {
-                    ReturnType::Default => node.seg(out, "()"),
-                    ReturnType::Type(_, ty) => node.child(ty.make_segs(out, &indent)),
+                    ReturnType::Default => { },
+                    ReturnType::Type(_, ty) => {
+                        node.seg(out, " -> ");
+                        node.child(ty.make_segs(out, &indent));
+                    },
                 }
             },
         };
@@ -209,17 +211,23 @@ pub(crate) fn build_generics_part_a(
     base_indent: &Alignment,
     generics: &Generics,
 ) -> SplitGroupIdx {
-    new_sg_bracketed_list_common(out, base_indent, 
+    new_sg_bracketed_list_common(
+        out,
+        base_indent,
         // not really optional, just sometimes not parsed
         generics.lt_token.map(|s| s.span.start()).unwrap_or(LineColumn {
             line: 0,
             column: 0,
-        }), "<", &generics.params, 
+        }),
+        "<",
+        &generics.params,
         // not really optional, just sometimes not parsed
         generics.gt_token.map(|s| s.span.start()).unwrap_or(LineColumn {
             line: 0,
             column: 0,
-        }), ">")
+        }),
+        ">",
+    )
 }
 
 pub(crate) fn append_generics(

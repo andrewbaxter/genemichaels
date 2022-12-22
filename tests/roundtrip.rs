@@ -201,3 +201,11 @@ fn rt_trait2() {
 }
 "#)
 }
+
+#[test]
+fn rt_fn1() {
+    rt(r#"fn main<T>()
+where
+    T: Fn() { }
+"#);
+}
