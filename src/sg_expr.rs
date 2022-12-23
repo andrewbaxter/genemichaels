@@ -229,7 +229,8 @@ impl Formattable for &Expr {
                     sg.seg(out, "async");
                     if let Some(c) = e.capture {
                         append_comments(out, base_indent, &mut sg, c.span.start());
-                        sg.seg(out, " move ");
+                        sg.seg(out, " move");
+                        // sg.seg_unsplit(out, " "); OR DO THIS?
                     }
                     sg.seg_unsplit(out, " ");
                     append_bracketed_statement_list(
