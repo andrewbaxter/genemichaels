@@ -10,14 +10,31 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
+  # run clippy
+  clippy_check:
+    name: Clippy
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
-    - name: Build
-      run: cargo build --verbose
-    - name: Tests
-      run: cargo test --verbose
-    - run: rustup component add clippy
-    - name: Clippy
-      run: cargo clippy
+      - uses: actions/checkout@v1
+      - run: rustup component add clippy
+      - uses: actions-rs/clippy-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          args: --all-features
+  # run tests
+  test_job:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: "Test local rust"
+        uses: Kristories/cargo-test@v1.0.0
+  # run audit
+  security_audit:
+    name: Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v1
+      - uses: actions-rs/audit-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
