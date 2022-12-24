@@ -231,13 +231,12 @@ impl Formattable for &Expr {
                         append_comments(out, base_indent, &mut sg, c.span.start());
                         sg.seg(out, " move");
                     }
-                    sg.seg_unsplit(out, " ");
                     append_bracketed_statement_list(
                         out,
                         base_indent,
                         &mut sg,
                         e.block.brace_token.span.start(),
-                        "{",
+                        " {",
                         Some(&e.attrs),
                         &e.block.stmts,
                         e.block.brace_token.span.end().prev(),
