@@ -143,7 +143,7 @@ fn skip(src: &str) -> bool {
     src.lines().take(5).any(|l| l.contains("`nogenemichaels`"))
 }
 
-fn process(args: &Args, config: &FormatConfig, source: &str) -> Result<String> {
+fn process(config: &FormatConfig, source: &str) -> Result<String> {
     let res = format_str(source, config)?;
     if !res.lost_comments.is_empty() {
         return Err(
@@ -156,15 +156,21 @@ fn process(args: &Args, config: &FormatConfig, source: &str) -> Result<String> {
     match syn::parse_str::<File>(&res.rendered) {
         Ok(_) => { },
         Err(e) => {
-            if !args.quiet {
-                eprintln!("{}", res.rendered);
-            }
             return Err(
                 anyhow!(
-                    "Rendered document couldn't be re-parsed in verification step: {}:{}: {}",
+                    "Rendered document couldn't be re-parsed in verification step at {}:{}: {}\n\n{}",
                     e.span().start().line,
                     e.span().start().column,
-                    e
+                    e,
+                    res
+                        .rendered
+                        .lines()
+                        .enumerate()
+                        .skip(e.span().start().line.checked_sub(5).unwrap_or(0))
+                        .take(10)
+                        .map(|(ln, l)| format!("{:0>4} {}", ln + 1, l))
+                        .collect::<Vec<String>>()
+                        .join("\n")
                 ),
             );
         },
@@ -208,7 +214,7 @@ fn main() {
                 print!("{}", source);
                 anyhow::Ok(())
             } else {
-                let out = process(&args, &config, &source)?;
+                let out = process(&config, &source)?;
                 print!("{}", out);
                 anyhow::Ok(())
             }
@@ -236,7 +242,7 @@ fn main() {
                 if !args.quiet {
                     eprintln!("Formatting {}", &file.to_string_lossy());
                 }
-                let out = process(&args, &config, &source)?;
+                let out = process(&config, &source)?;
                 fs::write(file, out.as_bytes())?;
                 Ok(())
             };
