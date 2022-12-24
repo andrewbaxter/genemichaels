@@ -180,6 +180,15 @@ fn rt_comment_before_semi1() {
 }
 
 #[test]
+fn rt_comment_before_label1() {
+    rt(r#"fn main() {
+    // hello
+    'x: for a in b { }
+}
+"#);
+}
+
+#[test]
 fn rt_trait1() {
     rt(
         r#"pub trait MyTrait<T, D>: Sized

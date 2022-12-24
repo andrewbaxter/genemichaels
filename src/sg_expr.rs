@@ -447,6 +447,7 @@ impl Formattable for &Expr {
                         sg.child({
                             let mut sg = new_sg(out);
                             if let Some(l) = &e.label {
+                                append_comments(out, base_indent, &mut sg, l.name.apostrophe.start());
                                 sg.seg(out, &format!("{}: ", l.name));
                             }
                             append_comments(out, base_indent, &mut sg, e.for_token.span.start());
