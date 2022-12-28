@@ -108,6 +108,18 @@ fn rt_macro2() {
 }
 
 #[test]
+fn rt_macro_blockcomma() {
+    rt(r#"fn main() {
+    mac!({
+        "a": {
+        },
+        "b": x
+    });
+}
+"#)
+}
+
+#[test]
 fn rt_comments_numbered_list1() {
     rt(r#"// 1. list item one
 //
