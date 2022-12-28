@@ -4,6 +4,8 @@ use std::{
 use proc_macro2::{
     LineColumn,
     TokenStream,
+    TokenTree,
+    Punct,
 };
 use quote::{
     quote,
@@ -263,26 +265,32 @@ pub(crate) fn append_macro_body_bracketed(
     match delim {
         syn::MacroDelimiter::Paren(x) => {
             sg.seg(out, "(");
-            sg.split(out, indent.clone(), true);
-            append_macro_body(out, &indent, sg, tokens);
-            append_comments(out, base_indent, sg, x.span.end().prev());
+            if !tokens.is_empty() || out.comments.contains_key(&HashLineColumn(x.span.end().prev())) {
+                sg.split(out, indent.clone(), true);
+                append_macro_body(out, &indent, sg, tokens);
+                append_comments(out, base_indent, sg, x.span.end().prev());
+            }
             sg.split(out, base_indent.clone(), false);
             sg.seg(out, ")");
         },
         syn::MacroDelimiter::Brace(x) => {
             sg.seg(out, "{");
             sg.initial_split();
-            sg.split(out, indent.clone(), true);
-            append_macro_body(out, &indent, sg, tokens);
-            append_comments(out, base_indent, sg, x.span.end().prev());
+            if !tokens.is_empty() || out.comments.contains_key(&HashLineColumn(x.span.end().prev())) {
+                sg.split(out, indent.clone(), true);
+                append_macro_body(out, &indent, sg, tokens);
+                append_comments(out, base_indent, sg, x.span.end().prev());
+            }
             sg.split(out, base_indent.clone(), false);
             sg.seg(out, "}");
         },
         syn::MacroDelimiter::Bracket(x) => {
             sg.seg(out, "[");
-            sg.split(out, indent.clone(), true);
-            append_macro_body(out, &indent, sg, tokens);
-            append_comments(out, base_indent, sg, x.span.end().prev());
+            if !tokens.is_empty() || out.comments.contains_key(&HashLineColumn(x.span.end().prev())) {
+                sg.split(out, indent.clone(), true);
+                append_macro_body(out, &indent, sg, tokens);
+                append_comments(out, base_indent, sg, x.span.end().prev());
+            }
             sg.split(out, base_indent.clone(), false);
             sg.seg(out, "]");
         },
@@ -335,7 +343,7 @@ pub(crate) fn append_macro_body(
 
     // Split token stream into "expressions" using `;` and `,` and then try to re-evaluate
     // each expression to use normal formatting.
-    let mut substreams = vec![];
+    let mut substreams: Vec<(Vec<TokenTree>, Option<Punct>)> = vec![];
     {
         let mut top = vec![];
         for t in tokens {
@@ -354,7 +362,16 @@ pub(crate) fn append_macro_body(
                 top.push(t);
             }
             if let Some(b) = break_ {
-                substreams.push((top.split_off(0), b));
+                'break_end : loop {
+                    if let Some((_, suff)) = substreams.last_mut() {
+                        if top.is_empty() && suff.is_none() {
+                            *suff = b;
+                            break 'break_end;
+                        }
+                    }
+                    substreams.push((top.split_off(0), b));
+                    break;
+                }
             }
         }
         if !top.is_empty() {
