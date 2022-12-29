@@ -97,8 +97,8 @@ struct Args {
     files: Vec<PathBuf>,
     #[arg(short, long, help = "Won't emit any output")]
     quiet: bool,
-    #[arg(short, long, help = "Formats the entire workspace")]
-    workspace: bool,
+    #[arg(short, long, help = "Formats the entire project")]
+    project: bool,
     #[arg(short, long, help = "Formats the current folder")]
     folder: bool,
     #[arg(long, help = "Limits threads to specified count")]
@@ -266,7 +266,7 @@ fn main() {
                 process::exit(1);
             },
         };
-    } else if args.workspace {
+    } else if args.project {
         let res = || -> Result<()> {
             {
                 let inst = time::Instant::now();
