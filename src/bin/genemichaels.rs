@@ -372,7 +372,6 @@ fn process_cargo_toml(path: PathBuf, manifest: Manifest, config: FormatConfig) {
     let mut dirs = manifest.workspace.map(|wkspc| wkspc.members).map(|mb| {
         let mut rust_dirs: Vec<PathBuf> =
             mb.into_iter().filter_map(|m| path.join(&m).exists().then(|| path.join(m))).collect();
-        dbg!(&rust_dirs);
         if let Some(bins) = manifest.bin {
             for bin in bins {
                 rust_dirs.push(
