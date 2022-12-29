@@ -468,6 +468,7 @@ impl Formattable for &Ident {
 #[derive(Debug, Copy, Clone)]
 pub struct FormatConfig {
     pub quiet: bool,
+    pub thread_count: Option<usize>,
     /// Try to wrap to this width
     pub max_width: usize,
     /// If a node is split, all parents of the node must also be split
@@ -490,6 +491,7 @@ impl Default for FormatConfig {
             comment_width: Some(80usize),
             comment_errors_fatal: false,
             quiet: false,
+            thread_count: None,
         }
     }
 }

@@ -101,6 +101,8 @@ struct Args {
     workspace: bool,
     #[arg(short, long, help = "Formats the current folder")]
     folder: bool,
+    #[arg(long, help = "Limits threads to specified count")]
+    thread_count: Option<usize>,
     #[arg(short, long, default_value_t = FormatConfig::default().max_width)]
     line_length: usize,
     #[arg(long, help = "For any node that's split, all parent nodes must also be split")]
@@ -179,7 +181,7 @@ fn process(config: &FormatConfig, source: &str) -> Result<String> {
                         .rendered
                         .lines()
                         .enumerate()
-                        .skip(e.span().start().line.checked_sub(5).unwrap_or(0))
+                        .skip(e.span().start().line.saturating_sub(5))
                         .take(10)
                         .map(|(ln, l)| format!("{:0>4} {}", ln + 1, l))
                         .collect::<Vec<String>>()
@@ -191,7 +193,7 @@ fn process(config: &FormatConfig, source: &str) -> Result<String> {
     Ok(res.rendered)
 }
 
-fn process_workspace_file(args: &Args, config: FormatConfig, file_path: PathBuf) {
+fn process_workspace_file(config: FormatConfig, file_path: PathBuf) {
     let res = || -> Result<()> {
         let source = fs::read_to_string(file_path.clone())?;
         if skip(&source) {
@@ -199,7 +201,7 @@ fn process_workspace_file(args: &Args, config: FormatConfig, file_path: PathBuf)
             eprintln!("{}", &file_path.to_string_lossy());
             return Result::Ok(());
         }
-        fs::write(&file_path, process(args, &config, &source)?.as_bytes())?;
+        fs::write(&file_path, process(&config, &source)?.as_bytes())?;
         Ok(())
     };
     match res() {
@@ -217,6 +219,7 @@ fn main() {
     let args = Args::parse();
     let config = FormatConfig {
         quiet: args.quiet,
+        thread_count: args.thread_count,
         max_width: args.line_length,
         root_splits: args.root_splits,
         split_brace_threshold: match args.split_brace_threshold {
@@ -247,7 +250,7 @@ fn main() {
                 eprintln!("\x1B[1;32m  Formatting\x1B[0;22m folder...");
                 let c_dir = current_dir()?;
                 let manifest = cargo_manifest::Manifest::from_path(c_dir.join(CARGO_TOML))?;
-                process_cargo_toml(c_dir, manifest, &args, config);
+                process_cargo_toml(c_dir, manifest, config);
                 eprintln!(
                     "\x1B[1;32m    Finished\x1B[0;22m folder formatting successfully in {:.2}s",
                     time::Instant::now().duration_since(inst).as_secs_f64()
@@ -273,18 +276,15 @@ fn main() {
                 let mut at: Option<&Path> = Some(&c_dir);
                 while let Some(d) = at.take() {
                     if d.join(CARGO_TOML).exists() &&
-                        cargo_manifest::Manifest::from_path(d.join(CARGO_TOML))
-                            .ok()
-                            .and_then(|m| m.workspace)
-                            .is_some() {
+                        cargo_manifest::Manifest::from_path(d.join(CARGO_TOML)).is_ok() {
                         workspace_cargo_toml = Some(d.join(CARGO_TOML));
                         break;
                     }
                     at = d.parent();
                 }
-                let wct = workspace_cargo_toml.ok_or_else(|| anyhow::anyhow!("No workspace found!"))?;
+                let wct = workspace_cargo_toml.ok_or_else(|| anyhow::anyhow!("No Cargo.toml found!"))?;
                 let manifest = cargo_manifest::Manifest::from_path(wct)?;
-                process_cargo_toml(c_dir.clone(), manifest, &args, config);
+                process_cargo_toml(c_dir.clone(), manifest, config);
                 eprintln!(
                     "\x1B[1;32m    Finished\x1B[0;22m workspace formatting successfully in {:.2}s",
                     time::Instant::now().duration_since(inst).as_secs_f64()
@@ -341,15 +341,9 @@ fn main() {
                     return Ok(());
                 }
                 if !args.quiet {
-<<<<<<< HEAD
-                    eprintln!("Formatting {}", &file.to_string_lossy());
-                }
-                let out = process(&config, &source)?;
-=======
                     eprintln!("\x1B[1;32m  Formatting\x1B[0;22m {}", &file.to_string_lossy());
                 };
-                let out = process(&args, &config, &source)?;
->>>>>>> 5185f5c (init workspace finder)
+                let out = process(&config, &source)?;
                 fs::write(file, out.as_bytes())?;
                 Ok(())
             };
@@ -374,89 +368,112 @@ fn main() {
     }
 }
 
-fn process_cargo_toml(path: PathBuf, manifest: Manifest, args: &Args, config: FormatConfig) {
-    let dirs = match manifest.workspace.map(|wkspc| wkspc.members) {
-        Some(mut mb) => {
-            if let Some(bins) = manifest.bin {
-                for bin in bins {
-                    mb.push(
-                        match bin
-                            .path
-                            .and_then(|p| p.parse::<PathBuf>().ok())
-                            .and_then(|p| p.parent().map(|pp| pp.to_path_buf())) {
-                            Some(p) => p.to_string_lossy().to_string(),
-                            None => {
-                                continue;
-                            },
-                        },
-                    )
-                }
-            }
-            if let Some(lib) = manifest.lib {
-                if let Some(p) =
-                    lib
+fn process_cargo_toml(path: PathBuf, manifest: Manifest, config: FormatConfig) {
+    let mut dirs = manifest.workspace.map(|wkspc| wkspc.members).map(|mb| {
+        let mut rust_dirs: Vec<PathBuf> =
+            mb.into_iter().filter_map(|m| path.join(&m).exists().then(|| path.join(m))).collect();
+        dbg!(&rust_dirs);
+        if let Some(bins) = manifest.bin {
+            for bin in bins {
+                rust_dirs.push(
+                    match bin
                         .path
                         .and_then(|p| p.parse::<PathBuf>().ok())
                         .and_then(|p| p.parent().map(|pp| pp.to_path_buf())) {
-                    mb.push(p.to_string_lossy().to_string())
-                }
-            }
-            if let Some(benches) = manifest.bench {
-                for bench in benches {
-                    mb.push(
-                        match bench
-                            .path
-                            .and_then(|p| p.parse::<PathBuf>().ok())
-                            .and_then(|p| p.parent().map(|pp| pp.to_path_buf())) {
-                            Some(p) => p.to_string_lossy().to_string(),
-                            None => {
-                                continue;
-                            },
+                        Some(p) => p,
+                        None => {
+                            // default location
+                            if path.join("bin").exists() {
+                                rust_dirs.push(path.join("bin"));
+                            }
+                            continue;
                         },
-                    )
-                }
+                    },
+                )
             }
-            if let Some(tests) = manifest.test {
-                for test in tests {
-                    mb.push(
-                        match test
-                            .path
-                            .and_then(|p| p.parse::<PathBuf>().ok())
-                            .and_then(|p| p.parent().map(|pp| pp.to_path_buf())) {
-                            Some(p) => p.to_string_lossy().to_string(),
-                            None => {
-                                continue;
-                            },
+        }
+        if let Some(lib) = manifest.lib {
+            if let Some(p) =
+                lib
+                    .path
+                    .and_then(|p| p.parse::<PathBuf>().ok())
+                    .and_then(|p| p.parent().map(|pp| pp.to_path_buf())) {
+                rust_dirs.push(p)
+            }
+        }
+        if let Some(benches) = manifest.bench {
+            for bench in benches {
+                rust_dirs.push(
+                    match bench
+                        .path
+                        .and_then(|p| p.parse::<PathBuf>().ok())
+                        .and_then(|p| p.parent().map(|pp| pp.to_path_buf())) {
+                        Some(p) => p,
+                        None => {
+                            // default location
+                            if path.join("benches").exists() {
+                                rust_dirs.push(path.join("benches"));
+                            }
+                            continue;
                         },
-                    )
-                }
+                    },
+                )
             }
-            if let Some(examples) = manifest.example {
-                for example in examples {
-                    mb.push(
-                        match example
-                            .path
-                            .and_then(|p| p.parse::<PathBuf>().ok())
-                            .and_then(|p| p.parent().map(|pp| pp.to_path_buf())) {
-                            Some(p) => p.to_string_lossy().to_string(),
-                            None => {
-                                continue;
-                            },
+        }
+        if let Some(tests) = manifest.test {
+            for test in tests {
+                rust_dirs.push(
+                    match test
+                        .path
+                        .and_then(|p| p.parse::<PathBuf>().ok())
+                        .and_then(|p| p.parent().map(|pp| pp.to_path_buf())) {
+                        Some(p) => p,
+                        None => {
+                            // default location
+                            if path.join("tests").exists() {
+                                rust_dirs.push(path.join("tests"));
+                            }
+                            continue;
                         },
-                    )
-                }
+                    },
+                )
             }
-            mb
-        },
-        // if no members, assume single folder workspace
-        None => Vec::from([String::new()]),
+        }
+        if let Some(examples) = manifest.example {
+            for example in examples {
+                rust_dirs.push(
+                    match example
+                        .path
+                        .and_then(|p| p.parse::<PathBuf>().ok())
+                        .and_then(|p| p.parent().map(|pp| pp.to_path_buf())) {
+                        Some(p) => p,
+                        None => {
+                            // default location
+                            if path.join("examples").exists() {
+                                rust_dirs.push(path.join("examples"));
+                            }
+                            continue;
+                        },
+                    },
+                )
+            }
+        }
+        rust_dirs
+    }).unwrap_or_default();
+
+    // add src if exists
+    if path.join("src").exists() {
+        dirs.push(path.join("src"));
     };
 
     // solves the situation where if the bin/ is inide src/ file doesn't get formatted
     // twice, open to better solution
     let mut formatted_files = Vec::new();
     for dir in dirs {
-        let mut threads = Vec::new(); // moved threads inside first loop to improve print output
+        // moved threads inside first loop to improve print output
+        let mut threads = Vec::new();
+        let max_threads = config.thread_count.unwrap_or_else(|| thread::available_parallelism().unwrap().get());
+        let pool = threadpool::ThreadPool::new(max_threads);
         let current_working_folder = path.join(dir);
         for f in walkdir::WalkDir::new(&current_working_folder) {
             match f {
@@ -464,10 +481,9 @@ fn process_cargo_toml(path: PathBuf, manifest: Manifest, args: &Args, config: Fo
                     let file_path = file.path().to_path_buf();
                     if !formatted_files.contains(&file_path) && file_path.extension() == Some(OsStr::new("rs")) {
                         formatted_files.push(file_path);
-                        let args = args.clone();
-                        threads.push(thread::spawn(move || {
-                            process_workspace_file(&args, config, file.path().to_path_buf());
-                        }));
+                        threads.push(move || {
+                            process_workspace_file(config, file.path().to_path_buf());
+                        });
                     }
                 },
                 Err(e) => {
@@ -476,8 +492,9 @@ fn process_cargo_toml(path: PathBuf, manifest: Manifest, args: &Args, config: Fo
                 },
             }
         }
-        for thread in threads {
-            let _ = thread.join();
-        };
+        for job in threads {
+            pool.execute(job);
+        }
+        pool.join();
     }
 }
