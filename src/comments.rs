@@ -139,7 +139,7 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
                             },
                             "/*" => {
                                 let mode = {
-                                    let start_suffix_match = found_start.get(2);
+                                    let start_suffix_match = found_start.get(4);
                                     let (mode, match_end) = match start_suffix_match {
                                         Some(start_suffix_match) => (match start_suffix_match.as_str() {
                                             "*" => CommentMode::DocOuter,
@@ -743,9 +743,9 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
                 },
             }
         },
-        Node::Break(_) => { 
+        Node::Break(_) => {
             // normalized out
-            },
+        },
         Node::Math(_) => unreachable!(),
         Node::Table(_) => unreachable!(),
         Node::TableRow(_) => unreachable!(),
@@ -761,7 +761,7 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
     }
 }
 
-pub(crate) fn format_md(
+pub fn format_md(
     true_out: &mut String,
     max_width: usize,
     rel_max_width: Option<usize>,
