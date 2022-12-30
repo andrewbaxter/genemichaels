@@ -9,7 +9,7 @@ use anyhow::{
     Result,
     anyhow,
 };
-use comments::{
+pub use comments::{
     format_md,
     HashLineColumn,
 };
@@ -61,9 +61,9 @@ pub enum CommentMode {
 
 #[derive(Debug)]
 pub struct Comment {
-    pub(crate) loc: LineColumn,
-    pub(crate) mode: CommentMode,
-    pub(crate) lines: String,
+    pub loc: LineColumn,
+    pub mode: CommentMode,
+    pub lines: String,
 }
 
 #[derive(Clone, Copy)]
