@@ -780,9 +780,12 @@ pub fn format_ast(
                                 },
                             };
                             if verbatim {
-                                for line in comment.lines.lines() {
-                                    rendered.push_str(format!("{}{}", prefix, line).trim());
-                                    rendered.push('\n');
+                                for (i, line) in comment.lines.lines().enumerate() {
+                                    if i > 0 {
+                                        rendered.push('\n');
+                                    }
+                                    let line = line.strip_prefix(" ").unwrap_or(line);
+                                    rendered.push_str(&format!("{}{}", prefix, line.trim_end()));
                                 }
                             }
                         }

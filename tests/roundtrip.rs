@@ -164,6 +164,14 @@ fn rt_comments_try1() {
 }
 
 #[test]
+fn rt_comments_verbatim1() {
+    rt(r#"fn main() {
+    //. this is verbatim
+}
+"#);
+}
+
+#[test]
 fn rt_try_try1() {
     rt(r#"fn main() {
     x().hello()??.await;
