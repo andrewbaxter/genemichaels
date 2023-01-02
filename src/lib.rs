@@ -803,7 +803,7 @@ pub fn format_ast(
                                     if i > 0 {
                                         rendered.push('\n');
                                     }
-                                    let line = line.strip_prefix(" ").unwrap_or(line);
+                                    let line = line.strip_prefix(' ').unwrap_or(line);
                                     rendered.push_str(&format!("{}{}", prefix, line.trim_end()));
                                 }
                             }

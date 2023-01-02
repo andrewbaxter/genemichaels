@@ -249,7 +249,10 @@ fn main() {
                 let inst = time::Instant::now();
                 eprintln!("\x1B[1;32m  Formatting\x1B[0;22m folder...");
                 let c_dir = current_dir()?;
-                let manifest = cargo_manifest::Manifest::from_path(c_dir.join(CARGO_TOML))?;
+                let mut manifest = cargo_manifest::Manifest::from_path(c_dir.join(CARGO_TOML))?;
+
+                // this should help re autobins etc
+                manifest.complete_from_path(&c_dir.join(CARGO_TOML))?;
                 process_cargo_toml(c_dir, manifest, config);
                 eprintln!(
                     "\x1B[1;32m    Finished\x1B[0;22m folder formatting successfully in {:.2}s",
@@ -283,7 +286,10 @@ fn main() {
                     at = d.parent();
                 }
                 let wct = workspace_cargo_toml.ok_or_else(|| anyhow::anyhow!("No Cargo.toml found!"))?;
-                let manifest = cargo_manifest::Manifest::from_path(wct)?;
+                let mut manifest = cargo_manifest::Manifest::from_path(&wct)?;
+
+                // this should help re autobins etc
+                manifest.complete_from_path(&wct)?;
                 process_cargo_toml(c_dir.clone(), manifest, config);
                 eprintln!(
                     "\x1B[1;32m    Finished\x1B[0;22m workspace formatting successfully in {:.2}s",
@@ -372,24 +378,22 @@ fn process_cargo_toml(path: PathBuf, manifest: Manifest, config: FormatConfig) {
     let mut dirs = manifest.workspace.map(|wkspc| wkspc.members).map(|mb| {
         let mut rust_dirs: Vec<PathBuf> =
             mb.into_iter().filter_map(|m| path.join(&m).exists().then(|| path.join(m))).collect();
-        if let Some(bins) = manifest.bin {
-            for bin in bins {
-                rust_dirs.push(
-                    match bin
-                        .path
-                        .and_then(|p| p.parse::<PathBuf>().ok())
-                        .and_then(|p| p.parent().map(|pp| pp.to_path_buf())) {
-                        Some(p) => p,
-                        None => {
-                            // default location
-                            if path.join("bin").exists() {
-                                rust_dirs.push(path.join("bin"));
-                            }
-                            continue;
-                        },
+        for bin in manifest.bin.into_iter().flatten() {
+            rust_dirs.push(
+                match bin
+                    .path
+                    .and_then(|p| p.parse::<PathBuf>().ok())
+                    .and_then(|p| p.parent().map(|pp| pp.to_path_buf())) {
+                    Some(p) => p,
+                    None => {
+                        // default location
+                        if path.join("bin").exists() {
+                            rust_dirs.push(path.join("bin"));
+                        }
+                        continue;
                     },
-                )
-            }
+                },
+            )
         }
         if let Some(lib) = manifest.lib {
             if let Some(p) =
@@ -400,62 +404,56 @@ fn process_cargo_toml(path: PathBuf, manifest: Manifest, config: FormatConfig) {
                 rust_dirs.push(p)
             }
         }
-        if let Some(benches) = manifest.bench {
-            for bench in benches {
-                rust_dirs.push(
-                    match bench
-                        .path
-                        .and_then(|p| p.parse::<PathBuf>().ok())
-                        .and_then(|p| p.parent().map(|pp| pp.to_path_buf())) {
-                        Some(p) => p,
-                        None => {
-                            // default location
-                            if path.join("benches").exists() {
-                                rust_dirs.push(path.join("benches"));
-                            }
-                            continue;
-                        },
+        for bench in manifest.bench.into_iter().flatten() {
+            rust_dirs.push(
+                match bench
+                    .path
+                    .and_then(|p| p.parse::<PathBuf>().ok())
+                    .and_then(|p| p.parent().map(|pp| pp.to_path_buf())) {
+                    Some(p) => p,
+                    None => {
+                        // default location
+                        if path.join("benches").exists() {
+                            rust_dirs.push(path.join("benches"));
+                        }
+                        continue;
                     },
-                )
-            }
+                },
+            )
         }
-        if let Some(tests) = manifest.test {
-            for test in tests {
-                rust_dirs.push(
-                    match test
-                        .path
-                        .and_then(|p| p.parse::<PathBuf>().ok())
-                        .and_then(|p| p.parent().map(|pp| pp.to_path_buf())) {
-                        Some(p) => p,
-                        None => {
-                            // default location
-                            if path.join("tests").exists() {
-                                rust_dirs.push(path.join("tests"));
-                            }
-                            continue;
-                        },
+        for test in manifest.test.into_iter().flatten() {
+            rust_dirs.push(
+                match test
+                    .path
+                    .and_then(|p| p.parse::<PathBuf>().ok())
+                    .and_then(|p| p.parent().map(|pp| pp.to_path_buf())) {
+                    Some(p) => p,
+                    None => {
+                        // default location
+                        if path.join("tests").exists() {
+                            rust_dirs.push(path.join("tests"));
+                        }
+                        continue;
                     },
-                )
-            }
+                },
+            )
         }
-        if let Some(examples) = manifest.example {
-            for example in examples {
-                rust_dirs.push(
-                    match example
-                        .path
-                        .and_then(|p| p.parse::<PathBuf>().ok())
-                        .and_then(|p| p.parent().map(|pp| pp.to_path_buf())) {
-                        Some(p) => p,
-                        None => {
-                            // default location
-                            if path.join("examples").exists() {
-                                rust_dirs.push(path.join("examples"));
-                            }
-                            continue;
-                        },
+        for example in manifest.example.into_iter().flatten() {
+            rust_dirs.push(
+                match example
+                    .path
+                    .and_then(|p| p.parse::<PathBuf>().ok())
+                    .and_then(|p| p.parent().map(|pp| pp.to_path_buf())) {
+                    Some(p) => p,
+                    None => {
+                        // default location
+                        if path.join("examples").exists() {
+                            rust_dirs.push(path.join("examples"));
+                        }
+                        continue;
                     },
-                )
-            }
+                },
+            )
         }
         rust_dirs
     }).unwrap_or_default();
