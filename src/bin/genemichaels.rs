@@ -412,10 +412,6 @@ fn process_cargo_toml(path: PathBuf, manifest: Manifest, config: FormatConfig) {
                     .and_then(|p| p.parent().map(|pp| pp.to_path_buf())) {
                     Some(p) => p,
                     None => {
-                        // default location
-                        if path.join("benches").exists() {
-                            rust_dirs.push(path.join("benches"));
-                        }
                         continue;
                     },
                 },
@@ -429,10 +425,6 @@ fn process_cargo_toml(path: PathBuf, manifest: Manifest, config: FormatConfig) {
                     .and_then(|p| p.parent().map(|pp| pp.to_path_buf())) {
                     Some(p) => p,
                     None => {
-                        // default location
-                        if path.join("tests").exists() {
-                            rust_dirs.push(path.join("tests"));
-                        }
                         continue;
                     },
                 },
@@ -446,10 +438,6 @@ fn process_cargo_toml(path: PathBuf, manifest: Manifest, config: FormatConfig) {
                     .and_then(|p| p.parent().map(|pp| pp.to_path_buf())) {
                     Some(p) => p,
                     None => {
-                        // default location
-                        if path.join("examples").exists() {
-                            rust_dirs.push(path.join("examples"));
-                        }
                         continue;
                     },
                 },
@@ -457,6 +445,21 @@ fn process_cargo_toml(path: PathBuf, manifest: Manifest, config: FormatConfig) {
         }
         rust_dirs
     }).unwrap_or_default();
+
+    // default benches location
+    if path.join("benches").exists() {
+        dirs.push(path.join("benches"));
+    }
+
+    // default tests location
+    if path.join("tests").exists() {
+        dirs.push(path.join("tests"));
+    }
+
+    // default examples location
+    if path.join("examples").exists() {
+        dirs.push(path.join("examples"));
+    }
 
     // add src if exists
     if path.join("src").exists() {
