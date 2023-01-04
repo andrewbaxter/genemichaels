@@ -253,7 +253,7 @@ fn main() {
 
                 // this should help re autobins etc
                 manifest.complete_from_path(&c_dir.join(CARGO_TOML))?;
-                process_cargo_toml(c_dir, manifest, config);
+                process_cargo_toml(c_dir, manifest, config)?;
                 eprintln!(
                     "\x1B[1;32m    Finished\x1B[0;22m folder formatting successfully in {:.2}s",
                     time::Instant::now().duration_since(inst).as_secs_f64()
@@ -290,7 +290,7 @@ fn main() {
 
                 // this should help re autobins etc
                 manifest.complete_from_path(&wct)?;
-                process_cargo_toml(c_dir.clone(), manifest, config);
+                process_cargo_toml(c_dir.clone(), manifest, config)?;
                 eprintln!(
                     "\x1B[1;32m    Finished\x1B[0;22m workspace formatting successfully in {:.2}s",
                     time::Instant::now().duration_since(inst).as_secs_f64()
@@ -374,25 +374,22 @@ fn main() {
     }
 }
 
-fn process_cargo_toml(path: PathBuf, manifest: Manifest, config: FormatConfig) {
-    let mut dirs = manifest.workspace.map(|wkspc| wkspc.members).map(|mb| {
+fn process_cargo_toml(path: PathBuf, manifest: Manifest, config: FormatConfig) -> Result<()> {
+    let mut dirs = match manifest.workspace.map(|wkspc| wkspc.members).map(|mb| -> Result<Vec<PathBuf>> {
         let mut rust_dirs: Vec<PathBuf> =
             mb.into_iter().filter_map(|m| path.join(&m).exists().then(|| path.join(m))).collect();
         for bin in manifest.bin.into_iter().flatten() {
             rust_dirs.push(
-                match bin
+                bin
                     .path
-                    .and_then(|p| p.parse::<PathBuf>().ok())
-                    .and_then(|p| p.parent().map(|pp| pp.to_path_buf())) {
-                    Some(p) => p,
-                    None => {
-                        // default location
-                        if path.join("bin").exists() {
-                            rust_dirs.push(path.join("bin"));
-                        }
-                        continue;
-                    },
-                },
+                    .ok_or_else(|| anyhow::anyhow!("No bin path found!"))
+                    .and_then(|p| p.parse::<PathBuf>().map_err(|e| anyhow::anyhow!(e)))
+                    .and_then(|p| {
+                        p
+                            .parent()
+                            .map(|pp| pp.to_path_buf())
+                            .ok_or_else(|| anyhow::anyhow!("Unable to get parent of {p:?}"))
+                    })?,
             )
         }
         if let Some(lib) = manifest.lib {
@@ -406,45 +403,58 @@ fn process_cargo_toml(path: PathBuf, manifest: Manifest, config: FormatConfig) {
         }
         for bench in manifest.bench.into_iter().flatten() {
             rust_dirs.push(
-                match bench
+                bench
                     .path
-                    .and_then(|p| p.parse::<PathBuf>().ok())
-                    .and_then(|p| p.parent().map(|pp| pp.to_path_buf())) {
-                    Some(p) => p,
-                    None => {
-                        continue;
-                    },
-                },
+                    .ok_or_else(|| anyhow::anyhow!("No bench path found!"))
+                    .and_then(|p| p.parse::<PathBuf>().map_err(|e| anyhow::anyhow!(e)))
+                    .and_then(|p| {
+                        p
+                            .parent()
+                            .map(|pp| pp.to_path_buf())
+                            .ok_or_else(|| anyhow::anyhow!("Unable to get parent of {p:?}"))
+                    })?,
             )
         }
         for test in manifest.test.into_iter().flatten() {
             rust_dirs.push(
-                match test
+                test
                     .path
-                    .and_then(|p| p.parse::<PathBuf>().ok())
-                    .and_then(|p| p.parent().map(|pp| pp.to_path_buf())) {
-                    Some(p) => p,
-                    None => {
-                        continue;
-                    },
-                },
+                    .ok_or_else(|| anyhow::anyhow!("No test path found!"))
+                    .and_then(|p| p.parse::<PathBuf>().map_err(|e| anyhow::anyhow!(e)))
+                    .and_then(|p| {
+                        p
+                            .parent()
+                            .map(|pp| pp.to_path_buf())
+                            .ok_or_else(|| anyhow::anyhow!("Unable to get parent of {p:?}"))
+                    })?,
             )
         }
         for example in manifest.example.into_iter().flatten() {
             rust_dirs.push(
-                match example
+                example
                     .path
-                    .and_then(|p| p.parse::<PathBuf>().ok())
-                    .and_then(|p| p.parent().map(|pp| pp.to_path_buf())) {
-                    Some(p) => p,
-                    None => {
-                        continue;
-                    },
-                },
+                    .ok_or_else(|| anyhow::anyhow!("No example path found!"))
+                    .and_then(|p| p.parse::<PathBuf>().map_err(|e| anyhow::anyhow!(e)))
+                    .and_then(|p| {
+                        p
+                            .parent()
+                            .map(|pp| pp.to_path_buf())
+                            .ok_or_else(|| anyhow::anyhow!("Unable to get parent of {p:?}"))
+                    })?,
             )
         }
-        rust_dirs
-    }).unwrap_or_default();
+        Ok(rust_dirs)
+    }) {
+        // if there is a workspace member, `?` to bring the error up
+        Some(workspace_dirs) => workspace_dirs?,
+        // if there isn't move on to default directories
+        None => Vec::new(),
+    };
+
+    // default bins location
+    if path.join("bin").exists() {
+        dirs.push(path.join("bin"));
+    }
 
     // default benches location
     if path.join("benches").exists() {
@@ -497,4 +507,5 @@ fn process_cargo_toml(path: PathBuf, manifest: Manifest, config: FormatConfig) {
         }
         pool.join();
     }
+    Ok(())
 }
