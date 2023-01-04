@@ -461,8 +461,10 @@ impl Formattable for &Ident {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
 pub struct FormatConfig {
     pub quiet: bool,
+    pub thread_count: Option<usize>,
     /// Try to wrap to this width
     pub max_width: usize,
     /// If a node is split, all parents of the node must also be split
@@ -485,6 +487,7 @@ impl Default for FormatConfig {
             comment_width: Some(80usize),
             comment_errors_fatal: false,
             quiet: false,
+            thread_count: None,
         }
     }
 }
@@ -769,6 +772,7 @@ pub fn format_ast(
                                             if config.comment_errors_fatal {
                                                 return Err(e.context(message));
                                             } else if !config.quiet {
+                                                print_error_text();
                                                 eprintln!("{:?}", e.context(message));
                                             }
                                             true
@@ -784,7 +788,7 @@ pub fn format_ast(
                                     if i > 0 {
                                         rendered.push('\n');
                                     }
-                                    let line = line.strip_prefix(" ").unwrap_or(line);
+                                    let line = line.strip_prefix(' ').unwrap_or(line);
                                     rendered.push_str(&format!("{}{}", prefix, line.trim_end()));
                                 }
                             }
@@ -801,4 +805,22 @@ pub fn format_ast(
         rendered,
         lost_comments: out.comments,
     })
+}
+
+pub fn print_error_text() {
+    // bold red
+    eprint!("\x1B[1;38;5;9m");
+    eprint!("       Error ");
+
+    // reset
+    eprint!("\x1B[0;22m");
+}
+
+pub fn print_skipping_text() {
+    // bold red
+    eprint!("\x1B[1;33m");
+    eprint!("    Skipping ");
+
+    // reset
+    eprint!("\x1B[0;22m");
 }
