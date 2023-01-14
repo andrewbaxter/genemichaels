@@ -46,6 +46,9 @@ pub(crate) trait TrivialLineColMath {
 impl TrivialLineColMath for LineColumn {
     fn prev(&self) -> LineColumn {
         let mut out = *self;
+        if out.column == 0 {
+            panic!("ASSERTION! Token end at line start ({}:{}). Using call-site tokens?", self.line, self.column);
+        }
         out.column -= 1;
         out
     }
@@ -61,6 +64,7 @@ pub enum CommentMode {
 
 #[derive(Debug)]
 pub struct Comment {
+    // Special loc (0, 1) == end of file
     pub loc: LineColumn,
     pub mode: CommentMode,
     pub lines: String,
@@ -533,6 +537,17 @@ pub fn format_ast(
         active: false,
     })));
     let root = ast.make_segs(&mut out, &base_indent);
+    if out.comments.contains_key(&HashLineColumn(LineColumn {
+        line: 0,
+        column: 1,
+    })) {
+        let mut sg = new_sg(&mut out);
+        append_comments(&mut out, &base_indent, &mut sg, LineColumn {
+            line: 0,
+            column: 1,
+        });
+        sg.build(&mut out);
+    }
     let mut lines = Lines {
         lines: vec![],
         owned_lines: vec![],
