@@ -34,3 +34,15 @@ fn comments_block_outer1() {
         lines: "outer1".into(),
     }]);
 }
+
+#[test]
+fn extract_end() {
+    let (comments, _) = extract_comments("const THING: i32 = 7;\n// The end.").unwrap();
+    assert!(!comments.is_empty());
+}
+
+#[test]
+fn extract_end2() {
+    let (comments, _) = extract_comments("const THING: i32 = 7;\n// The end.\n").unwrap();
+    assert!(!comments.is_empty());
+}

@@ -298,6 +298,10 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
                 ),
             )?,
         );
+    state.add_comments(LineColumn {
+        line: 0,
+        column: 1,
+    }, &source[state.last_offset..]);
     Ok((state.comments, tokens))
 }
 

@@ -120,6 +120,13 @@ fn rt_macro_blockcomma() {
 }
 
 #[test]
+fn rt_comments_end() {
+    rt(r#"const X: i32 = 7;
+// This is where the file ends.
+"#)
+}
+
+#[test]
 fn rt_comments_numbered_list1() {
     rt(r#"// 1. list item one
 //
