@@ -1,6 +1,6 @@
 [package]
 name = "genemichaels"
-version = "0.1.15"
+version = "0.1.16"
 edition = "2021"
 license = "ISC"
 description = "Makes your code formatty"
