@@ -9,6 +9,7 @@ use genemichaels::{
     FormatConfig,
 };
 use std::{
+    collections::HashSet,
     env::current_dir,
     ffi::OsStr,
     fmt::Display,
@@ -21,7 +22,6 @@ use std::{
     process,
     result,
     str::FromStr,
-    thread,
     time,
 };
 use syn::File;
@@ -219,7 +219,6 @@ fn main() {
     let args = Args::parse();
     let config = FormatConfig {
         quiet: args.quiet,
-        thread_count: args.thread_count,
         max_width: args.line_length,
         root_splits: args.root_splits,
         split_brace_threshold: match args.split_brace_threshold {
@@ -253,7 +252,7 @@ fn main() {
 
                 // this should help re autobins etc
                 manifest.complete_from_path(&c_dir.join(CARGO_TOML))?;
-                process_cargo_toml(c_dir, manifest, config)?;
+                process_cargo_toml(c_dir, manifest, args.thread_count, config)?;
                 eprintln!(
                     "\x1B[1;32m    Finished\x1B[0;22m folder formatting successfully in {:.2}s",
                     time::Instant::now().duration_since(inst).as_secs_f64()
@@ -274,23 +273,20 @@ fn main() {
             {
                 let inst = time::Instant::now();
                 eprintln!("\x1B[1;32m  Formatting\x1B[0;22m workspace...");
-                let mut workspace_cargo_toml = None;
+                let mut project_cargo_toml = None;
                 let c_dir = current_dir()?;
                 let mut at: Option<&Path> = Some(&c_dir);
                 while let Some(d) = at.take() {
                     if d.join(CARGO_TOML).exists() &&
                         cargo_manifest::Manifest::from_path(d.join(CARGO_TOML)).is_ok() {
-                        workspace_cargo_toml = Some(d.join(CARGO_TOML));
+                        project_cargo_toml = Some(d.join(CARGO_TOML));
                         break;
                     }
                     at = d.parent();
                 }
-                let wct = workspace_cargo_toml.ok_or_else(|| anyhow::anyhow!("No Cargo.toml found!"))?;
-                let mut manifest = cargo_manifest::Manifest::from_path(&wct)?;
-
-                // this should help re autobins etc
-                manifest.complete_from_path(&wct)?;
-                process_cargo_toml(c_dir.clone(), manifest, config)?;
+                let wct = project_cargo_toml.ok_or_else(|| anyhow::anyhow!("No Cargo.toml found!"))?;
+                let manifest = cargo_manifest::Manifest::from_path(wct)?;
+                process_cargo_toml(c_dir.clone(), manifest, args.thread_count, config)?;
                 eprintln!(
                     "\x1B[1;32m    Finished\x1B[0;22m workspace formatting successfully in {:.2}s",
                     time::Instant::now().duration_since(inst).as_secs_f64()
@@ -374,81 +370,79 @@ fn main() {
     }
 }
 
-fn process_cargo_toml(path: PathBuf, manifest: Manifest, config: FormatConfig) -> Result<()> {
-    let mut dirs = match manifest.workspace.map(|wkspc| wkspc.members).map(|mb| -> Result<Vec<PathBuf>> {
-        let mut rust_dirs: Vec<PathBuf> =
-            mb.into_iter().filter_map(|m| path.join(&m).exists().then(|| path.join(m))).collect();
-        for bin in manifest.bin.into_iter().flatten() {
-            rust_dirs.push(
-                bin
-                    .path
-                    .ok_or_else(|| anyhow::anyhow!("No bin path found!"))
-                    .and_then(|p| p.parse::<PathBuf>().map_err(|e| anyhow::anyhow!(e)))
-                    .and_then(|p| {
-                        p
-                            .parent()
-                            .map(|pp| pp.to_path_buf())
-                            .ok_or_else(|| anyhow::anyhow!("Unable to get parent of {p:?}"))
-                    })?,
-            )
+fn process_cargo_toml(
+    path: PathBuf,
+    manifest: Manifest,
+    thread_count: Option<usize>,
+    config: FormatConfig,
+) -> Result<()> {
+    let mut dirs = Vec::from([]);
+    for bin in manifest.bin.into_iter().flatten() {
+        if let Some(bin_path) = bin.path {
+            let bin_path =
+                bin_path
+                    .parse::<PathBuf>()?
+                    .parent()
+                    .map(|pp| pp.to_path_buf())
+                    .ok_or_else(|| anyhow::anyhow!("Unable to get parent of {bin_path}"))?;
+            dirs.push(bin_path);
         }
-        if let Some(lib) = manifest.lib {
-            if let Some(p) =
-                lib
-                    .path
-                    .and_then(|p| p.parse::<PathBuf>().ok())
-                    .and_then(|p| p.parent().map(|pp| pp.to_path_buf())) {
-                rust_dirs.push(p)
+    }
+    if let Some(lib) = manifest.lib {
+        if let Some(p) =
+            lib
+                .path
+                .and_then(|p| p.parse::<PathBuf>().ok())
+                .and_then(|p| p.parent().map(|pp| pp.to_path_buf())) {
+            dirs.push(p)
+        }
+    }
+    for bench in manifest.bench.into_iter().flatten() {
+        if let Some(bench_path) = bench.path {
+            let bench_path =
+                bench_path
+                    .parse::<PathBuf>()?
+                    .parent()
+                    .map(|pp| pp.to_path_buf())
+                    .ok_or_else(|| anyhow::anyhow!("Unable to get parent of {bench_path}"))?;
+            dirs.push(bench_path);
+        }
+    }
+    for test in manifest.test.into_iter().flatten() {
+        if let Some(test_path) = test.path {
+            let test_path =
+                test_path
+                    .parse::<PathBuf>()?
+                    .parent()
+                    .map(|pp| pp.to_path_buf())
+                    .ok_or_else(|| anyhow::anyhow!("Unable to get parent of {test_path}"))?;
+            dirs.push(test_path);
+        }
+    }
+    for example in manifest.example.into_iter().flatten() {
+        if let Some(example_path) = example.path {
+            let example_path =
+                example_path
+                    .parse::<PathBuf>()?
+                    .parent()
+                    .map(|pp| pp.to_path_buf())
+                    .ok_or_else(|| anyhow::anyhow!("Unable to get parent of {example_path}"))?;
+            dirs.push(example_path);
+        }
+    }
+    if let Some(ws) = manifest.workspace {
+        let workspace_dirs: Vec<PathBuf> =
+            ws.members.into_iter().filter_map(|m| path.join(&m).exists().then(|| path.join(m))).collect();
+
+        // loop through each folder in the workspace and recursively run the formatter
+        for workspace in workspace_dirs {
+            // do we even need this? I assume its an invalid workspace if there isn't a Cargo.toml in the
+            // members dir
+            if workspace.join(CARGO_TOML).exists() {
+                let manifest = cargo_manifest::Manifest::from_path(workspace.join(CARGO_TOML))?;
+                process_cargo_toml(workspace, manifest, thread_count, config)?
             }
         }
-        for bench in manifest.bench.into_iter().flatten() {
-            rust_dirs.push(
-                bench
-                    .path
-                    .ok_or_else(|| anyhow::anyhow!("No bench path found!"))
-                    .and_then(|p| p.parse::<PathBuf>().map_err(|e| anyhow::anyhow!(e)))
-                    .and_then(|p| {
-                        p
-                            .parent()
-                            .map(|pp| pp.to_path_buf())
-                            .ok_or_else(|| anyhow::anyhow!("Unable to get parent of {p:?}"))
-                    })?,
-            )
-        }
-        for test in manifest.test.into_iter().flatten() {
-            rust_dirs.push(
-                test
-                    .path
-                    .ok_or_else(|| anyhow::anyhow!("No test path found!"))
-                    .and_then(|p| p.parse::<PathBuf>().map_err(|e| anyhow::anyhow!(e)))
-                    .and_then(|p| {
-                        p
-                            .parent()
-                            .map(|pp| pp.to_path_buf())
-                            .ok_or_else(|| anyhow::anyhow!("Unable to get parent of {p:?}"))
-                    })?,
-            )
-        }
-        for example in manifest.example.into_iter().flatten() {
-            rust_dirs.push(
-                example
-                    .path
-                    .ok_or_else(|| anyhow::anyhow!("No example path found!"))
-                    .and_then(|p| p.parse::<PathBuf>().map_err(|e| anyhow::anyhow!(e)))
-                    .and_then(|p| {
-                        p
-                            .parent()
-                            .map(|pp| pp.to_path_buf())
-                            .ok_or_else(|| anyhow::anyhow!("Unable to get parent of {p:?}"))
-                    })?,
-            )
-        }
-        Ok(rust_dirs)
-    }) {
-        // if there is a workspace member, `?` to bring the error up
-        Some(workspace_dirs) => workspace_dirs?,
-        // if there isn't move on to default directories
-        None => Vec::new(),
     };
 
     // default bins location
@@ -478,21 +472,22 @@ fn process_cargo_toml(path: PathBuf, manifest: Manifest, config: FormatConfig) -
 
     // solves the situation where if the bin/ is inide src/ file doesn't get formatted
     // twice, open to better solution
-    let mut formatted_files = Vec::new();
+    let mut formatted_files = HashSet::new();
     for dir in dirs {
-        // moved threads inside first loop to improve print output
-        let mut threads = Vec::new();
-        let max_threads = config.thread_count.unwrap_or_else(|| thread::available_parallelism().unwrap().get());
-        let pool = threadpool::ThreadPool::new(max_threads);
+        let pool = if let Some(t) = thread_count {
+            threadpool::Builder::new().num_threads(t)
+        } else {
+            threadpool::Builder::new()
+        }.build();
         let current_working_folder = path.join(dir);
         for f in walkdir::WalkDir::new(&current_working_folder) {
             match f {
                 Ok(file) => {
                     let file_path = file.path().to_path_buf();
                     if !formatted_files.contains(&file_path) && file_path.extension() == Some(OsStr::new("rs")) {
-                        formatted_files.push(file_path);
-                        threads.push(move || {
-                            process_workspace_file(config, file.path().to_path_buf());
+                        formatted_files.insert(file_path);
+                        pool.execute(move || {
+                            process_workspace_file(config, file.path().to_path_buf())
                         });
                     }
                 },
@@ -501,9 +496,6 @@ fn process_cargo_toml(path: PathBuf, manifest: Manifest, config: FormatConfig) -
                     continue;
                 },
             }
-        }
-        for job in threads {
-            pool.execute(job);
         }
         pool.join();
     }
