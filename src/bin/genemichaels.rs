@@ -285,8 +285,13 @@ fn main() {
                     at = d.parent();
                 }
                 let wct = project_cargo_toml.ok_or_else(|| anyhow::anyhow!("No Cargo.toml found!"))?;
-                let manifest = cargo_manifest::Manifest::from_path(wct)?;
-                process_cargo_toml(c_dir.clone(), manifest, args.thread_count, config)?;
+                let manifest = cargo_manifest::Manifest::from_path(&wct)?;
+                process_cargo_toml(
+                    wct.parent().expect("Unable to get parent of Cargo.toml").to_path_buf(),
+                    manifest,
+                    args.thread_count,
+                    config,
+                )?;
                 eprintln!(
                     "\x1B[1;32m    Finished\x1B[0;22m workspace formatting successfully in {:.2}s",
                     time::Instant::now().duration_since(inst).as_secs_f64()
@@ -436,12 +441,8 @@ fn process_cargo_toml(
 
         // loop through each folder in the workspace and recursively run the formatter
         for workspace in workspace_dirs {
-            // do we even need this? I assume its an invalid workspace if there isn't a Cargo.toml in the
-            // members dir
-            if workspace.join(CARGO_TOML).exists() {
-                let manifest = cargo_manifest::Manifest::from_path(workspace.join(CARGO_TOML))?;
-                process_cargo_toml(workspace, manifest, thread_count, config)?
-            }
+            let manifest = cargo_manifest::Manifest::from_path(workspace.join(CARGO_TOML))?;
+            process_cargo_toml(workspace, manifest, thread_count, config)?
         }
     };
 
