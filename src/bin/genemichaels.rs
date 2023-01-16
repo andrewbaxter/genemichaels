@@ -99,8 +99,6 @@ struct Args {
     quiet: bool,
     #[arg(short, long, help = "Formats the entire project")]
     project: bool,
-    #[arg(short, long, help = "Formats the current folder")]
-    folder: bool,
     #[arg(long, help = "Limits threads to specified count")]
     thread_count: Option<usize>,
     #[arg(short, long, default_value_t = FormatConfig::default().max_width)]
@@ -242,33 +240,7 @@ fn main() {
             Offable::On(_) => true,
         },
     };
-    if args.folder {
-        let res = || -> Result<()> {
-            {
-                let inst = time::Instant::now();
-                eprintln!("\x1B[1;32m  Formatting\x1B[0;22m folder...");
-                let c_dir = current_dir()?;
-                let mut manifest = cargo_manifest::Manifest::from_path(c_dir.join(CARGO_TOML))?;
-
-                // this should help re autobins etc
-                manifest.complete_from_path(&c_dir.join(CARGO_TOML))?;
-                process_cargo_toml(c_dir, manifest, args.thread_count, config)?;
-                eprintln!(
-                    "\x1B[1;32m    Finished\x1B[0;22m folder formatting successfully in {:.2}s",
-                    time::Instant::now().duration_since(inst).as_secs_f64()
-                );
-                Result::Ok(())
-            }
-        };
-        match res() {
-            Ok(_) => { },
-            Err(e) => {
-                print_error_text();
-                eprintln!("formatting: {:?}", e);
-                process::exit(1);
-            },
-        };
-    } else if args.project {
+    if args.project {
         let res = || -> Result<()> {
             {
                 let inst = time::Instant::now();
