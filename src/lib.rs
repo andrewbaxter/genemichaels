@@ -47,7 +47,7 @@ impl TrivialLineColMath for LineColumn {
     fn prev(&self) -> LineColumn {
         let mut out = *self;
         if out.column == 0 {
-            panic!("ASSERTION! Token end at line start ({}:{}). Using call-site tokens?", self.line, self.column);
+            return out;
         }
         out.column -= 1;
         out
