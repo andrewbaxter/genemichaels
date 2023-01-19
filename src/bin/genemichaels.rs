@@ -97,9 +97,9 @@ struct Args {
     files: Vec<PathBuf>,
     #[arg(short, long, help = "Won't emit any output")]
     quiet: bool,
-    #[arg(short, long, help = "Formats the entire project")]
-    project: bool,
-    #[arg(long, help = "Limits threads to specified count")]
+    #[arg(short, long, help = "Formats the entire package using the Cargo.toml")]
+    package: bool,
+    #[arg(long, help = "Limits threads to specified count when using --package")]
     thread_count: Option<usize>,
     #[arg(short, long, default_value_t = FormatConfig::default().max_width)]
     line_length: usize,
@@ -240,7 +240,7 @@ fn main() {
             Offable::On(_) => true,
         },
     };
-    if args.project {
+    if args.package {
         let res = || -> Result<()> {
             {
                 let inst = time::Instant::now();
@@ -249,9 +249,9 @@ fn main() {
                 let c_dir = current_dir()?;
                 let mut at: Option<&Path> = Some(&c_dir);
                 while let Some(d) = at.take() {
-                    if d.join(CARGO_TOML).exists() &&
-                        cargo_manifest::Manifest::from_path(d.join(CARGO_TOML)).is_ok() {
-                        project_cargo_toml = Some(d.join(CARGO_TOML));
+                    let cargo_toml_path = d.join(CARGO_TOML);
+                    if cargo_toml_path.exists() && cargo_manifest::Manifest::from_path(&cargo_toml_path).is_ok() {
+                        project_cargo_toml = Some(cargo_toml_path);
                         break;
                     }
                     at = d.parent();
@@ -347,22 +347,11 @@ fn main() {
     }
 }
 
-fn process_cargo_toml(
-    path: PathBuf,
-    manifest: Manifest,
-    thread_count: Option<usize>,
-    config: FormatConfig,
-) -> Result<()> {
-    let mut dirs = Vec::from([]);
+fn process_dirs(path: PathBuf, manifest: Manifest) -> Result<HashSet<PathBuf>> {
+    let mut dirs = HashSet::from([]);
     for bin in manifest.bin.into_iter().flatten() {
         if let Some(bin_path) = bin.path {
-            let bin_path =
-                bin_path
-                    .parse::<PathBuf>()?
-                    .parent()
-                    .map(|pp| pp.to_path_buf())
-                    .ok_or_else(|| anyhow::anyhow!("Unable to get parent of {bin_path}"))?;
-            dirs.push(bin_path);
+            dirs.insert(path.join(bin_path).parent().unwrap().to_owned());
         }
     }
     if let Some(lib) = manifest.lib {
@@ -371,40 +360,22 @@ fn process_cargo_toml(
                 .path
                 .and_then(|p| p.parse::<PathBuf>().ok())
                 .and_then(|p| p.parent().map(|pp| pp.to_path_buf())) {
-            dirs.push(p)
+            dirs.insert(p);
         }
     }
     for bench in manifest.bench.into_iter().flatten() {
         if let Some(bench_path) = bench.path {
-            let bench_path =
-                bench_path
-                    .parse::<PathBuf>()?
-                    .parent()
-                    .map(|pp| pp.to_path_buf())
-                    .ok_or_else(|| anyhow::anyhow!("Unable to get parent of {bench_path}"))?;
-            dirs.push(bench_path);
+            dirs.insert(path.join(bench_path).parent().unwrap().to_owned());
         }
     }
     for test in manifest.test.into_iter().flatten() {
         if let Some(test_path) = test.path {
-            let test_path =
-                test_path
-                    .parse::<PathBuf>()?
-                    .parent()
-                    .map(|pp| pp.to_path_buf())
-                    .ok_or_else(|| anyhow::anyhow!("Unable to get parent of {test_path}"))?;
-            dirs.push(test_path);
+            dirs.insert(path.join(test_path).parent().unwrap().to_owned());
         }
     }
     for example in manifest.example.into_iter().flatten() {
         if let Some(example_path) = example.path {
-            let example_path =
-                example_path
-                    .parse::<PathBuf>()?
-                    .parent()
-                    .map(|pp| pp.to_path_buf())
-                    .ok_or_else(|| anyhow::anyhow!("Unable to get parent of {example_path}"))?;
-            dirs.push(example_path);
+            dirs.insert(path.join(example_path).parent().unwrap().to_owned());
         }
     }
     if let Some(ws) = manifest.workspace {
@@ -414,34 +385,45 @@ fn process_cargo_toml(
         // loop through each folder in the workspace and recursively run the formatter
         for workspace in workspace_dirs {
             let manifest = cargo_manifest::Manifest::from_path(workspace.join(CARGO_TOML))?;
-            process_cargo_toml(workspace, manifest, thread_count, config)?
+            // this should work with the recursion
+            dirs.extend(process_dirs(workspace, manifest)?);
         }
     };
 
     // default bins location
     if path.join("bin").exists() {
-        dirs.push(path.join("bin"));
+        dirs.insert(path.join("bin"));
     }
 
     // default benches location
     if path.join("benches").exists() {
-        dirs.push(path.join("benches"));
+        dirs.insert(path.join("benches"));
     }
 
     // default tests location
     if path.join("tests").exists() {
-        dirs.push(path.join("tests"));
+        dirs.insert(path.join("tests"));
     }
 
     // default examples location
     if path.join("examples").exists() {
-        dirs.push(path.join("examples"));
+        dirs.insert(path.join("examples"));
     }
 
     // add src if exists
     if path.join("src").exists() {
-        dirs.push(path.join("src"));
+        dirs.insert(path.join("src"));
     };
+    Ok(dirs)
+}
+
+fn process_cargo_toml(
+    path: PathBuf,
+    manifest: Manifest,
+    thread_count: Option<usize>,
+    config: FormatConfig,
+) -> Result<()> {
+    let dirs = process_dirs(path.clone(), manifest)?;
 
     // solves the situation where if the bin/ is inide src/ file doesn't get formatted
     // twice, open to better solution
