@@ -24,6 +24,18 @@ fn t(text: &str, expect: Vec<Comment>) {
 }
 
 #[test]
+fn comments_line_end1() {
+    t("// comment 1\nconst THING: i32 = 7; // the thing\n", vec![Comment {
+        loc: LineColumn {
+            line: 0,
+            column: 0,
+        },
+        mode: CommentMode::Normal,
+        lines: " comment 1\n the thing".into(),
+    }]);
+}
+
+#[test]
 fn comments_block_outer1() {
     t("/** outer1 */", vec![Comment {
         loc: LineColumn {
