@@ -605,7 +605,7 @@ impl Formattable for &Expr {
                         sg.child(
                             new_sg_outer_attrs(
                                 out,
-                                base_indent,
+                                &indent,
                                 &arm.attrs,
                                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                                     let mut sg = new_sg(out);
@@ -613,19 +613,19 @@ impl Formattable for &Expr {
                                         if let Some(guard) = &arm.guard {
                                             new_sg_binary(
                                                 out,
-                                                &indent,
+                                                base_indent,
                                                 &arm.pat,
                                                 guard.0.span.start(),
                                                 " if",
                                                 guard.1.as_ref(),
                                             )
                                         } else {
-                                            arm.pat.make_segs(out, &indent)
+                                            arm.pat.make_segs(out, base_indent)
                                         }
                                     });
                                     append_comments(out, base_indent, &mut sg, arm.fat_arrow_token.spans[0].start());
                                     sg.seg(out, " => ");
-                                    sg.child(arm.body.make_segs(out, &indent));
+                                    sg.child(arm.body.make_segs(out, base_indent));
                                     sg.reverse_children();
                                     sg.build(out)
                                 },

@@ -295,3 +295,14 @@ fn rt_match_at2() {
 }
 "#);
 }
+
+#[test]
+fn rt_match_attr_indent1() {
+    rt(r#"fn main() {
+    match x() {
+        #[something]
+        X => { },
+    }
+}
+"#);
+}
