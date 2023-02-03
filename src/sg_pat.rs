@@ -130,8 +130,8 @@ impl Formattable for &Pat {
                 &x.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let (tok_loc, tok) = match x.limits {
-                        syn::RangeLimits::HalfOpen(x) => (x.spans[0].start(), ".."),
-                        syn::RangeLimits::Closed(x) => (x.spans[0].start(), "..="),
+                        syn::RangeLimits::HalfOpen(x) => (x.spans[0].start(), " .."),
+                        syn::RangeLimits::Closed(x) => (x.spans[0].start(), " ..="),
                     };
                     new_sg_binary(out, base_indent, x.lo.as_ref(), tok_loc, tok, x.hi.as_ref())
                 },

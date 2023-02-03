@@ -254,3 +254,23 @@ where
     T: Fn() { }
 "#);
 }
+
+#[test]
+fn rt_match_at1() {
+    rt(r#"fn main() {
+    match age() {
+        n @ 13 ..= 19 => (),
+    }
+}
+"#);
+}
+
+#[test]
+fn rt_match_at2() {
+    rt(r#"fn main() {
+    match age() {
+        Some(n @ 42) => (),
+    }
+}
+"#);
+}
