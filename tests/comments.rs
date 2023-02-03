@@ -48,6 +48,18 @@ fn comments_block_outer1() {
 }
 
 #[test]
+fn comments_block_empty1() {
+    t("/**/", vec![Comment {
+        loc: LineColumn {
+            line: 0,
+            column: 0,
+        },
+        mode: CommentMode::Normal,
+        lines: "".into(),
+    }]);
+}
+
+#[test]
 fn extract_end() {
     let (comments, _) = extract_comments("const THING: i32 = 7;\n// The end.").unwrap();
     assert!(!comments.is_empty());

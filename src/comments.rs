@@ -73,7 +73,9 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
             let start_re =
                 &self
                     .start_re
-                    .get_or_insert_with(|| UnicodeRegex::new(r#"(?:(//)(/|!|\.)?)|(?:(/\*)(\*|!)?)"#).unwrap());
+                    .get_or_insert_with(
+                        || UnicodeRegex::new(r#"(?:(//)(/|!|\.)?)|(/\*\*/)|(?:(/\*)(\*|!)?)"#).unwrap(),
+                    );
             let block_event_re =
                 &self.block_event_re.get_or_insert_with(|| UnicodeRegex::new(r#"((?:/\*)|(?:\*/))"#).unwrap());
 
@@ -115,7 +117,12 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
             'comment_loop : loop {
                 match start_re.captures(text) {
                     Some(found_start) => {
-                        let start_prefix_match = found_start.get(1).or_else(|| found_start.get(3)).unwrap();
+                        let start_prefix_match =
+                            found_start
+                                .get(1)
+                                .or_else(|| found_start.get(3))
+                                .or_else(|| found_start.get(4))
+                                .unwrap();
                         match start_prefix_match.as_str() {
                             "//" => {
                                 let mode = {
@@ -139,9 +146,13 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
                                 buffer.add(mode, line);
                                 text = &text[next_start..];
                             },
+                            "/**/" => {
+                                buffer.add(CommentMode::Normal, "".into());
+                                text = &text[start_prefix_match.end()..];
+                            },
                             "/*" => {
                                 let mode = {
-                                    let start_suffix_match = found_start.get(4);
+                                    let start_suffix_match = found_start.get(5);
                                     let (mode, match_end) = match start_suffix_match {
                                         Some(start_suffix_match) => (match start_suffix_match.as_str() {
                                             "*" => CommentMode::DocOuter,
