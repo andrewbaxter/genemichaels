@@ -1,4 +1,7 @@
-use anyhow::anyhow;
+use anyhow::{
+    anyhow,
+    Error,
+};
 use clap::Parser;
 use genemichaels::{
     format_str,
@@ -23,6 +26,10 @@ use std::{
     str::FromStr,
     time,
     ffi::OsStr,
+    sync::{
+        Arc,
+        Mutex,
+    },
 };
 use syn::File;
 
@@ -244,6 +251,7 @@ fn main() {
                         }
                         p.build()
                     },
+                    errors: Arc::new(Mutex::new(vec![])),
                 };
                 process_dirs(
                     &mut pool,
@@ -402,6 +410,7 @@ struct FormatPool {
     config: FormatConfig,
     seen: HashSet<PathBuf>,
     pool: ThreadPool,
+    errors: Arc<Mutex<Vec<Error>>>,
 }
 
 impl FormatPool {
@@ -417,6 +426,7 @@ impl FormatPool {
                         continue;
                     }
                     let config = self.config.clone();
+                    let errors = self.errors.clone();
                     self.pool.execute(move || {
                         let res = || -> Result<()> {
                             let source = fs::read_to_string(file_path.clone())?;
@@ -433,8 +443,10 @@ impl FormatPool {
                                 eprintln!("\x1B[1;32m   Formatted\x1B[0;22m {}", file_path.to_string_lossy());
                             },
                             Err(e) => {
-                                print_error_text();
-                                eprintln!("formatting file {}: {:?}", file_path.to_string_lossy(), e);
+                                errors
+                                    .lock()
+                                    .unwrap()
+                                    .push(e.context(format!("Error formatting {}", file_path.to_string_lossy())));
                             },
                         }
                     });
@@ -451,6 +463,14 @@ impl FormatPool {
         self.pool.join();
         if self.pool.panic_count() > 0 {
             return Err(anyhow!("Panic during formatting."));
+        }
+        let errors = self.errors.lock().unwrap();
+        if !errors.is_empty() {
+            for e in errors.iter() {
+                print_error_text();
+                eprintln!("{}", e.to_string());
+            }
+            return Err(anyhow!("Errors encountered during formatting."));
         }
         Ok(())
     }
