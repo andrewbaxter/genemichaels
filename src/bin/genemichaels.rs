@@ -369,15 +369,13 @@ fn process_dirs(pool: &mut FormatPool, manifest_path: &Path) -> Result<()> {
             pool.format_dir(path.join(example_path).parent().unwrap().to_owned());
         }
     }
-    if let Some(ws) = manifest.workspace {
-        let workspace_dirs: Vec<PathBuf> =
-            ws.members.into_iter().filter_map(|m| path.join(&m).exists().then(|| path.join(m))).collect();
-
-        // loop through each folder in the workspace and recursively run the formatter
-        for workspace in workspace_dirs {
-            process_dirs(pool, &path.join(workspace).join(CARGO_TOML))?;
+    for ws in manifest.workspace.map(|ws| ws.members).into_iter().flatten() {
+        let ws = path.join(ws);
+        if ws == path {
+            continue;
         }
-    };
+        process_dirs(pool, &ws.join(CARGO_TOML))?;
+    }
 
     // default bins location
     if path.join("bin").exists() {
