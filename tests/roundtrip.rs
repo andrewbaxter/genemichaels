@@ -179,6 +179,15 @@ fn rt_comments_verbatim1() {
 }
 
 #[test]
+fn rt_comments_generic_type1() {
+    rt(r#"struct X<
+    // hi
+    F: FnOnce(i32) -> i32,
+>(F);
+"#);
+}
+
+#[test]
 fn rt_try_try1() {
     rt(r#"fn main() {
     x().hello()??.await;

@@ -23,7 +23,8 @@ checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 [[package]]
 name = "cargo-manifest"
 version = "0.7.1"
-source = "git+https://github.com/LukeMathWalker/cargo-manifest#f5e2ee275027058617f76777caf356a381277fc2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3ce38d2d1efbe0e7180766a872570bc07cd5430a42e713b01006d4afa89912fe"
 dependencies = [
  "serde",
  "toml",
@@ -101,7 +102,7 @@ dependencies = [
 
 [[package]]
 name = "genemichaels"
-version = "0.1.16"
+version = "0.1.17"
 dependencies = [
  "anyhow",
  "cargo-manifest",
