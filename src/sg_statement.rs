@@ -495,7 +495,9 @@ impl Formattable for TraitItem {
                         prefix.push_str("type ");
                         prefix.push_str(&x.ident.to_string());
                         sg.seg(out, &prefix);
-                        append_generics(out, base_indent, &mut sg, &x.generics);
+                        if !x.generics.params.is_empty() {
+                            sg.child(build_generics_part_a(out, base_indent, &x.generics));
+                        }
                         if let Some(c) = &x.colon_token {
                             append_comments(out, base_indent, &mut sg, c.span.start());
                             append_binary(
@@ -516,6 +518,9 @@ impl Formattable for TraitItem {
                                     node.build(out)
                                 },
                             );
+                        }
+                        if let Some(wh) = &x.generics.where_clause {
+                            sg.child(build_generics_part_b(out, base_indent, wh));
                         }
                         sg.build(out)
                     };

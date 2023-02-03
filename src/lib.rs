@@ -717,8 +717,8 @@ pub fn format_ast(
                 let seg = out.segs.get(seg_i.0).unwrap();
                 match &seg.content {
                     SegmentContent::Text(t) => {
-                        let t = if seg_i_i == 1 {
-                            // Work around comments splitting lines at weird places
+                        let t = if seg_i_i == 1 && line_i_i > 0 {
+                            // Work around comments splitting lines at weird places (seg_i_i 0 == break, except on first line)
                             t.trim_start()
                         } else {
                             t
