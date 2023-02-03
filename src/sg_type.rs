@@ -324,6 +324,7 @@ impl Formattable for GenericParam {
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let build_base = |out: &mut MakeSegsState, base_indent: &Alignment| {
                         let mut sg = new_sg(out);
+                        append_comments(out, base_indent, &mut sg, t.ident.span().start());
                         sg.seg(out, &t.ident);
                         if t.colon_token.is_some() && !t.bounds.is_empty() {
                             sg.seg(out, ": ");
@@ -352,14 +353,14 @@ impl Formattable for GenericParam {
                 &c.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let build_base = |out: &mut MakeSegsState, base_indent: &Alignment| {
-                        let mut prefix = String::new();
-                        prefix.push_str("const ");
-                        prefix.push_str(&c.ident.to_string());
-                        prefix.push_str(": ");
-                        let mut node = new_sg(out);
-                        node.seg(out, prefix);
-                        node.child(c.ty.make_segs(out, base_indent));
-                        node.build(out)
+                        let mut sg = new_sg(out);
+                        append_comments(out, base_indent, &mut sg, c.const_token.span.start());
+                        sg.seg(out, "const ");
+                        append_comments(out, base_indent, &mut sg, c.ident.span().start());
+                        sg.seg(out, ": ");
+                        sg.seg(out, &c.ident.to_string());
+                        sg.child(c.ty.make_segs(out, base_indent));
+                        sg.build(out)
                     };
                     if let Some(def) = &c.default {
                         new_sg_binary(out, base_indent, build_base, c.eq_token.unwrap().span.start(), " =", def)
