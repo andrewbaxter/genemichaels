@@ -1,5 +1,4 @@
 use anyhow::anyhow;
-use cargo_manifest::Manifest;
 use clap::Parser;
 use genemichaels::{
     format_str,
@@ -8,10 +7,10 @@ use genemichaels::{
     Comment,
     FormatConfig,
 };
+use threadpool::ThreadPool;
 use std::{
     collections::HashSet,
     env::current_dir,
-    ffi::OsStr,
     fmt::Display,
     fs,
     io::Read,
@@ -23,6 +22,7 @@ use std::{
     result,
     str::FromStr,
     time,
+    ffi::OsStr,
 };
 use syn::File;
 
@@ -191,28 +191,6 @@ fn process(config: &FormatConfig, source: &str) -> Result<String> {
     Ok(res.rendered)
 }
 
-fn process_workspace_file(config: FormatConfig, file_path: PathBuf) {
-    let res = || -> Result<()> {
-        let source = fs::read_to_string(file_path.clone())?;
-        if skip(&source) {
-            print_skipping_text();
-            eprintln!("{}", &file_path.to_string_lossy());
-            return Result::Ok(());
-        }
-        fs::write(&file_path, process(&config, &source)?.as_bytes())?;
-        Ok(())
-    };
-    match res() {
-        Ok(_) => {
-            eprintln!("\x1B[1;32m   Formatted\x1B[0;22m {}", file_path.as_path().to_string_lossy());
-        },
-        Err(e) => {
-            print_error_text();
-            eprintln!("formatting file {}: {:?}", file_path.to_string_lossy(), e);
-        },
-    }
-}
-
 fn main() {
     let args = Args::parse();
     let config = FormatConfig {
@@ -250,20 +228,28 @@ fn main() {
                 let mut at: Option<&Path> = Some(&c_dir);
                 while let Some(d) = at.take() {
                     let cargo_toml_path = d.join(CARGO_TOML);
-                    if cargo_toml_path.exists() && cargo_manifest::Manifest::from_path(&cargo_toml_path).is_ok() {
+                    if cargo_toml_path.exists() {
                         project_cargo_toml = Some(cargo_toml_path);
                         break;
                     }
                     at = d.parent();
                 }
-                let wct = project_cargo_toml.ok_or_else(|| anyhow::anyhow!("No Cargo.toml found!"))?;
-                let manifest = cargo_manifest::Manifest::from_path(&wct)?;
-                process_cargo_toml(
-                    wct.parent().expect("Unable to get parent of Cargo.toml").to_path_buf(),
-                    manifest,
-                    args.thread_count,
+                let mut pool = FormatPool {
                     config,
+                    seen: HashSet::new(),
+                    pool: {
+                        let mut p = threadpool::Builder::new();
+                        if let Some(t) = args.thread_count {
+                            p = p.num_threads(t);
+                        }
+                        p.build()
+                    },
+                };
+                process_dirs(
+                    &mut pool,
+                    &project_cargo_toml.ok_or_else(|| anyhow::anyhow!("No Cargo.toml found!"))?,
                 )?;
+                pool.join()?;
                 eprintln!(
                     "\x1B[1;32m    Finished\x1B[0;22m workspace formatting successfully in {:.2}s",
                     time::Instant::now().duration_since(inst).as_secs_f64()
@@ -347,35 +333,32 @@ fn main() {
     }
 }
 
-fn process_dirs(path: PathBuf, manifest: Manifest) -> Result<HashSet<PathBuf>> {
-    let mut dirs = HashSet::from([]);
+fn process_dirs(pool: &mut FormatPool, manifest_path: &Path) -> Result<()> {
+    let manifest = cargo_manifest::Manifest::from_path(manifest_path)?;
+    let path = manifest_path.parent().unwrap();
     for bin in manifest.bin.into_iter().flatten() {
         if let Some(bin_path) = bin.path {
-            dirs.insert(path.join(bin_path).parent().unwrap().to_owned());
+            pool.format_dir(path.join(bin_path).parent().unwrap().to_owned());
         }
     }
     if let Some(lib) = manifest.lib {
-        if let Some(p) =
-            lib
-                .path
-                .and_then(|p| p.parse::<PathBuf>().ok())
-                .and_then(|p| p.parent().map(|pp| pp.to_path_buf())) {
-            dirs.insert(p);
+        if let Some(lib_path) = lib.path {
+            pool.format_dir(path.join(lib_path).parent().unwrap().to_owned());
         }
     }
     for bench in manifest.bench.into_iter().flatten() {
         if let Some(bench_path) = bench.path {
-            dirs.insert(path.join(bench_path).parent().unwrap().to_owned());
+            pool.format_dir(path.join(bench_path).parent().unwrap().to_owned());
         }
     }
     for test in manifest.test.into_iter().flatten() {
         if let Some(test_path) = test.path {
-            dirs.insert(path.join(test_path).parent().unwrap().to_owned());
+            pool.format_dir(path.join(test_path).parent().unwrap().to_owned());
         }
     }
     for example in manifest.example.into_iter().flatten() {
         if let Some(example_path) = example.path {
-            dirs.insert(path.join(example_path).parent().unwrap().to_owned());
+            pool.format_dir(path.join(example_path).parent().unwrap().to_owned());
         }
     }
     if let Some(ws) = manifest.workspace {
@@ -384,75 +367,91 @@ fn process_dirs(path: PathBuf, manifest: Manifest) -> Result<HashSet<PathBuf>> {
 
         // loop through each folder in the workspace and recursively run the formatter
         for workspace in workspace_dirs {
-            let manifest = cargo_manifest::Manifest::from_path(workspace.join(CARGO_TOML))?;
-            // this should work with the recursion
-            dirs.extend(process_dirs(workspace, manifest)?);
+            process_dirs(pool, &path.join(workspace).join(CARGO_TOML))?;
         }
     };
 
     // default bins location
     if path.join("bin").exists() {
-        dirs.insert(path.join("bin"));
+        pool.format_dir(path.join("bin"));
     }
 
     // default benches location
     if path.join("benches").exists() {
-        dirs.insert(path.join("benches"));
+        pool.format_dir(path.join("benches"));
     }
 
     // default tests location
     if path.join("tests").exists() {
-        dirs.insert(path.join("tests"));
+        pool.format_dir(path.join("tests"));
     }
 
     // default examples location
     if path.join("examples").exists() {
-        dirs.insert(path.join("examples"));
+        pool.format_dir(path.join("examples"));
     }
 
     // add src if exists
     if path.join("src").exists() {
-        dirs.insert(path.join("src"));
+        pool.format_dir(path.join("src"));
     };
-    Ok(dirs)
+    Ok(())
 }
 
-fn process_cargo_toml(
-    path: PathBuf,
-    manifest: Manifest,
-    thread_count: Option<usize>,
+struct FormatPool {
     config: FormatConfig,
-) -> Result<()> {
-    let dirs = process_dirs(path.clone(), manifest)?;
+    seen: HashSet<PathBuf>,
+    pool: ThreadPool,
+}
 
-    // solves the situation where if the bin/ is inide src/ file doesn't get formatted
-    // twice, open to better solution
-    let mut formatted_files = HashSet::new();
-    for dir in dirs {
-        let pool = if let Some(t) = thread_count {
-            threadpool::Builder::new().num_threads(t)
-        } else {
-            threadpool::Builder::new()
-        }.build();
-        let current_working_folder = path.join(dir);
-        for f in walkdir::WalkDir::new(&current_working_folder) {
+impl FormatPool {
+    fn format_dir(&mut self, dir: PathBuf) {
+        if !self.seen.insert(dir.clone()) {
+            return;
+        }
+        for f in walkdir::WalkDir::new(&dir) {
             match f {
                 Ok(file) => {
                     let file_path = file.path().to_path_buf();
-                    if !formatted_files.contains(&file_path) && file_path.extension() == Some(OsStr::new("rs")) {
-                        formatted_files.insert(file_path);
-                        pool.execute(move || {
-                            process_workspace_file(config, file.path().to_path_buf())
-                        });
+                    if !self.seen.insert(file_path.clone()) || file_path.extension() != Some(OsStr::new("rs")) {
+                        continue;
                     }
+                    let config = self.config.clone();
+                    self.pool.execute(move || {
+                        let res = || -> Result<()> {
+                            let source = fs::read_to_string(file_path.clone())?;
+                            if skip(&source) {
+                                print_skipping_text();
+                                eprintln!("{}", &file_path.to_string_lossy());
+                                return Result::Ok(());
+                            }
+                            fs::write(&file_path, process(&config, &source)?.as_bytes())?;
+                            Ok(())
+                        };
+                        match res() {
+                            Ok(_) => {
+                                eprintln!("\x1B[1;32m   Formatted\x1B[0;22m {}", file_path.to_string_lossy());
+                            },
+                            Err(e) => {
+                                print_error_text();
+                                eprintln!("formatting file {}: {:?}", file_path.to_string_lossy(), e);
+                            },
+                        }
+                    });
                 },
                 Err(e) => {
-                    eprintln!("Error opening file {}: {}", current_working_folder.to_string_lossy(), e);
+                    eprintln!("Error while scanning dir {}: {}", dir.to_string_lossy(), e);
                     continue;
                 },
             }
         }
-        pool.join();
     }
-    Ok(())
+
+    fn join(&mut self) -> Result<()> {
+        self.pool.join();
+        if self.pool.panic_count() > 0 {
+            return Err(anyhow!("Panic during formatting."));
+        }
+        Ok(())
+    }
 }
