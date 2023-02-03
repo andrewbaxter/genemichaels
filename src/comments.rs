@@ -51,6 +51,8 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
         // starting offset of each line
         line_lookup: Vec<usize>,
         comments: HashMap<HashLineColumn, Vec<Comment>>,
+        // records the beginning of the last line extracted - this is the destination for transposed
+        // comments
         line_start: Option<LineColumn>,
         last_offset: usize,
         start_re: Option<UnicodeRegex>,
@@ -188,29 +190,42 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
             }
             buffer.flush();
             if !buffer.out.is_empty() {
-                self.comments.insert(HashLineColumn(end), buffer.out);
+                let comments = self.comments.entry(HashLineColumn(end)).or_insert(vec![]);
+                if let Some(previous) = comments.last_mut() {
+                    let start = buffer.out.remove(0);
+                    if previous.mode == start.mode {
+                        previous.lines.push_str("\n");
+                        previous.lines.push_str(&start.lines);
+                    } else {
+                        buffer.out.insert(0, start);
+                    }
+                }
+                comments.extend(buffer.out);
             }
         }
 
         fn extract(&mut self, mut start: usize, end: LineColumn) {
             // Transpose line-end comments to line-start
-            if if let Some(previous_start) = &self.line_start {
-                if end.line > previous_start.line {
-                    let eol = match self.source[start..].find('\n') {
-                        Some(n) => start + n,
-                        None => self.source.len(),
-                    };
-                    let text = &self.source[start .. eol];
-                    if text.trim_start().starts_with("//") {
-                        self.add_comments(*previous_start, text);
-                    }
-                    start = eol;
-                    true
-                } else {
-                    false
+            if loop {
+                let previous_start = match &self.line_start {
+                    // No line start recorded, must be within first line
+                    None => break true,
+                    Some(s) => s,
+                };
+                if end.line <= previous_start.line {
+                    // Not at end of line yet, or at bad element (moved backwards); don't do anything
+                    break false;
                 }
-            } else {
-                true
+                let eol = match self.source[start..].find('\n') {
+                    Some(n) => start + n,
+                    None => self.source.len(),
+                };
+                let text = &self.source[start .. eol];
+                if text.trim_start().starts_with("//") {
+                    self.add_comments(*previous_start, text);
+                }
+                start = eol;
+                break true;
             } {
                 self.line_start = Some(end);
             }
