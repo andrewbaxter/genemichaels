@@ -446,7 +446,7 @@ impl FormatPool {
                                 errors
                                     .lock()
                                     .unwrap()
-                                    .push(e.context(format!("Error formatting {}", file_path.to_string_lossy())));
+                                    .push(e.context(format!("formatting {}", file_path.to_string_lossy())));
                             },
                         }
                     });
@@ -468,7 +468,7 @@ impl FormatPool {
         if !errors.is_empty() {
             for e in errors.iter() {
                 print_error_text();
-                eprintln!("{}", e.to_string());
+                eprintln!("{:?}", e);
             }
             return Err(anyhow!("Errors encountered during formatting."));
         }
