@@ -139,18 +139,22 @@ pub(crate) fn append_bracketed_list<
     }
     append_comments(out, base_indent, sg, prefix_start);
     sg.seg(out, prefix);
-    let need_pad = bracket_space && (!exprs.is_empty() || matches!(&list_suffix, InlineListSuffix::Extra(_)));
-    if need_pad {
-        sg.seg_unsplit(out, " ");
-    }
     let indent = base_indent.indent();
-    sg.split(out, indent.clone(), true);
-    append_inline_list_raw(out, &indent, sg, punct, exprs, list_suffix);
-    if need_pad {
-        sg.seg_unsplit(out, " ");
+    let empty = exprs.is_empty() && !matches!(&list_suffix, InlineListSuffix::Extra(_));
+    if !empty {
+        if bracket_space {
+            sg.seg_unsplit(out, " ");
+        }
+        sg.split(out, indent.clone(), true);
+        append_inline_list_raw(out, &indent, sg, punct, exprs, list_suffix);
+        if bracket_space {
+            sg.seg_unsplit(out, " ");
+        }
     }
     append_comments(out, &indent, sg, suffix_start);
-    sg.split(out, base_indent.clone(), false);
+    if !empty {
+        sg.split(out, base_indent.clone(), false);
+    }
     sg.seg(out, suffix);
 }
 
