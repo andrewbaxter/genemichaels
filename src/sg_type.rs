@@ -357,8 +357,8 @@ impl Formattable for GenericParam {
                         append_comments(out, base_indent, &mut sg, c.const_token.span.start());
                         sg.seg(out, "const ");
                         append_comments(out, base_indent, &mut sg, c.ident.span().start());
-                        sg.seg(out, ": ");
                         sg.seg(out, &c.ident.to_string());
+                        sg.seg(out, ": ");
                         sg.child(c.ty.make_segs(out, base_indent));
                         sg.build(out)
                     };
