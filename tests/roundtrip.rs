@@ -60,6 +60,17 @@ where
 }
 
 #[test]
+fn rt_trait_associated_type_where1() {
+    rt(r#"trait ABC {
+    type Iterator<'a>: Iterator<Item = &'a T>
+    where
+        T: 'a,
+        Self: 'a;
+}
+"#);
+}
+
+#[test]
 fn rt_tuple_unit1() {
     rt(r#"fn main() {
     x((7,));
