@@ -696,15 +696,21 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
             } else {
                 x.children.get(0)
             }.and_then(|c| match c {
-                Node::Text(t) => if get_splits(&t.value).next().is_some() {
-                    None
-                } else {
-                    Some(t.value.clone())
+                Node::Text(t) => {
+                    let t = join_lines(&t.value);
+                    if get_splits(&t).next().is_some() {
+                        None
+                    } else {
+                        Some(t)
+                    }
                 },
-                Node::InlineCode(t) => if get_splits(&t.value).next().is_some() {
-                    None
-                } else {
-                    Some(format!("`{}`", t.value))
+                Node::InlineCode(t) => {
+                    let t = join_lines(&t.value);
+                    if get_splits(&t).next().is_some() {
+                        None
+                    } else {
+                        Some(format!("`{}`", t))
+                    }
                 },
                 _ => None,
             });
