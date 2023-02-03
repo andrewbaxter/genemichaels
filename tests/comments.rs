@@ -3,6 +3,7 @@ use genemichaels::{
     extract_comments,
     CommentMode,
     HashLineColumn,
+    format_md,
 };
 use proc_macro2::LineColumn;
 
@@ -69,4 +70,11 @@ fn extract_end() {
 fn extract_end2() {
     let (comments, _) = extract_comments("const THING: i32 = 7;\n// The end.\n").unwrap();
     assert!(!comments.is_empty());
+}
+
+#[test]
+fn format_split_link1() {
+    let mut res = String::new();
+    format_md(&mut res, 1000, None, "__", "![this is\na broken](https://example.com)").unwrap();
+    assert_eq!(res, "__![this is a broken](https://example.com)");
 }
