@@ -78,3 +78,12 @@ fn format_split_link1() {
     format_md(&mut res, 1000, None, "__", "![this is\na broken](https://example.com)").unwrap();
     assert_eq!(res, "__![this is a broken](https://example.com)");
 }
+
+#[test]
+fn format_split_link2() {
+    let mut res = String::new();
+    format_md(&mut res, 1000, None, "__", "[abcdabcde
+abcdabc](https://example.com)
+").unwrap();
+    assert_eq!(res, "__[abcdabcde abcdabc](https://example.com)");
+}
