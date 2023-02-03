@@ -661,27 +661,28 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
             line.write_unbreakable(state, out, &format!("`{}`", join_lines(&x.value)));
         },
         Node::Image(x) => {
-            match (get_splits(&x.alt).next().is_some(), &x.title) {
+            let alt = join_lines(&x.alt);
+            match (get_splits(&join_lines(&alt)).next().is_some(), &x.title) {
                 (false, None) => {
-                    line.write_unbreakable(state, out, &format!("![{}]({})", x.alt, x.url));
+                    line.write_unbreakable(state, out, &format!("![{}]({})", alt, x.url));
                 },
                 (false, Some(t)) => {
-                    line.write_unbreakable(state, out, &format!("![{}]({}", x.alt, x.url));
+                    line.write_unbreakable(state, out, &format!("![{}]({}", alt, x.url));
                     line.write_unbreakable(state, out, " \"");
-                    line.write_breakable(state, out, t);
+                    line.write_breakable(state, out, &join_lines(t));
                     line.write_unbreakable(state, out, "\")");
                 },
                 (true, None) => {
                     line.write_unbreakable(state, out, "![");
-                    line.write_breakable(state, out, &x.alt);
+                    line.write_breakable(state, out, &alt);
                     line.write_unbreakable(state, out, &format!("]({})", x.url));
                 },
                 (true, Some(t)) => {
                     line.write_unbreakable(state, out, "![");
-                    line.write_breakable(state, out, &x.alt);
+                    line.write_breakable(state, out, &alt);
                     line.write_unbreakable(state, out, &format!("]({}", x.url));
                     line.write_unbreakable(state, out, " \"");
-                    line.write_breakable(state, out, t);
+                    line.write_breakable(state, out, &join_lines(t));
                     line.write_unbreakable(state, out, "\")");
                 },
             }
