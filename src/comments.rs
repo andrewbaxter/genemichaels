@@ -533,7 +533,7 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
                         recurse_write(
                             state,
                             out,
-                            line.clone_indent(Some("* ".into()), "   ".into(), false),
+                            line.clone_indent(Some("* ".into()), "  ".into(), false),
                             child,
                             false,
                         );
