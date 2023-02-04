@@ -121,7 +121,6 @@ impl Formattable for &Pat {
                                     sg.split(out, base_indent.clone(), false);
                                 }
                                 sg.seg(out, ")");
-                                drop(sg);
                                 return sg0.build(out);
                             };
 
