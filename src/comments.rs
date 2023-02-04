@@ -31,6 +31,13 @@ impl Hash for HashLineColumn {
     }
 }
 
+#[derive(Debug, derive_more::Add, PartialEq, Eq, PartialOrd, Ord, derive_more::Sub, Clone, Copy)]
+struct VisualLen(usize);
+
+fn unicode_len(text: &str) -> VisualLen {
+    VisualLen(text.chars().count())
+}
+
 pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Comment>>, TokenStream)> {
     let mut line_lookup = vec![];
     {
@@ -341,12 +348,13 @@ struct LineState_ {
     first_prefix: Option<String>,
     prefix: String,
     explicit_wrap: bool,
-    max_width: usize,
-    rel_max_width: Option<usize>,
+    max_width: VisualLen,
+    rel_max_width: Option<VisualLen>,
+    backward_break: Option<(usize, bool)>,
 }
 
 impl LineState_ {
-    fn flush_always(&mut self, state: &mut State, out: &mut String, wrapping: bool) {
+    fn flush_always(&mut self, state: &mut State, out: &mut String, explicit_wrap: bool, wrapping: bool) {
         out.push_str(format!("{}{}{}{}", if state.need_nl {
             "\n"
         } else {
@@ -354,39 +362,40 @@ impl LineState_ {
         }, match &self.first_prefix.take() {
             Some(t) => t,
             None => &*self.prefix,
-        }, &state.line_buffer, if wrapping && self.explicit_wrap {
+        }, &state.line_buffer, if wrapping && explicit_wrap {
             " \\"
         } else {
             ""
         }).trim_end());
         state.line_buffer.clear();
         state.need_nl = true;
+        self.backward_break = None;
     }
 
-    fn flush(&mut self, state: &mut State, out: &mut String, wrapping: bool) {
+    fn flush(&mut self, state: &mut State, out: &mut String, explicit_wrap: bool, wrapping: bool) {
         if !state.line_buffer.trim().is_empty() {
-            self.flush_always(state, out, wrapping);
+            self.flush_always(state, out, explicit_wrap, wrapping);
         }
     }
 
-    fn calc_max_width(&self) -> usize {
+    fn calc_max_width(&self) -> VisualLen {
         match self.rel_max_width {
-            Some(w) => self.prefix.len() + w,
+            Some(w) => unicode_len(&self.prefix) + w,
             None => self.max_width - if self.explicit_wrap {
-                2
+                VisualLen(2)
             } else {
-                0
+                VisualLen(0)
             },
         }
     }
 }
 
 /// Line split points, must be interior indexes (no 0 and no text.len())
-fn get_splits(text: &str) -> impl Iterator<Item = usize> + '_ {
+fn get_splits(text: &str) -> Vec<usize> {
     // let segmenter =
     // LineBreakSegmenter::try_new_unstable(&icu_testdata::unstable()).unwrap(); match
     // segmenter .segment_str(&text)
-    text.char_indices().filter(|i| i.1 == ' ').map(|i| i.0 + 1)
+    text.char_indices().filter(|i| i.1 == ' ').map(|i| i.0 + 1).collect()
 }
 
 struct LineState(Rc<RefCell<LineState_>>);
@@ -395,8 +404,8 @@ impl LineState {
     fn new(
         first_prefix: Option<String>,
         prefix: String,
-        max_width: usize,
-        rel_max_width: Option<usize>,
+        max_width: VisualLen,
+        rel_max_width: Option<VisualLen>,
         explicit_wrap: bool,
     ) -> LineState {
         LineState(Rc::new(RefCell::new(LineState_ {
@@ -405,6 +414,7 @@ impl LineState {
             explicit_wrap,
             max_width,
             rel_max_width,
+            backward_break: None,
         })))
     }
 
@@ -420,6 +430,7 @@ impl LineState {
             explicit_wrap: s.explicit_wrap,
             max_width: s.max_width,
             rel_max_width: s.rel_max_width,
+            backward_break: None,
         })))
     }
 
@@ -436,55 +447,120 @@ impl LineState {
             explicit_wrap: s.explicit_wrap || explicit_wrap,
             max_width: s.max_width,
             rel_max_width: s.rel_max_width,
+            backward_break: None,
         })))
     }
 
-    fn write_breakable(&self, state: &mut State, out: &mut String, text: &str) {
+    fn write(&self, state: &mut State, out: &mut String, text: &str, breaks: &[usize]) {
         let mut s = self.0.as_ref().borrow_mut();
-        let max_width = s.calc_max_width();
-        let mut text = text;
-        if state.line_buffer.is_empty() {
-            text = text.trim_start();
-        }
-        while !text.is_empty() {
-            if state.line_buffer.chars().count() + text.chars().count() > max_width {
-                match get_splits(text).take_while(|b| state.line_buffer.chars().count() + *b < max_width).last() {
-                    Some(b) => {
-                        // Doesn't fit, but can split to get within line
-                        state.line_buffer.push_str(text[..b].trim_end());
-                        text = text[b..].trim_start();
-                        s.flush(state, out, !text.is_empty());
-                    },
-                    None => {
-                        if !state.line_buffer.is_empty() {
-                            // Doesn't fit, can't split, but stuff in buffer - flush that first
-                            s.flush(state, out, true);
-                        } else {
-                            // Doesn't fit, can't split, but buffer empty - just write it
-                            state.line_buffer.push_str(text.trim_end());
-                            text = &text[text.len()..];
-                        }
-                    },
+        let max_len = s.calc_max_width();
+
+        /// Finds how much can be written in the current line. Returns
+        ///
+        /// * how much of text can be written to the current line. If a break is used, will be equal to the
+        ///    break point, but if the whole string is written may be longer
+        ///
+        /// * If a break is used, the break and the remaining unused breaks
+        fn find_writable_len<
+            'a,
+        >(
+            width: VisualLen,
+            max_len: VisualLen,
+            text: &str,
+            breaks_offset: usize,
+            breaks: &'a [usize],
+        ) -> (usize, Option<(usize, &'a [usize])>) {
+            let mut previous_break = None;
+            let mut writable = 0;
+            for (i, b) in breaks.iter().enumerate() {
+                let b = *b - breaks_offset;
+                if width + unicode_len(&text[..b]) > max_len {
+                    return (writable, previous_break);
                 }
-            } else {
-                // Fits
-                state.line_buffer.push_str(text);
-                text = &text[text.len()..];
+                previous_break = Some((b, &breaks[i + 1..]));
+                writable = b;
             }
+            return (if width + unicode_len(&text) > max_len {
+                writable
+            } else {
+                text.len()
+            }, previous_break);
+        }
+
+        /// Write new text following a break, storing the new break point with it
+        fn write_forward(state: &mut State, s: &mut LineState_, text: &str, b: Option<usize>) {
+            if let Some(b) = b {
+                s.backward_break = Some((state.line_buffer.len() + b, s.explicit_wrap));
+            }
+            state.line_buffer.push_str(&text);
+        }
+
+        fn write_forward_breaks(
+            state: &mut State,
+            s: &mut LineState_,
+            out: &mut String,
+            max_len: VisualLen,
+            mut first: bool,
+            mut text: String,
+            mut breaks_offset: usize,
+            breaks: &[usize],
+        ) {
+            let mut breaks = breaks;
+            while !text.is_empty() {
+                if first {
+                    first = false;
+                } else {
+                    s.flush(state, out, s.explicit_wrap, true);
+                }
+                let (writable, last_break) =
+                    find_writable_len(unicode_len(&state.line_buffer), max_len, &text, breaks_offset, breaks);
+                if writable > 0 {
+                    write_forward(state, s, &text[..writable], last_break.map(|b| b.0));
+                    breaks = last_break.map(|b| b.1).unwrap_or(breaks);
+                    text = text.split_off(writable);
+                    breaks_offset += writable;
+                } else {
+                    state.line_buffer.push_str(&text);
+                    return;
+                }
+            }
+        }
+
+        let (writable, last_break) = find_writable_len(unicode_len(&state.line_buffer), max_len, text, 0, breaks);
+        if writable > 0 {
+            write_forward(state, &mut s, &text[..writable], last_break.map(|b| b.0));
+            write_forward_breaks(
+                state,
+                &mut s,
+                out,
+                max_len,
+                false,
+                (&text[writable..]).to_string(),
+                writable,
+                last_break.map(|b| b.1).unwrap_or(breaks),
+            );
+        } else if let Some((at, explicit_wrap)) = s.backward_break.take() {
+            // Couldn't split forward but there's a retroactive split point in previously written segments
+            let prefix = state.line_buffer.split_off(at);
+            s.flush(state, out, explicit_wrap, true);
+            state.line_buffer.push_str(&prefix);
+            write_forward_breaks(state, &mut s, out, max_len, true, text.to_string(), 0, breaks);
+        } else {
+            state.line_buffer.push_str(text);
+            return;
         }
     }
 
-    fn flush_always(&self, state: &mut State, out: &mut String) {
-        self.0.as_ref().borrow_mut().flush_always(state, out, false);
+    fn write_breakable(&self, state: &mut State, out: &mut String, text: &str) {
+        self.write(state, out, text, &get_splits(text));
     }
 
     fn write_unbreakable(&self, state: &mut State, out: &mut String, text: &str) {
-        let mut s = self.0.as_ref().borrow_mut();
-        let max_width = s.calc_max_width();
-        if state.line_buffer.chars().count() + text.chars().count() > max_width {
-            s.flush(state, out, true);
-        }
-        state.line_buffer.push_str(text);
+        self.write(state, out, text, &[]);
+    }
+
+    fn flush_always(&self, state: &mut State, out: &mut String) {
+        self.0.as_ref().borrow_mut().flush_always(state, out, false, false);
     }
 
     fn write_newline(&self, state: &mut State, out: &mut String) {
@@ -492,13 +568,13 @@ impl LineState {
         if !state.line_buffer.is_empty() {
             panic!();
         }
-        s.flush_always(state, out, false);
+        s.flush_always(state, out, false, false);
     }
 }
 
 fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &Node, inline: bool) {
     fn join_lines(text: &str) -> String {
-        let lines = text.lines().collect::<Vec<&str>>();
+        let lines = UnicodeRegex::new("\r?\n").unwrap().split(text).collect::<Vec<&str>>();
         let mut joined = String::new();
         for (i, line) in lines.iter().enumerate() {
             let mut line = *line;
@@ -662,7 +738,7 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
         },
         Node::Image(x) => {
             let alt = join_lines(&x.alt);
-            match (get_splits(&join_lines(&alt)).next().is_some(), &x.title) {
+            match (get_splits(&join_lines(&alt)).first().is_some(), &x.title) {
                 (false, None) => {
                     line.write_unbreakable(state, out, &format!("![{}]({})", alt, x.url));
                 },
@@ -698,7 +774,7 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
             }.and_then(|c| match c {
                 Node::Text(t) => {
                     let t = join_lines(&t.value);
-                    if get_splits(&t).next().is_some() {
+                    if get_splits(&t).first().is_some() {
                         None
                     } else {
                         Some(t)
@@ -706,7 +782,7 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
                 },
                 Node::InlineCode(t) => {
                     let t = join_lines(&t.value);
-                    if get_splits(&t).next().is_some() {
+                    if get_splits(&t).first().is_some() {
                         None
                     } else {
                         Some(format!("`{}`", t))
@@ -753,12 +829,12 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
             } else {
                 x.children.get(0)
             }.and_then(|c| match c {
-                Node::Text(t) => if get_splits(&t.value).next().is_some() {
+                Node::Text(t) => if get_splits(&t.value).first().is_some() {
                     None
                 } else {
                     Some(t.value.clone())
                 },
-                Node::InlineCode(t) => if get_splits(&t.value).next().is_some() {
+                Node::InlineCode(t) => if get_splits(&t.value).first().is_some() {
                     None
                 } else {
                     Some(format!("`{}`", t.value))
@@ -821,7 +897,7 @@ pub fn format_md(
         recurse_write(
             &mut state,
             &mut out,
-            LineState::new(None, prefix.to_string(), max_width, rel_max_width, false),
+            LineState::new(None, prefix.to_string(), VisualLen(max_width), rel_max_width.map(VisualLen), false),
             &ast,
             false,
         );
