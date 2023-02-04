@@ -73,6 +73,13 @@ fn extract_end2() {
 }
 
 #[test]
+fn format_simple_wrapping1() {
+    let mut res = String::new();
+    format_md(&mut res, 10, None, "", "this is very long text").unwrap();
+    assert_eq!(res, "this is\nvery long\ntext");
+}
+
+#[test]
 fn format_split_link1() {
     let mut res = String::new();
     format_md(&mut res, 1000, None, "__", "![this is\na broken](https://example.com)").unwrap();
@@ -86,4 +93,11 @@ fn format_split_link2() {
 abcdabc](https://example.com)
 ").unwrap();
     assert_eq!(res, "__[abcdabcde abcdabc](https://example.com)");
+}
+
+#[test]
+fn format_split_punct_cross_inline1() {
+    let mut res = String::new();
+    format_md(&mut res, 10, None, "__", "abcd `abc`.").unwrap();
+    assert_eq!(res, "__abcd\n__`abc`.");
 }

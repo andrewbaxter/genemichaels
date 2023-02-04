@@ -18,3 +18,4 @@ syn = { version = "1.0.107", features = ["full"] }
 walkdir = "2.3.2"
 threadpool = "1.8.1"
 cargo-manifest = "0.7.1"
+derive_more = "0.99.17"
