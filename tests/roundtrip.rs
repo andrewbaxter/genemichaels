@@ -297,6 +297,16 @@ fn rt_match_at2() {
 }
 
 #[test]
+fn rt_match_at3() {
+    rt(r#"fn main() {
+    match x {
+        v @ (A::B | A::A) => (),
+    }
+}
+"#);
+}
+
+#[test]
 fn rt_match_attr_indent1() {
     rt(r#"fn main() {
     match x() {
