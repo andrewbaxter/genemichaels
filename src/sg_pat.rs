@@ -33,6 +33,7 @@ use crate::{
         InlineListSuffix,
         new_sg_bracketed_list,
     },
+    HashLineColumn,
 };
 
 impl Formattable for &Pat {
@@ -73,7 +74,59 @@ impl Formattable for &Pat {
                     if let Some(at) = &x.subpat {
                         new_sg_binary(out, base_indent, |out: &mut MakeSegsState, base_indent: &Alignment| {
                             new_sg_lit(out, start.map(|s| (base_indent, s)), &prefix)
-                        }, at.0.span.start(), " @", &*at.1)
+                        }, at.0.span.start(), " @", |out: &mut MakeSegsState, base_indent: &Alignment| {
+                            loop {
+                                let t = match at.1.as_ref() {
+                                    Pat::Tuple(t) => t,
+                                    _ => break,
+                                };
+                                if t.elems.len() != 1 {
+                                    break;
+                                }
+                                let x = match t.elems.iter().next().unwrap() {
+                                    Pat::Or(x) => x,
+                                    _ => break,
+                                };
+
+                                // Not actually a tuple, but an @-bind | grouping snowflake syntax. Workaround
+                                // https://github.com/dtolnay/syn/issues/1352
+                                let mut sg0 = new_sg(out);
+                                let sg = &mut sg0;
+                                let prefix_start = t.paren_token.span.start();
+                                let suffix_start = t.paren_token.span.end().prev();
+                                if out.comments.contains_key(&HashLineColumn(suffix_start)) {
+                                    sg.initial_split();
+                                }
+                                append_comments(out, base_indent, sg, prefix_start);
+                                sg.seg(out, "(");
+                                let indent = base_indent.indent();
+                                let empty = x.leading_vert.is_some() || !x.cases.is_empty();
+                                if empty {
+                                    sg.split(out, indent.clone(), true);
+                                    if let Some(v) = &x.leading_vert {
+                                        append_comments(out, base_indent, sg, v.span.start());
+                                        sg.seg(out, "| ");
+                                    }
+                                    append_inline_list_raw(
+                                        out,
+                                        base_indent,
+                                        sg,
+                                        " |",
+                                        &x.cases,
+                                        InlineListSuffix::<Expr>::None,
+                                    );
+                                }
+                                append_comments(out, &indent, sg, suffix_start);
+                                if !empty {
+                                    sg.split(out, base_indent.clone(), false);
+                                }
+                                sg.seg(out, ")");
+                                return sg0.build(out);
+                            };
+
+                            // A real tuple, do normal generation
+                            at.1.make_segs(out, base_indent)
+                        })
                     } else {
                         new_sg_lit(out, start.map(|s| (base_indent, s)), prefix)
                     }
