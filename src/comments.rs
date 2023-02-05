@@ -345,6 +345,7 @@ struct State {
 
 #[derive(Debug)]
 struct LineState_ {
+    base_prefix_len: VisualLen,
     first_prefix: Option<String>,
     prefix: String,
     explicit_wrap: bool,
@@ -388,6 +389,10 @@ impl LineState_ {
             },
         }
     }
+
+    fn calc_current_len(&self, state: &State) -> VisualLen {
+        self.base_prefix_len + unicode_len(&state.line_buffer)
+    }
 }
 
 /// Line split points, must be interior indexes (no 0 and no text.len())
@@ -402,6 +407,7 @@ struct LineState(Rc<RefCell<LineState_>>);
 
 impl LineState {
     fn new(
+        base_prefix_len: VisualLen,
         first_prefix: Option<String>,
         prefix: String,
         max_width: VisualLen,
@@ -409,6 +415,7 @@ impl LineState {
         explicit_wrap: bool,
     ) -> LineState {
         LineState(Rc::new(RefCell::new(LineState_ {
+            base_prefix_len: base_prefix_len,
             first_prefix,
             prefix,
             explicit_wrap,
@@ -425,6 +432,7 @@ impl LineState {
     fn clone_zero_indent(&self) -> LineState {
         let mut s = self.0.as_ref().borrow_mut();
         LineState(Rc::new(RefCell::new(LineState_ {
+            base_prefix_len: s.base_prefix_len,
             first_prefix: s.first_prefix.take(),
             prefix: s.prefix.clone(),
             explicit_wrap: s.explicit_wrap,
@@ -437,6 +445,7 @@ impl LineState {
     fn clone_indent(&self, first_prefix: Option<String>, prefix: String, explicit_wrap: bool) -> LineState {
         let mut s = self.0.as_ref().borrow_mut();
         LineState(Rc::new(RefCell::new(LineState_ {
+            base_prefix_len: s.base_prefix_len,
             first_prefix: match (s.first_prefix.take(), first_prefix) {
                 (None, None) => None,
                 (None, Some(p)) => Some(format!("{}{}", s.prefix, p)),
@@ -458,7 +467,7 @@ impl LineState {
         /// Finds how much can be written in the current line. Returns
         ///
         /// * how much of text can be written to the current line. If a break is used, will be equal to the
-        ///    break point, but if the whole string is written may be longer
+        ///   break point, but if the whole string is written may be longer
         ///
         /// * If a break is used, the break and the remaining unused breaks
         fn find_writable_len<
@@ -513,7 +522,7 @@ impl LineState {
                     s.flush(state, out, s.explicit_wrap, true);
                 }
                 let (writable, last_break) =
-                    find_writable_len(unicode_len(&state.line_buffer), max_len, &text, breaks_offset, breaks);
+                    find_writable_len(s.calc_current_len(state), max_len, &text, breaks_offset, breaks);
                 if writable > 0 {
                     write_forward(state, s, &text[..writable], last_break.map(|b| b.0));
                     breaks = last_break.map(|b| b.1).unwrap_or(breaks);
@@ -526,7 +535,7 @@ impl LineState {
             }
         }
 
-        let (writable, last_break) = find_writable_len(unicode_len(&state.line_buffer), max_len, text, 0, breaks);
+        let (writable, last_break) = find_writable_len(s.calc_current_len(state), max_len, text, 0, breaks);
         if writable > 0 {
             write_forward(state, &mut s, &text[..writable], last_break.map(|b| b.0));
             write_forward_breaks(
@@ -897,7 +906,14 @@ pub fn format_md(
         recurse_write(
             &mut state,
             &mut out,
-            LineState::new(None, prefix.to_string(), VisualLen(max_width), rel_max_width.map(VisualLen), false),
+            LineState::new(
+                unicode_len(&prefix),
+                None,
+                prefix.to_string(),
+                VisualLen(max_width),
+                rel_max_width.map(VisualLen),
+                false,
+            ),
             &ast,
             false,
         );
