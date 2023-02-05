@@ -101,3 +101,10 @@ fn format_split_punct_cross_inline1() {
     format_md(&mut res, 10, None, "__", "abcd `abc`.").unwrap();
     assert_eq!(res, "__abcd\n__`abc`.");
 }
+
+#[test]
+fn format_rel_width1() {
+    let mut res = String::new();
+    format_md(&mut res, 0, Some(10), "// ", "a b c d e f").unwrap();
+    assert_eq!(res, "// a b c d e\n// f");
+}
