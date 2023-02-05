@@ -108,3 +108,10 @@ fn format_rel_width1() {
     format_md(&mut res, 0, Some(10), "// ", "a b c d e f").unwrap();
     assert_eq!(res, "// a b c d e\n// f");
 }
+
+#[test]
+fn format_overflow_use_next_break1() {
+    let mut res = String::new();
+    format_md(&mut res, 0, Some(10), "// ", "`abcd abcd` a b c d").unwrap();
+    assert_eq!(res, "// `abcd abcd`\n// a b c d");
+}

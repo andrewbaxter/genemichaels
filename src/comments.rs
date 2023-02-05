@@ -464,12 +464,16 @@ impl LineState {
         let mut s = self.0.as_ref().borrow_mut();
         let max_len = s.calc_max_width();
 
-        /// Finds how much can be written in the current line. Returns
-        ///
-        /// * how much of text can be written to the current line. If a break is used, will be equal to the
-        ///   break point, but if the whole string is written may be longer
-        ///
-        /// * If a break is used, the break and the remaining unused breaks
+        struct FoundWritableLen<'a> {
+            /// How much of text can be written to the current line. If a break is used, will be equal to the
+            /// break point, but if the whole string is written may be longer
+            writable: usize,
+            /// If a break is used, the break and the remaining unused breaks
+            previous_break: Option<(usize, &'a [usize])>,
+            /// The next break after the last break before the max length, 2nd fallback (after retro-break)
+            next_break: Option<(usize, &'a [usize])>,
+        }
+
         fn find_writable_len<
             'a,
         >(
@@ -478,22 +482,31 @@ impl LineState {
             text: &str,
             breaks_offset: usize,
             breaks: &'a [usize],
-        ) -> (usize, Option<(usize, &'a [usize])>) {
+        ) -> FoundWritableLen<'a> {
             let mut previous_break = None;
             let mut writable = 0;
             for (i, b) in breaks.iter().enumerate() {
                 let b = *b - breaks_offset;
+                let next_break = Some((b, &breaks[i + 1..]));
                 if width + unicode_len(&text[..b]) > max_len {
-                    return (writable, previous_break);
+                    return FoundWritableLen {
+                        writable: writable,
+                        previous_break: previous_break,
+                        next_break: next_break,
+                    };
                 }
-                previous_break = Some((b, &breaks[i + 1..]));
+                previous_break = next_break;
                 writable = b;
             }
-            return (if width + unicode_len(&text) > max_len {
-                writable
-            } else {
-                text.len()
-            }, previous_break);
+            return FoundWritableLen {
+                writable: if width + unicode_len(&text) > max_len {
+                    writable
+                } else {
+                    text.len()
+                },
+                previous_break: previous_break,
+                next_break: None,
+            };
         }
 
         /// Write new text following a break, storing the new break point with it
@@ -521,13 +534,17 @@ impl LineState {
                 } else {
                     s.flush(state, out, s.explicit_wrap, true);
                 }
-                let (writable, last_break) =
-                    find_writable_len(s.calc_current_len(state), max_len, &text, breaks_offset, breaks);
-                if writable > 0 {
-                    write_forward(state, s, &text[..writable], last_break.map(|b| b.0));
-                    breaks = last_break.map(|b| b.1).unwrap_or(breaks);
-                    text = text.split_off(writable);
-                    breaks_offset += writable;
+                let found = find_writable_len(s.calc_current_len(state), max_len, &text, breaks_offset, breaks);
+                if found.writable > 0 {
+                    write_forward(state, s, &text[..found.writable], found.previous_break.map(|b| b.0));
+                    breaks = found.previous_break.map(|b| b.1).unwrap_or(breaks);
+                    text = text.split_off(found.writable);
+                    breaks_offset += found.writable;
+                } else if let Some((b, breaks0)) = found.next_break {
+                    write_forward(state, s, &text[..b], Some(b));
+                    breaks = breaks0;
+                    text = text.split_off(b);
+                    breaks_offset += b;
                 } else {
                     state.line_buffer.push_str(&text);
                     return;
@@ -535,18 +552,18 @@ impl LineState {
             }
         }
 
-        let (writable, last_break) = find_writable_len(s.calc_current_len(state), max_len, text, 0, breaks);
-        if writable > 0 {
-            write_forward(state, &mut s, &text[..writable], last_break.map(|b| b.0));
+        let found = find_writable_len(s.calc_current_len(state), max_len, text, 0, breaks);
+        if found.writable > 0 {
+            write_forward(state, &mut s, &text[..found.writable], found.previous_break.map(|b| b.0));
             write_forward_breaks(
                 state,
                 &mut s,
                 out,
                 max_len,
                 false,
-                (&text[writable..]).to_string(),
-                writable,
-                last_break.map(|b| b.1).unwrap_or(breaks),
+                (&text[found.writable..]).to_string(),
+                found.writable,
+                found.previous_break.map(|b| b.1).unwrap_or(breaks),
             );
         } else if let Some((at, explicit_wrap)) = s.backward_break.take() {
             // Couldn't split forward but there's a retroactive split point in previously written segments
@@ -554,6 +571,10 @@ impl LineState {
             s.flush(state, out, explicit_wrap, true);
             state.line_buffer.push_str(&prefix);
             write_forward_breaks(state, &mut s, out, max_len, true, text.to_string(), 0, breaks);
+        } else if let Some((b, breaks)) = found.next_break {
+            // No retroactive split, try first split after max len (overflow, but better than nothing)
+            write_forward(state, &mut s, &text[..b], Some(b));
+            write_forward_breaks(state, &mut s, out, max_len, false, (&text[b..]).to_string(), b, breaks);
         } else {
             state.line_buffer.push_str(text);
             return;
