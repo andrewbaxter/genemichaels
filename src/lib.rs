@@ -59,6 +59,14 @@ pub fn join_strs(sep: &str, v: &[&str]) -> String {
     v.join(sep)
 }
 
+pub fn style_lit(l: &str) -> String {
+    console::Style::new().bold().apply_to(l).to_string()
+}
+
+pub fn style_name(l: &str) -> String {
+    l.to_string()
+}
+
 #[doc(hidden)]
 pub fn generate_help_section_usage_prefix(state: &VarkState) -> (String, HashSet<String>) {
     let mut text = "Usage: ".to_string();
@@ -66,7 +74,7 @@ pub fn generate_help_section_usage_prefix(state: &VarkState) -> (String, HashSet
         if i > 0 {
             text.push_str(" ");
         }
-        text.push_str(&s);
+        text.push_str(&style_lit(s));
     }
     return (text, HashSet::new());
 }
@@ -75,7 +83,7 @@ pub fn generate_help_section_usage_prefix(state: &VarkState) -> (String, HashSet
 pub fn generate_help_section_suffix(
     docstr: &str,
     placeholders: Vec<&str>,
-    placeholders_detail: Vec<(String, &str)>,
+    placeholders_detail: Vec<(&str, &str)>,
     joiner: &str,
 ) -> String {
     let mut out = String::new();
@@ -97,7 +105,10 @@ pub fn generate_help_section_suffix(
     for (placeholder, docstr) in placeholders_detail {
         table.add_row(vec![comfy_table::Cell::new(placeholder), Cell::new(docstr)]);
     }
-    table.set_constraints(vec![comfy_table::ColumnConstraint::UpperBoundary(comfy_table::Width::Percentage(60))]);
+    table.set_constraints(vec![comfy_table::ColumnConstraint::Boundaries {
+        lower: comfy_table::Width::Percentage(20),
+        upper: comfy_table::Width::Percentage(60),
+    }]);
     out.push_str(&table.to_string());
     out.push_str("\n\n");
     out
@@ -178,7 +189,7 @@ pub fn vark_explicit<T: AargvarkTrait>(command: String, args: Vec<String>) -> T 
                 text.push_str(&" ".repeat(*display_arg_offsets.get(e.i).unwrap()));
                 text.push_str("^\n");
             }
-            eprintln!("{}", text);
+            eprintln!("{}\n", text);
             exit(1);
         },
         R::Ok(v) => {
@@ -194,7 +205,7 @@ pub fn vark_explicit<T: AargvarkTrait>(command: String, args: Vec<String>) -> T 
         R::Help => {
             let (mut text, mut seen_sections) = generate_help_section_usage_prefix(&state);
             T::generate_help_section_suffix(&mut text, &mut seen_sections);
-            eprintln!("{}", text);
+            eprintln!("{}\n", text.trim());
             exit(0);
         },
     }
@@ -261,7 +272,7 @@ macro_rules! auto_from_str{
             }
 
             fn generate_help_placeholder() -> String {
-                format!("<{}>", $placeholder)
+                format!("<{}>", style_lit($placeholder))
             }
         }
     };
