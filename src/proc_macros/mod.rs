@@ -28,11 +28,19 @@ fn get_docstr(attrs: &Vec<Attribute>) -> String {
         if !tokens.next().map(|t| t.to_string().as_str() == "=").unwrap_or(false) {
             continue;
         }
-        let s = match tokens.next() {
-            Some(s) => s.to_string(),
-            None => continue,
-        };
-        return s;
+        let mut out = String::new();
+        for t in tokens {
+            match t {
+                proc_macro2::TokenTree::Group(_) => continue,
+                proc_macro2::TokenTree::Ident(_) => continue,
+                proc_macro2::TokenTree::Punct(_) => continue,
+                proc_macro2::TokenTree::Literal(l) => {
+                    let s = l.to_string();
+                    out.push_str(&s[1 .. s.len() - 1]);
+                },
+            }
+        }
+        return out.trim().to_string();
     }
     return "".to_string();
 }
@@ -49,10 +57,10 @@ fn gen_impl_type(ty: &Type, path: &str) -> GenRec {
         Type::Path(t) => {
             return GenRec {
                 vark: quote!{
-                    #t:: vark(state)
+                    < #t >:: vark(state)
                 },
                 help_child_placeholders: vec![quote!{
-                    #t:: generate_help_placeholder()
+                    &< #t >:: generate_help_placeholder()
                 }],
                 help_child_placeholders_detail: vec![],
                 help_recurse: vec![t.clone()],
@@ -410,7 +418,7 @@ fn gen_impl(ast: syn::DeriveInput) -> TokenStream {
             let mut help_placeholders_detail = vec![];
             let mut help_short_placeholders = vec![];
             let mut help_short_placeholders_detail = vec![];
-            help_child_placeholder_joiner = quote!("|");
+            help_child_placeholder_joiner = quote!(" | ");
             for v in &d.variants {
                 let variant_ident = &v.ident;
                 let name_str = variant_ident.to_string().to_case(Case::Kebab);
@@ -430,11 +438,17 @@ fn gen_impl(ast: syn::DeriveInput) -> TokenStream {
                                 aargvark:: join_strs("", &[#(&format!(" {}", #help_child_placeholders)), *])
                             )
                         ),
-                        help_docstr,
+                        help_docstr.clone(),
                     ),
                 );
                 help_recurse.extend(gen.help_recurse);
                 let vark = gen.vark;
+                let help_child_placeholders_detail: Vec<TokenStream> =
+                    gen
+                        .help_child_placeholders_detail
+                        .iter()
+                        .map(|(placeholder, docstr)| quote!((#placeholder, #docstr)))
+                        .collect();
                 vark_cases.push(quote!{
                     #name_str => {
                         state.consume();
@@ -443,8 +457,17 @@ fn gen_impl(ast: syn::DeriveInput) -> TokenStream {
                         if simple_enum_root && matches !(v, R::Help) {
                             let (mut text, mut seen_sections) =
                                 aargvark::generate_help_section_usage_prefix(state);
-                            #ident:: generate_help_section_suffix(&mut text, &mut seen_sections);
-                            eprintln!("{}", text);
+                            text.push_str(
+                                & aargvark:: generate_help_section_suffix(
+                                    #help_docstr,
+                                    vec![#(#help_child_placeholders), *],
+                                    vec![#(#help_child_placeholders_detail), *],
+                                    " "
+                                )
+                            );
+                            #(
+                                < #help_recurse >:: generate_help_section(&mut text, &mut seen_sections);
+                            ) * eprintln !("{}", text.trim());
                             std::process::exit(0);
                         }
                         state.breadcrumbs.pop();
@@ -452,7 +475,7 @@ fn gen_impl(ast: syn::DeriveInput) -> TokenStream {
                     }
                 });
             }
-            let help_child_short_placeholders_detail: Vec<TokenStream> =
+            let help_short_placeholders_detail: Vec<TokenStream> =
                 help_short_placeholders_detail
                     .iter()
                     .map(|(placeholder, docstr)| quote!((#placeholder, #docstr)))
@@ -471,11 +494,11 @@ fn gen_impl(ast: syn::DeriveInput) -> TokenStream {
                                         & aargvark:: generate_help_section_suffix(
                                             #help_docstr,
                                             vec![#(#help_short_placeholders), *],
-                                            vec![#(#help_child_short_placeholders_detail), *],
+                                            vec![#(#help_short_placeholders_detail), *],
                                             #help_child_placeholder_joiner
                                         )
                                     );
-                                    eprintln!("{}", text);
+                                    eprintln!("{}", text.trim());
                                     std::process::exit(0);
                                 }
                                 else {
@@ -523,6 +546,9 @@ fn gen_impl(ast: syn::DeriveInput) -> TokenStream {
                 use aargvark::PeekR;
                 #vark
             }
+            fn always_opt() -> bool {
+                false
+            }
             fn generate_help_placeholder() -> String {
                 format!("{}", #help_placeholder)
             }
@@ -535,15 +561,15 @@ fn gen_impl(ast: syn::DeriveInput) -> TokenStream {
                         #help_child_placeholder_joiner
                     )
                 );
-                #(#help_recurse:: generate_help_section(text, seen_sections);) *
+                #(< #help_recurse >:: generate_help_section(text, seen_sections);) *
             }
             fn generate_help_section(text: &mut String, seen_sections: &mut std::collections::HashSet<String>) {
                 if ! seen_sections.insert(#help_placeholder.to_string()) {
                     return;
                 }
                 text.push_str(#help_placeholder);
-                text.push_str(": ");
-                #ident:: generate_help_section_suffix(text, seen_sections);
+                text.push_str(":");
+                < #ident >:: generate_help_section_suffix(text, seen_sections);
             }
         }
     };

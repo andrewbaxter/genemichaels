@@ -21,14 +21,8 @@ use std::{
         OsString,
     },
 };
-pub use aargvark_proc_macros;
-pub use anyhow::{
-    Context,
-    Error,
-    Result,
-};
+pub use aargvark_proc_macros::Aargvark;
 use comfy_table::Cell;
-pub use once_cell::sync::Lazy;
 
 struct VarkErr {
     i: usize,
@@ -67,9 +61,11 @@ pub fn join_strs(sep: &str, v: &[&str]) -> String {
 
 #[doc(hidden)]
 pub fn generate_help_section_usage_prefix(state: &VarkState) -> (String, HashSet<String>) {
-    let mut text = "Usage:".to_string();
-    for s in &state.breadcrumbs {
-        text.push_str(" ");
+    let mut text = "Usage: ".to_string();
+    for (i, s) in state.breadcrumbs.iter().enumerate() {
+        if i > 0 {
+            text.push_str(" ");
+        }
         text.push_str(&s);
     }
     return (text, HashSet::new());
@@ -83,14 +79,17 @@ pub fn generate_help_section_suffix(
     joiner: &str,
 ) -> String {
     let mut out = String::new();
-    for p in placeholders {
-        out.push_str(joiner);
+    out.push_str(" ");
+    for (i, p) in placeholders.iter().enumerate() {
+        if i > 0 {
+            out.push_str(joiner);
+        }
         out.push_str(p);
     }
     out.push_str("\n\n");
     if !docstr.is_empty() {
         out.push_str(docstr);
-        out.push_str("\n\n");
+        out.push_str("\n");
     }
     let mut table = comfy_table::Table::new();
     table.load_preset(comfy_table::presets::NOTHING);
@@ -100,7 +99,7 @@ pub fn generate_help_section_suffix(
     }
     table.set_constraints(vec![comfy_table::ColumnConstraint::UpperBoundary(comfy_table::Width::Percentage(60))]);
     out.push_str(&table.to_string());
-    out.push_str("\n");
+    out.push_str("\n\n");
     out
 }
 
@@ -212,6 +211,7 @@ pub fn vark<T: AargvarkTrait>() -> T {
 /// parsable enums/structs.
 pub trait AargvarkTrait: Sized {
     fn vark(state: &mut VarkState) -> R<Self>;
+    fn always_opt() -> bool;
     fn generate_help_placeholder() -> String;
     fn generate_help_section(text: &mut String, seen_sections: &mut HashSet<String>);
     fn generate_help_section_suffix(text: &mut String, seen_sections: &mut HashSet<String>);
@@ -240,6 +240,10 @@ impl<T: AargvarkFromStr> AargvarkTrait for T {
         }
     }
 
+    fn always_opt() -> bool {
+        false
+    }
+
     fn generate_help_placeholder() -> String {
         T::generate_help_placeholder()
     }
@@ -250,43 +254,67 @@ impl<T: AargvarkFromStr> AargvarkTrait for T {
 }
 
 macro_rules! auto_from_str{
-    ($t: ty) => {
+    ($placeholder: literal, $t: ty) => {
         impl AargvarkFromStr for $t {
             fn from_str(s: &str) -> Result<Self, String> {
                 <Self as std::str::FromStr>::from_str(s).map_err(|e| e.to_string())
             }
 
             fn generate_help_placeholder() -> String {
-                format!(
-                    "<{}>",
-                    convert_case::Casing::to_case(&std::any::type_name::<Self>(), convert_case::Case::UpperKebab)
-                )
+                format!("<{}>", $placeholder)
             }
         }
     };
 }
 
-auto_from_str!(String);
+auto_from_str!("STRING", String);
 
-auto_from_str!(OsString);
+auto_from_str!("INT", u8);
 
-auto_from_str!(SocketAddr);
+auto_from_str!("INT", u16);
 
-auto_from_str!(SocketAddrV4);
+auto_from_str!("INT", u32);
 
-auto_from_str!(SocketAddrV6);
+auto_from_str!("INT", u64);
 
-auto_from_str!(IpAddr);
+auto_from_str!("INT", i8);
 
-auto_from_str!(Ipv4Addr);
+auto_from_str!("INT", i16);
 
-auto_from_str!(Ipv6Addr);
+auto_from_str!("INT", i32);
 
-auto_from_str!(PathBuf);
+auto_from_str!("INT", i64);
+
+auto_from_str!("INT", f32);
+
+auto_from_str!("NUM", f64);
+
+auto_from_str!("STRING", OsString);
+
+auto_from_str!("SOCKET", SocketAddr);
+
+auto_from_str!("SOCKETV4", SocketAddrV4);
+
+auto_from_str!("SOCKETV6", SocketAddrV6);
+
+auto_from_str!("IP", IpAddr);
+
+auto_from_str!("IPV4", Ipv4Addr);
+
+auto_from_str!("IPV6", Ipv6Addr);
+
+auto_from_str!("PATH", PathBuf);
+
+#[cfg(feature = "http_types")]
+auto_from_str!("URI", http::Uri);
 
 impl AargvarkTrait for bool {
     fn vark(state: &mut VarkState) -> R<Self> {
         return state.r_ok(true);
+    }
+
+    fn always_opt() -> bool {
+        true
     }
 
     fn generate_help_placeholder() -> String {
@@ -324,14 +352,14 @@ impl AargvarkFromStr for AargvarkFile {
 
 /// This parses a path (or - for stdin) passed on the command line as json into the
 /// specified type.
-#[cfg(serde_json)]
-pub struct AargvarkJson<T>(T);
+#[cfg(feature = "serde_json")]
+pub struct AargvarkJson<T>(pub T);
 
-#[cfg(serde_json)]
-impl<T: Deserialize> AargvarkFromStr for AargvarkJson<T> {
+#[cfg(feature = "serde_json")]
+impl<T: for<'a> serde::Deserialize<'a>> AargvarkFromStr for AargvarkJson<T> {
     fn from_str(s: &str) -> Result<Self, String> {
         let b = AargvarkFile::from_str(s)?;
-        match serde_json::from_str(b) {
+        match serde_json::from_slice(&b.0) {
             Ok(v) => return Ok(Self(v)),
             Err(e) => return Err(e.to_string()),
         };
@@ -344,14 +372,14 @@ impl<T: Deserialize> AargvarkFromStr for AargvarkJson<T> {
 
 /// This parses a path (or - for stdin) passed on the command line as yaml into the
 /// specified type.
-#[cfg(serde_yaml)]
-pub struct AargvarkYaml<T>(T);
+#[cfg(feature = "serde_yaml")]
+pub struct AargvarkYaml<T>(pub T);
 
-#[cfg(serde_yaml)]
-impl<T: Deserialize> AargvarkFromStr for AargvarkYaml<T> {
+#[cfg(feature = "serde_yaml")]
+impl<T: for<'a> serde::Deserialize<'a>> AargvarkFromStr for AargvarkYaml<T> {
     fn from_str(s: &str) -> Result<Self, String> {
         let b = AargvarkFile::from_str(s)?;
-        match serde_yaml::from_str(b) {
+        match serde_yaml::from_slice(&b.0) {
             Ok(v) => return Ok(Self(v)),
             Err(e) => return Err(e.to_string()),
         };
@@ -394,6 +422,10 @@ impl<T: AargvarkTrait> AargvarkTrait for Vec<T> {
         return vark_from_iter(state);
     }
 
+    fn always_opt() -> bool {
+        false
+    }
+
     fn generate_help_placeholder() -> String {
         format!("{}[ ...]", T::generate_help_placeholder())
     }
@@ -410,6 +442,10 @@ impl<T: AargvarkTrait> AargvarkTrait for Vec<T> {
 impl<T: AargvarkTrait + Eq + Hash> AargvarkTrait for HashSet<T> {
     fn vark(state: &mut VarkState) -> R<Self> {
         return vark_from_iter(state);
+    }
+
+    fn always_opt() -> bool {
+        false
     }
 
     fn generate_help_placeholder() -> String {

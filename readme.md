@@ -39,15 +39,15 @@ To parse command line arguments
 
 2. Vark it
    ```
-   let args = MyArgs::vark();
+   let args = aargvark::vark::<MyArgs>();
    ```
 
 You can derive structs, enums, and tuples, as well as `Vec`, `HashSet`, most `Ip` and `SocketAddr` types, and `PathBuf`.
 
 There are also custom structs for reading files:
 
-- `VarkFile<T>`
-- `VarkJson<T>`
-- `VarkYaml<T>`
+- `AargvarkFile<T>`
+- `AargvarkJson<T>`
+- `AargvarkYaml<T>`
 
 For JSON and Yaml you must enable the respective features.
