@@ -1,0 +1,21 @@
+[package]
+name = "aargvark_proc_macros"
+version = "0.0.1"
+edition = "2021"
+license = "ISC"
+description = "Helper crate for aargvark"
+homepage = "https://github.com/andrewbaxter/aargvark"
+repository = "https://github.com/andrewbaxter/aargvark"
+readme = "../../readme.md"
+
+[lib]
+proc-macro = true
+path = "mod.rs"
+
+[dependencies]
+convert_case = "0.6.0"
+litrs = "0.2.3"
+proc-macro2 = "1.0.47"
+quote = "1.0.21"
+regex-syntax = "0.6.28"
+syn = "1.0.103"
