@@ -18,7 +18,7 @@ serde_yaml = ["dep:serde_yaml", "dep:serde"]
 http_types = ["dep:http"]
 
 [dependencies]
-aargvark_proc_macros = { path = "src/proc_macros", version = "0.0.1" }
+aargvark_proc_macros = { path = "src/proc_macros", version = "0.0.2" }
 serde_json = { version = "1", optional = true }
 serde_yaml = { version = "0", optional = true }
 convert_case = "0.6.0"
