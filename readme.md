@@ -1,12 +1,32 @@
-Self-similar derive-based argument parsing, similar to Clap-derive.
+Self-similar derive-based command line argument parsing, in the same genre as Clap-derive.
 
-This attempts to implement a simple, self-similar structure for parsing arbitrarily complex command line arguments. Like with Serde, you can combine structs, vecs, enums in any way you want.
+This attempts to support parsing arbitrarily complex command line arguments. Like with Serde, you can combine structs, vecs, enums in any way you want. Just because you can doesn't mean you should.
+
+```
+$ echo This is an example help output, sans light ansi styling
+$ ./target/debug/spagh-cli publish -h
+Usage: ./target/debug/spagh-cli publish PUBLISH
+
+Create or replace existing publish data for an identity on a publisher server
+
+
+PUBLISH: SERVER IDENTITY DATA
+
+ SERVER: <URI>                          URL of a server with publishing set up
+ IDENTITY: IDENTITY                     Identity to publish as
+ DATA: <PATH>|-                         Data to publish.  Must be json in the structure `{KEY: {"ttl": SECONDS, "value": "DATA"}, ...}`
+
+IDENTITY: local | card
+
+ local <PATH>|-
+ card PCSC-ID PIN
+```
 
 # Why or why not
 
 Why this and not Clap?
 
-- This parse more complex data types, like vectors of sub-structures, or enums
+- This parses more complex data types, like vectors of sub-structures, or enums
 - It's more consistent
 - It has a super-simple interface (just `#[derive(Aargvark)]`)
 
@@ -42,12 +62,12 @@ To parse command line arguments
    let args = aargvark::vark::<MyArgs>();
    ```
 
-You can derive structs, enums, and tuples, as well as `Vec`, `HashSet`, most `Ip` and `SocketAddr` types, and `PathBuf`.
+Optional fields in structs become `--long` arguments. If you want a `bool` long option that's enabled if the flag is specified (i.e. doesn't take a value), use `Option<()>`.
 
-There are also custom structs for reading files:
+You can derive structs, enums, and tuples, and there are implementations for `Vec`, `HashSet`, most `Ip` and `SocketAddr` types, and `PathBuf` provided.
+
+Some additional wrappers are provided from automatically loading (and parsing) files:
 
 - `AargvarkFile<T>`
-- `AargvarkJson<T>`
-- `AargvarkYaml<T>`
-
-For JSON and Yaml you must enable the respective features.
+- `AargvarkJson<T>` requires feature `serde_json`
+- `AargvarkYaml<T>` requires feature `serde_yaml`

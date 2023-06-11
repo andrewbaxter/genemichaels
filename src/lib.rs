@@ -222,7 +222,6 @@ pub fn vark<T: AargvarkTrait>() -> T {
 /// parsable enums/structs.
 pub trait AargvarkTrait: Sized {
     fn vark(state: &mut VarkState) -> R<Self>;
-    fn always_opt() -> bool;
     fn generate_help_placeholder() -> String;
     fn generate_help_section(text: &mut String, seen_sections: &mut HashSet<String>);
     fn generate_help_section_suffix(text: &mut String, seen_sections: &mut HashSet<String>);
@@ -249,10 +248,6 @@ impl<T: AargvarkFromStr> AargvarkTrait for T {
             },
             Err(e) => return state.r_err(e),
         }
-    }
-
-    fn always_opt() -> bool {
-        false
     }
 
     fn generate_help_placeholder() -> String {
@@ -324,10 +319,6 @@ impl AargvarkTrait for bool {
         return state.r_ok(true);
     }
 
-    fn always_opt() -> bool {
-        true
-    }
-
     fn generate_help_placeholder() -> String {
         return "<BOOL>".to_string();
     }
@@ -357,7 +348,7 @@ impl AargvarkFromStr for AargvarkFile {
     }
 
     fn generate_help_placeholder() -> String {
-        format!("<PATH|->")
+        format!("<{}>|{}", style_lit("PATH"), style_lit("-"))
     }
 }
 
@@ -377,7 +368,14 @@ impl<T: for<'a> serde::Deserialize<'a>> AargvarkFromStr for AargvarkJson<T> {
     }
 
     fn generate_help_placeholder() -> String {
-        format!("<PATH|->")
+        format!("<{}>|{}", style_lit("PATH"), style_lit("-"))
+    }
+}
+
+#[cfg(feature = "serde_json")]
+impl<T: Clone> Clone for AargvarkJson<T> {
+    fn clone(&self) -> Self {
+        AargvarkJson(self.0.clone())
     }
 }
 
@@ -397,7 +395,14 @@ impl<T: for<'a> serde::Deserialize<'a>> AargvarkFromStr for AargvarkYaml<T> {
     }
 
     fn generate_help_placeholder() -> String {
-        format!("<PATH|->")
+        format!("<{}>|{}", style_lit("PATH"), style_lit("-"))
+    }
+}
+
+#[cfg(feature = "serde_yaml")]
+impl<T: Clone> Clone for AargvarkYaml<T> {
+    fn clone(&self) -> Self {
+        AargvarkYaml(self.0.clone())
     }
 }
 
@@ -433,10 +438,6 @@ impl<T: AargvarkTrait> AargvarkTrait for Vec<T> {
         return vark_from_iter(state);
     }
 
-    fn always_opt() -> bool {
-        false
-    }
-
     fn generate_help_placeholder() -> String {
         format!("{}[ ...]", T::generate_help_placeholder())
     }
@@ -453,10 +454,6 @@ impl<T: AargvarkTrait> AargvarkTrait for Vec<T> {
 impl<T: AargvarkTrait + Eq + Hash> AargvarkTrait for HashSet<T> {
     fn vark(state: &mut VarkState) -> R<Self> {
         return vark_from_iter(state);
-    }
-
-    fn always_opt() -> bool {
-        false
     }
 
     fn generate_help_placeholder() -> String {

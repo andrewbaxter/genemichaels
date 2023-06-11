@@ -539,9 +539,6 @@ fn gen_impl(ast: syn::DeriveInput) -> TokenStream {
                 use aargvark::PeekR;
                 #vark
             }
-            fn always_opt() -> bool {
-                false
-            }
             fn generate_help_placeholder() -> String {
                 aargvark:: style_name(#help_placeholder)
             }
