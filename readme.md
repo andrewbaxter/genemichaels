@@ -1,4 +1,7 @@
-Self-similar derive-based command line argument parsing, in the same genre as Clap-derive.
+Self-similar derive-based command line argument parsing, in the same genre as Clap-derive. It supports
+
+- Command line parsing
+- Help
 
 This attempts to support parsing arbitrarily complex command line arguments. Like with Serde, you can combine structs, vecs, enums in any way you want. Just because you can doesn't mean you should.
 
