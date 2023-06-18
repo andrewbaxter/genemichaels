@@ -176,8 +176,10 @@ pub fn vark_explicit<T: AargvarkTrait>(command: String, args: Vec<String>) -> T 
                     display_arg_offsets.push(offset);
                     offset += d.chars().count() + 1;
                 }
+                display_arg_offsets.push(offset);
             }
-            let display_args = display_args.join(" ");
+            let mut display_args = display_args.join(" ");
+            display_args.push_str(" <END>");
             let mut text = "Error parsing command line arguments.\n".to_string();
             state.errors.reverse();
             for e in state.errors {
@@ -188,15 +190,7 @@ pub fn vark_explicit<T: AargvarkTrait>(command: String, args: Vec<String>) -> T 
                 text.push_str(&display_args);
                 text.push_str("\n");
                 text.push_str("   ");
-                text.push_str(
-                    &" ".repeat(
-                        display_arg_offsets
-                            .get(e.i)
-                            .cloned()
-                            .or_else(|| display_arg_offsets.last().cloned())
-                            .unwrap_or(0usize),
-                    ),
-                );
+                text.push_str(&" ".repeat(display_arg_offsets.get(e.i).cloned().unwrap_or(0usize)));
                 text.push_str("^\n");
             }
             eprintln!("{}\n", text);
