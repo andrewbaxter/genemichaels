@@ -183,10 +183,20 @@ pub fn vark_explicit<T: AargvarkTrait>(command: String, args: Vec<String>) -> T 
             for e in state.errors {
                 text.push_str("\n");
                 text.push_str(&format!(" * {}\n", e.err));
-                text.push_str(&format!("while parsing {:?} at\n", e.breadcrumbs));
+                text.push_str(&format!("  while parsing {:?} at\n", e.breadcrumbs));
+                text.push_str("   ");
                 text.push_str(&display_args);
                 text.push_str("\n");
-                text.push_str(&" ".repeat(*display_arg_offsets.get(e.i).unwrap()));
+                text.push_str("   ");
+                text.push_str(
+                    &" ".repeat(
+                        display_arg_offsets
+                            .get(e.i)
+                            .cloned()
+                            .or_else(|| display_arg_offsets.last().cloned())
+                            .unwrap_or(0usize),
+                    ),
+                );
                 text.push_str("^\n");
             }
             eprintln!("{}\n", text);
