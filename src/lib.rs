@@ -332,20 +332,35 @@ impl AargvarkTrait for bool {
     fn generate_help_section_suffix(_text: &mut String, _seen_sections: &mut HashSet<String>) { }
 }
 
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub enum Source {
+    Stdin,
+    File(PathBuf),
+}
+
 /// This parses a path (or - for stdin) passed on the command line into bytes.
-pub struct AargvarkFile(Vec<u8>);
+pub struct AargvarkFile {
+    pub value: Vec<u8>,
+    pub source: Source,
+}
 
 impl AargvarkFromStr for AargvarkFile {
     fn from_str(s: &str) -> Result<Self, String> {
         if s == "-" {
             let mut out = vec![];
             match stdin().read_to_end(&mut out) {
-                Ok(_) => return Ok(Self(out)),
+                Ok(_) => return Ok(Self {
+                    value: out,
+                    source: Source::Stdin,
+                }),
                 Err(e) => return Err(format!("Error reading stdin: {}", e)),
             };
         } else {
             match fs::read(s) {
-                Ok(v) => return Ok(Self(v)),
+                Ok(v) => return Ok(Self {
+                    value: v,
+                    source: Source::File(PathBuf::from(s)),
+                }),
                 Err(e) => return Err(format!("Error reading {}: {}", s, e)),
             };
         }
@@ -359,14 +374,20 @@ impl AargvarkFromStr for AargvarkFile {
 /// This parses a path (or - for stdin) passed on the command line as json into the
 /// specified type.
 #[cfg(feature = "serde_json")]
-pub struct AargvarkJson<T>(pub T);
+pub struct AargvarkJson<T> {
+    pub value: T,
+    pub source: Source,
+}
 
 #[cfg(feature = "serde_json")]
 impl<T: for<'a> serde::Deserialize<'a>> AargvarkFromStr for AargvarkJson<T> {
     fn from_str(s: &str) -> Result<Self, String> {
         let b = AargvarkFile::from_str(s)?;
-        match serde_json::from_slice(&b.0) {
-            Ok(v) => return Ok(Self(v)),
+        match serde_json::from_slice(&b.value) {
+            Ok(v) => return Ok(Self {
+                value: v,
+                source: b.source,
+            }),
             Err(e) => return Err(e.to_string()),
         };
     }
@@ -379,21 +400,30 @@ impl<T: for<'a> serde::Deserialize<'a>> AargvarkFromStr for AargvarkJson<T> {
 #[cfg(feature = "serde_json")]
 impl<T: Clone> Clone for AargvarkJson<T> {
     fn clone(&self) -> Self {
-        AargvarkJson(self.0.clone())
+        return AargvarkJson {
+            value: self.value.clone(),
+            source: self.source.clone(),
+        };
     }
 }
 
 /// This parses a path (or - for stdin) passed on the command line as yaml into the
 /// specified type.
 #[cfg(feature = "serde_yaml")]
-pub struct AargvarkYaml<T>(pub T);
+pub struct AargvarkYaml<T> {
+    pub value: T,
+    pub source: Source,
+}
 
 #[cfg(feature = "serde_yaml")]
 impl<T: for<'a> serde::Deserialize<'a>> AargvarkFromStr for AargvarkYaml<T> {
     fn from_str(s: &str) -> Result<Self, String> {
         let b = AargvarkFile::from_str(s)?;
-        match serde_yaml::from_slice(&b.0) {
-            Ok(v) => return Ok(Self(v)),
+        match serde_yaml::from_slice(&b.value) {
+            Ok(v) => return Ok(Self {
+                value: v,
+                source: b.source,
+            }),
             Err(e) => return Err(e.to_string()),
         };
     }
@@ -406,7 +436,10 @@ impl<T: for<'a> serde::Deserialize<'a>> AargvarkFromStr for AargvarkYaml<T> {
 #[cfg(feature = "serde_yaml")]
 impl<T: Clone> Clone for AargvarkYaml<T> {
     fn clone(&self) -> Self {
-        AargvarkYaml(self.0.clone())
+        return AargvarkYaml {
+            value: self.value.clone(),
+            source: self.source.clone(),
+        };
     }
 }
 
