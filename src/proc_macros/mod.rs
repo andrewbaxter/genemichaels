@@ -188,7 +188,7 @@ fn gen_impl_struct(ident: TokenStream, d: &Fields) -> GenRec {
                     help_placeholders_detail.push((quote!{
                         &format!(
                             "{}{}",
-                            aargvark:: style_lit(#flag),
+                            #flag,
                             aargvark:: join_strs("", &[#(&format!(" {}", #help_child_placeholders)), *])
                         )
                     }, help_docstr));
@@ -235,12 +235,12 @@ fn gen_impl_struct(ident: TokenStream, d: &Fields) -> GenRec {
                 };
                 let gen = gen_impl_type(&f.ty, &ident.to_string());
                 help_recurse.extend(gen.help_recurse);
-                help_placeholders.push(quote!(& aargvark:: style_name(#help_placeholder)));
+                help_placeholders.push(quote!(& aargvark:: style_link(#help_placeholder)));
                 let help_child_placeholders = gen.help_child_placeholders;
                 help_placeholders_detail.push((quote!{
                     &format!(
-                        "{}:{}",
-                        aargvark:: style_name(#help_placeholder),
+                        "{}{}",
+                        aargvark::style_link(&format!("{}:", #help_placeholder)),
                         aargvark:: join_strs("", &[#(&format!(" {}", #help_child_placeholders)), *])
                     )
                 }, help_docstr));
@@ -291,7 +291,7 @@ fn gen_impl_struct(ident: TokenStream, d: &Fields) -> GenRec {
                 required_i += 1;
             }
             if vark_optional_fields.len() > 0 {
-                help_placeholders.push(quote!("[OPT...]"));
+                help_placeholders.push(quote!(&aargvark::style_link("[OPT...]")));
             }
 
             // Assemble code
@@ -415,18 +415,16 @@ fn gen_impl(ast: syn::DeriveInput) -> TokenStream {
                 let gen = gen_impl_struct(quote!(#ident:: #variant_ident), &v.fields);
                 all_tags.push(name_str.clone());
                 let help_docstr = get_docstr(&v.attrs);
-                help_short_placeholders.push(quote!(& aargvark:: style_lit(#name_str)));
-                help_short_placeholders_detail.push(
-                    (quote!(& aargvark:: style_lit(#name_str)), help_docstr.clone()),
-                );
-                help_placeholders.push(quote!(& aargvark:: style_lit(#name_str)));
+                help_short_placeholders.push(quote!(#name_str));
+                help_short_placeholders_detail.push((quote!(#name_str), help_docstr.clone()));
+                help_placeholders.push(quote!(#name_str));
                 let help_child_placeholders = gen.help_child_placeholders;
                 help_placeholders_detail.push(
                     (
                         quote!(
                             &format!(
                                 "{}{}",
-                                aargvark:: style_lit(#name_str),
+                                #name_str,
                                 aargvark:: join_strs("", &[#(&format!(" {}", #help_child_placeholders)), *])
                             )
                         ),
@@ -540,7 +538,7 @@ fn gen_impl(ast: syn::DeriveInput) -> TokenStream {
                 #vark
             }
             fn generate_help_placeholder() -> String {
-                aargvark:: style_name(#help_placeholder)
+                aargvark:: style_link(#help_placeholder)
             }
             fn generate_help_section_suffix(text: &mut String, seen_sections: &mut std::collections::HashSet<String>) {
                 text.push_str(
@@ -557,7 +555,7 @@ fn gen_impl(ast: syn::DeriveInput) -> TokenStream {
                 if ! seen_sections.insert(#help_placeholder.to_string()) {
                     return;
                 }
-                text.push_str(& aargvark:: style_name(#help_placeholder));
+                text.push_str(& aargvark:: style_section(#help_placeholder));
                 text.push_str(":");
                 < #ident >:: generate_help_section_suffix(text, seen_sections);
             }

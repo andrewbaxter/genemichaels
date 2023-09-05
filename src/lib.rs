@@ -59,22 +59,26 @@ pub fn join_strs(sep: &str, v: &[&str]) -> String {
     v.join(sep)
 }
 
-pub fn style_lit(l: &str) -> String {
-    console::Style::new().bold().apply_to(l).to_string()
+pub fn style_type(l: &str) -> String {
+    console::Style::new().magenta().apply_to(l).to_string()
 }
 
-pub fn style_name(l: &str) -> String {
-    l.to_string()
+pub fn style_link(l: &str) -> String {
+    console::Style::new().blue().apply_to(l).to_string()
+}
+
+pub fn style_section(l: &str) -> String {
+    console::Style::new().bold().apply_to(l).to_string()
 }
 
 #[doc(hidden)]
 pub fn generate_help_section_usage_prefix(state: &VarkState) -> (String, HashSet<String>) {
-    let mut text = "Usage: ".to_string();
+    let mut text = style_section("Usage: ");
     for (i, s) in state.breadcrumbs.iter().enumerate() {
         if i > 0 {
             text.push_str(" ");
         }
-        text.push_str(&style_lit(s));
+        text.push_str(s);
     }
     return (text, HashSet::new());
 }
@@ -97,13 +101,14 @@ pub fn generate_help_section_suffix(
     out.push_str("\n\n");
     if !docstr.is_empty() {
         out.push_str(docstr);
-        out.push_str("\n");
+        out.push_str("\n\n");
     }
     let mut table = comfy_table::Table::new();
     table.load_preset(comfy_table::presets::NOTHING);
     table.set_content_arrangement(comfy_table::ContentArrangement::Dynamic);
     for (placeholder, docstr) in placeholders_detail {
-        table.add_row(vec![comfy_table::Cell::new(placeholder), Cell::new(docstr)]);
+        // One space due to invisible border
+        table.add_row(vec![comfy_table::Cell::new(format!("   {}", placeholder)), Cell::new(docstr)]);
     }
     table.set_constraints(vec![comfy_table::ColumnConstraint::Boundaries {
         lower: comfy_table::Width::Percentage(20),
@@ -111,7 +116,7 @@ pub fn generate_help_section_suffix(
     }]);
     out.push_str(&table.to_string());
     out.push_str("\n\n");
-    out
+    return out;
 }
 
 impl VarkState {
@@ -271,7 +276,7 @@ macro_rules! auto_from_str{
             }
 
             fn generate_help_placeholder() -> String {
-                format!("<{}>", style_lit($placeholder))
+                style_type(&format!("<{}>", $placeholder))
             }
         }
     };
@@ -286,6 +291,8 @@ auto_from_str!("INT", u16);
 auto_from_str!("INT", u32);
 
 auto_from_str!("INT", u64);
+
+auto_from_str!("INT", usize);
 
 auto_from_str!("INT", i8);
 
@@ -324,7 +331,7 @@ impl AargvarkTrait for bool {
     }
 
     fn generate_help_placeholder() -> String {
-        return "<BOOL>".to_string();
+        return style_type("<BOOL>");
     }
 
     fn generate_help_section(_text: &mut String, _seen_sections: &mut HashSet<String>) { }
@@ -367,7 +374,7 @@ impl AargvarkFromStr for AargvarkFile {
     }
 
     fn generate_help_placeholder() -> String {
-        format!("<{}>|{}", style_lit("PATH"), style_lit("-"))
+        return style_type("<PATH>|-");
     }
 }
 
@@ -393,7 +400,7 @@ impl<T: for<'a> serde::Deserialize<'a>> AargvarkFromStr for AargvarkJson<T> {
     }
 
     fn generate_help_placeholder() -> String {
-        format!("<{}>|{}", style_lit("PATH"), style_lit("-"))
+        format!("<{}>|{}", style_type("PATH"), style_type("-"))
     }
 }
 
@@ -429,7 +436,7 @@ impl<T: for<'a> serde::Deserialize<'a>> AargvarkFromStr for AargvarkYaml<T> {
     }
 
     fn generate_help_placeholder() -> String {
-        format!("<{}>|{}", style_lit("PATH"), style_lit("-"))
+        format!("<{}>|{}", style_type("PATH"), style_type("-"))
     }
 }
 
@@ -476,7 +483,7 @@ impl<T: AargvarkTrait> AargvarkTrait for Vec<T> {
     }
 
     fn generate_help_placeholder() -> String {
-        format!("{}[ ...]", T::generate_help_placeholder())
+        return format!("{}{}", T::generate_help_placeholder(), style_link("[ ...]"));
     }
 
     fn generate_help_section(text: &mut String, seen_sections: &mut HashSet<String>) {
@@ -494,7 +501,7 @@ impl<T: AargvarkTrait + Eq + Hash> AargvarkTrait for HashSet<T> {
     }
 
     fn generate_help_placeholder() -> String {
-        format!("{}[ ...]", T::generate_help_placeholder())
+        return format!("{}{}", T::generate_help_placeholder(), style_link("[ ...]"));
     }
 
     fn generate_help_section(text: &mut String, seen_sections: &mut HashSet<String>) {
