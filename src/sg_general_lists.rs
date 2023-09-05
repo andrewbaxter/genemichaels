@@ -2,11 +2,11 @@
 //!
 //! * inline raw: `a, b, c`, splits with `a` staying on first line
 //!
-//! * inline: `a, b, c`, splits with `a` on the next line, indented (comes after something
-//!    else); where statements, generic + separated
+//! * inline: `a, b, c`, splits with `a` on the next line, indented (comes after
+//!   something else); where statements, generic + separated
 //!
-//! * bracketed: `(a, b, c)` - inline within brackets, comma after final element; [], <>,
-//!    {} in use statements
+//! * bracketed: `(a, b, c)` - inline within brackets, comma after final element; [],
+//!   <>, {} in use statements
 //!
 //! * curly bracketed: `{ a, b, c }` - inline within brackets with spaces
 use proc_macro2::LineColumn;
@@ -22,12 +22,12 @@ use crate::{
     Alignment,
     SplitGroupBuilder,
     sg_general::{
-        append_comments,
+        append_whitespace,
         has_comments,
     },
     SplitGroupIdx,
     new_sg,
-    comments::HashLineColumn,
+    whitespace::HashLineColumn,
 };
 
 pub(crate) enum InlineListSuffix<T: Formattable> {
@@ -50,14 +50,16 @@ pub(crate) fn append_inline_list_raw<
     exprs: &Punctuated<E, T>,
     suffix: InlineListSuffix<F>,
 ) {
-    if exprs.pairs().any(|s| has_comments(out, s.value()) || (s.value().has_attrs() && out.split_attributes)) {
+    if exprs
+        .pairs()
+        .any(|s| has_comments(out, s.value()) || (s.value().has_attrs() && out.config.split_attributes)) {
         sg.initial_split();
     }
     let mut next_punct: Option<&T> = None;
     for (i, pair) in exprs.pairs().enumerate() {
         if i > 0 {
             if let Some(p) = next_punct.take() {
-                append_comments(out, base_indent, sg, p.span_start());
+                append_whitespace(out, base_indent, sg, p.span_start());
                 sg.seg(out, punct);
             }
             sg.split(out, base_indent.clone(), true);
@@ -70,7 +72,7 @@ pub(crate) fn append_inline_list_raw<
         InlineListSuffix::None => { },
         InlineListSuffix::UnitPunct if exprs.len() == 1 => {
             if let Some(p) = next_punct {
-                append_comments(out, base_indent, sg, p.span_start());
+                append_whitespace(out, base_indent, sg, p.span_start());
                 sg.seg(out, punct);
             } else if !exprs.is_empty() {
                 sg.seg(out, punct);
@@ -78,7 +80,7 @@ pub(crate) fn append_inline_list_raw<
         },
         InlineListSuffix::Punct | InlineListSuffix::UnitPunct => {
             if let Some(p) = next_punct {
-                append_comments(out, base_indent, sg, p.span_start());
+                append_whitespace(out, base_indent, sg, p.span_start());
                 sg.seg_split(out, punct);
             } else if !exprs.is_empty() {
                 sg.seg_split(out, punct);
@@ -86,7 +88,7 @@ pub(crate) fn append_inline_list_raw<
         },
         InlineListSuffix::Extra(e) => {
             if let Some(p) = next_punct {
-                append_comments(out, base_indent, sg, p.span_start());
+                append_whitespace(out, base_indent, sg, p.span_start());
                 sg.seg(out, punct);
             } else if !exprs.is_empty() {
                 sg.seg(out, punct);
@@ -134,10 +136,10 @@ pub(crate) fn append_bracketed_list<
     suffix_start: LineColumn,
     suffix: &str,
 ) {
-    if out.comments.contains_key(&HashLineColumn(suffix_start)) {
+    if out.whitespaces.contains_key(&HashLineColumn(suffix_start)) {
         sg.initial_split();
     }
-    append_comments(out, base_indent, sg, prefix_start);
+    append_whitespace(out, base_indent, sg, prefix_start);
     sg.seg(out, prefix);
     let indent = base_indent.indent();
     let empty = exprs.is_empty() && !matches!(&list_suffix, InlineListSuffix::Extra(_));
@@ -151,7 +153,7 @@ pub(crate) fn append_bracketed_list<
             sg.seg_unsplit(out, " ");
         }
     }
-    append_comments(out, &indent, sg, suffix_start);
+    append_whitespace(out, &indent, sg, suffix_start);
     if !empty {
         sg.split(out, base_indent.clone(), false);
     }

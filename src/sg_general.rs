@@ -30,7 +30,7 @@ use syn::{
     Stmt,
 };
 use crate::{
-    comments::HashLineColumn,
+    whitespace::HashLineColumn,
     new_sg,
     sg_type::build_path,
     Alignment,
@@ -47,6 +47,8 @@ use crate::{
         append_inline_list_raw,
         InlineListSuffix,
     },
+    Whitespace,
+    WhitespaceMode,
 };
 
 pub(crate) fn build_rev_pair(
@@ -87,7 +89,7 @@ pub(crate) fn new_sg_binary(
 ) -> SplitGroupIdx {
     let mut sg = new_sg(out);
     sg.child(left.make_segs(out, base_indent));
-    append_comments(out, base_indent, &mut sg, tok_loc);
+    append_whitespace(out, base_indent, &mut sg, tok_loc);
     append_binary(out, base_indent, &mut sg, tok, right);
     sg.build(out)
 }
@@ -99,7 +101,7 @@ pub(crate) fn append_attr(
     bang: bool,
     attr: &Attribute,
 ) {
-    append_comments(out, base_indent, sg, attr.pound_token.span.start());
+    append_whitespace(out, base_indent, sg, attr.pound_token.span.start());
     sg.child({
         let mut sg = new_sg(out);
         let indent = base_indent.indent();
@@ -112,7 +114,7 @@ pub(crate) fn append_attr(
         sg.seg(out, prefix);
         sg.child(build_path(out, &indent, &attr.path));
         append_macro_body(out, &indent, &mut sg, attr.tokens.clone());
-        append_comments(out, &indent, &mut sg, attr.bracket_token.span.end().prev());
+        append_whitespace(out, &indent, &mut sg, attr.bracket_token.span.end().prev());
         sg.seg(out, "]");
         sg.build(out)
     });
@@ -126,7 +128,7 @@ pub(crate) fn append_statement_list_raw(
     block: &Vec<impl FormattableStmt>,
 ) {
     if check_split_brace_threshold(out, block.len()) ||
-        block.iter().any(|s| has_comments(out, s) || (s.has_attrs() && out.split_attributes)) {
+        block.iter().any(|s| has_comments(out, s) || (s.has_attrs() && out.config.split_attributes)) {
         sg.initial_split();
     }
     sg.seg_unsplit(out, " ");
@@ -140,10 +142,10 @@ pub(crate) fn append_statement_list_raw(
             syn::AttrStyle::Inner(_) => { },
         };
         if i > 0 {
-            sg.split_if(out, base_indent.clone(), out.split_attributes, false);
+            sg.split_if(out, base_indent.clone(), out.config.split_attributes, false);
         }
         append_attr(out, base_indent, sg, true, attr);
-        if !out.split_attributes {
+        if !out.config.split_attributes {
             sg.seg_unsplit(out, " ");
         }
         previous_margin_group = MarginGroup::Attr;
@@ -174,15 +176,15 @@ pub(crate) fn append_bracketed_statement_list(
     stmts: &Vec<impl FormattableStmt>,
     suffix_start: LineColumn,
 ) {
-    if out.comments.contains_key(&HashLineColumn(suffix_start)) {
+    if out.whitespaces.contains_key(&HashLineColumn(suffix_start)) {
         sg.initial_split();
     }
-    append_comments(out, base_indent, sg, prefix_start);
+    append_whitespace(out, base_indent, sg, prefix_start);
     sg.seg(out, prefix);
     let indent = base_indent.indent();
     sg.split(out, indent.clone(), true);
     append_statement_list_raw(out, &indent, sg, attrs, stmts);
-    append_comments(out, &indent, sg, suffix_start);
+    append_whitespace(out, &indent, sg, suffix_start);
     sg.split(out, base_indent.clone(), false);
     sg.seg(out, "}");
 }
@@ -219,10 +221,10 @@ pub(crate) fn new_sg_outer_attrs(
             },
         };
         append_attr(out, base_indent, &mut sg, false, attr);
-        if !out.split_attributes {
+        if !out.config.split_attributes {
             sg.seg_unsplit(out, " ");
         }
-        sg.split_if(out, base_indent.clone(), out.split_attributes, false);
+        sg.split_if(out, base_indent.clone(), out.config.split_attributes, false);
     }
     sg.child(child.make_segs(out, base_indent));
     sg.build(out)
@@ -265,10 +267,10 @@ pub(crate) fn append_macro_body_bracketed(
     match delim {
         syn::MacroDelimiter::Paren(x) => {
             sg.seg(out, "(");
-            if !tokens.is_empty() || out.comments.contains_key(&HashLineColumn(x.span.end().prev())) {
+            if !tokens.is_empty() || out.whitespaces.contains_key(&HashLineColumn(x.span.end().prev())) {
                 sg.split(out, indent.clone(), true);
                 append_macro_body(out, &indent, sg, tokens);
-                append_comments(out, base_indent, sg, x.span.end().prev());
+                append_whitespace(out, base_indent, sg, x.span.end().prev());
             }
             sg.split(out, base_indent.clone(), false);
             sg.seg(out, ")");
@@ -276,20 +278,20 @@ pub(crate) fn append_macro_body_bracketed(
         syn::MacroDelimiter::Brace(x) => {
             sg.seg(out, "{");
             sg.initial_split();
-            if !tokens.is_empty() || out.comments.contains_key(&HashLineColumn(x.span.end().prev())) {
+            if !tokens.is_empty() || out.whitespaces.contains_key(&HashLineColumn(x.span.end().prev())) {
                 sg.split(out, indent.clone(), true);
                 append_macro_body(out, &indent, sg, tokens);
-                append_comments(out, base_indent, sg, x.span.end().prev());
+                append_whitespace(out, base_indent, sg, x.span.end().prev());
             }
             sg.split(out, base_indent.clone(), false);
             sg.seg(out, "}");
         },
         syn::MacroDelimiter::Bracket(x) => {
             sg.seg(out, "[");
-            if !tokens.is_empty() || out.comments.contains_key(&HashLineColumn(x.span.end().prev())) {
+            if !tokens.is_empty() || out.whitespaces.contains_key(&HashLineColumn(x.span.end().prev())) {
                 sg.split(out, indent.clone(), true);
                 append_macro_body(out, &indent, sg, tokens);
-                append_comments(out, base_indent, sg, x.span.end().prev());
+                append_whitespace(out, base_indent, sg, x.span.end().prev());
             }
             sg.split(out, base_indent.clone(), false);
             sg.seg(out, "]");
@@ -341,8 +343,8 @@ pub(crate) fn append_macro_body(
         Punct,
     }
 
-    // Split token stream into "expressions" using `;` and `,` and then try to re-evaluate
-    // each expression to use normal formatting.
+    // Split token stream into "expressions" using `;` and `,` and then try to
+    // re-evaluate each expression to use normal formatting.
     let mut substreams: Vec<(Vec<TokenTree>, Option<Punct>)> = vec![];
     {
         let mut top = vec![];
@@ -397,7 +399,7 @@ pub(crate) fn append_macro_body(
                         sg.child(e.make_segs(out, base_indent));
                     }
                     if let Some(suf) = punct {
-                        append_comments(out, base_indent, sg, suf.span().start());
+                        append_whitespace(out, base_indent, sg, suf.span().start());
                         sg.seg(out, suf);
                     }
                     break 'nextsub;
@@ -425,7 +427,7 @@ pub(crate) fn append_macro_body(
                 for t in tokens {
                     match t {
                         proc_macro2::TokenTree::Group(g) => {
-                            append_comments(out, base_indent, sg, g.span_open().start());
+                            append_whitespace(out, base_indent, sg, g.span_open().start());
                             sg.child({
                                 let mut sg = new_sg(out);
                                 let indent = base_indent.indent();
@@ -473,7 +475,7 @@ pub(crate) fn append_macro_body(
                                     sg.seg(out, " ");
                                 },
                             }
-                            append_comments(out, base_indent, sg, i.span().start());
+                            append_whitespace(out, base_indent, sg, i.span().start());
                             sg.seg(out, &i.to_string());
                             mode = ConsecMode::NoConnect;
                         },
@@ -485,17 +487,17 @@ pub(crate) fn append_macro_body(
                                         sg.seg(out, " ");
                                     },
                                 }
-                                append_comments(out, base_indent, sg, p.span().start());
+                                append_whitespace(out, base_indent, sg, p.span().start());
                                 sg.seg(out, &p.to_string());
                                 mode = ConsecMode::ConnectForward;
                             },
                             ':' => {
-                                append_comments(out, base_indent, sg, p.span().start());
+                                append_whitespace(out, base_indent, sg, p.span().start());
                                 sg.seg(out, &p.to_string());
                                 mode = ConsecMode::Punct;
                             },
                             '.' => {
-                                append_comments(out, base_indent, sg, p.span().start());
+                                append_whitespace(out, base_indent, sg, p.span().start());
                                 sg.seg(out, &p.to_string());
                                 mode = ConsecMode::ConnectForward;
                             },
@@ -507,7 +509,7 @@ pub(crate) fn append_macro_body(
                                     },
                                     ConsecMode::Punct => { },
                                 }
-                                append_comments(out, base_indent, sg, p.span().start());
+                                append_whitespace(out, base_indent, sg, p.span().start());
                                 sg.seg(out, &p.to_string());
                                 mode = ConsecMode::Punct;
                             },
@@ -519,14 +521,14 @@ pub(crate) fn append_macro_body(
                                     sg.seg(out, " ");
                                 },
                             }
-                            append_comments(out, base_indent, sg, l.span().start());
+                            append_whitespace(out, base_indent, sg, l.span().start());
                             sg.seg(out, &l.to_string());
                             mode = ConsecMode::NoConnect;
                         },
                     }
                 }
                 if let Some(suf) = punct {
-                    append_comments(out, base_indent, sg, suf.span().start());
+                    append_whitespace(out, base_indent, sg, suf.span().start());
                     sg.seg(out, suf);
                 }
             }
@@ -538,21 +540,44 @@ pub(crate) fn append_macro_body(
     }
 }
 
-pub(crate) fn append_comments(
+pub(crate) fn append_whitespace(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
     sg: &mut SplitGroupBuilder,
     loc: LineColumn,
 ) {
-    let comments = match out.comments.remove(&HashLineColumn(loc)) {
+    let whitespace = match out.whitespaces.remove(&HashLineColumn(loc)) {
         Some(c) => c,
         None => return,
     };
+    let whitespace: Vec<Whitespace> = whitespace.into_iter().filter_map(|w| {
+        match w.mode {
+            WhitespaceMode::BlankLines(l) => {
+                let use_lines = l.min(out.config.keep_max_blank_lines);
+                if use_lines == 0 {
+                    return None;
+                }
+                return Some(Whitespace {
+                    loc: w.loc,
+                    mode: WhitespaceMode::BlankLines(use_lines),
+                });
+            },
+            WhitespaceMode::Comment(c) => {
+                return Some(Whitespace {
+                    loc: w.loc,
+                    mode: WhitespaceMode::Comment(c),
+                });
+            },
+        }
+    }).collect();
+    if whitespace.is_empty() {
+        return;
+    }
     sg.add(out, crate::Segment {
         node: sg.node,
         line: None,
         mode: crate::SegmentMode::All,
-        content: crate::SegmentContent::Comment((base_indent.clone(), comments)),
+        content: crate::SegmentContent::Whitespace((base_indent.clone(), whitespace)),
     });
 }
 
@@ -561,7 +586,7 @@ pub(crate) fn has_comments(out: &mut MakeSegsState, t: impl ToTokens) -> bool {
         .to_token_stream()
         .into_iter()
         .next()
-        .map(|t| out.comments.contains_key(&HashLineColumn(t.span().start())))
+        .map(|t| out.whitespaces.contains_key(&HashLineColumn(t.span().start())))
         .unwrap_or(false)
 }
 

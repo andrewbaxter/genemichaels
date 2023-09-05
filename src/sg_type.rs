@@ -25,7 +25,7 @@ use crate::{
     new_sg_lit,
     sg_general::{
         append_binary,
-        append_comments,
+        append_whitespace,
         new_sg_outer_attrs,
         new_sg_binary,
         new_sg_macro,
@@ -54,7 +54,7 @@ pub(crate) fn build_extended_path(
     let mut node = new_sg(out);
     match qself {
         Some(qself) => {
-            append_comments(out, base_indent, &mut node, qself.lt_token.span.start());
+            append_whitespace(out, base_indent, &mut node, qself.lt_token.span.start());
             node.seg(out, "<");
             let taken = match qself.position {
                 0 => {
@@ -74,7 +74,7 @@ pub(crate) fn build_extended_path(
                     n
                 },
             };
-            append_comments(out, base_indent, &mut node, qself.gt_token.span.start());
+            append_whitespace(out, base_indent, &mut node, qself.gt_token.span.start());
             node.seg(out, ">");
             append_path(out, &mut node, base_indent, Some(None), p.segments.pairs().skip(taken));
         },
@@ -120,11 +120,11 @@ pub(crate) fn append_path<
         }
         if let Some(d) = prefix {
             if let Some(t) = d {
-                append_comments(out, base_indent, node, t);
+                append_whitespace(out, base_indent, node, t);
             };
             node.seg(out, "::");
         }
-        append_comments(out, base_indent, node, seg.value().ident.span().start());
+        append_whitespace(out, base_indent, node, seg.value().ident.span().start());
         node.seg(out, &seg.value().ident.to_string());
         match &seg.value().arguments {
             syn::PathArguments::None => { },
@@ -180,7 +180,7 @@ pub(crate) fn build_ref(
     expr: impl Formattable,
 ) -> SplitGroupIdx {
     let mut sg = new_sg(out);
-    append_comments(out, base_indent, &mut sg, start);
+    append_whitespace(out, base_indent, &mut sg, start);
     sg.seg(out, "&");
     if mutability {
         sg.seg(out, "mut ");
@@ -197,7 +197,7 @@ pub(crate) fn build_array_type(
     len: &Expr,
 ) -> SplitGroupIdx {
     let mut sg = new_sg(out);
-    append_comments(out, base_indent, &mut sg, start);
+    append_whitespace(out, base_indent, &mut sg, start);
     sg.seg(out, "[");
     sg.child(expr.make_segs(out, base_indent));
     sg.seg(out, "; ");
@@ -251,11 +251,11 @@ pub(crate) fn build_generics_part_b(
     wh: &WhereClause,
 ) -> SplitGroupIdx {
     let mut sg = new_sg(out);
-    if out.split_where {
+    if out.config.split_where {
         sg.initial_split();
     }
     sg.seg_unsplit(out, " ");
-    append_comments(out, base_indent, &mut sg, wh.where_token.span.start());
+    append_whitespace(out, base_indent, &mut sg, wh.where_token.span.start());
     sg.split(out, base_indent.clone(), true);
     sg.seg(out, "where");
     sg.seg_unsplit(out, " ");
@@ -271,7 +271,7 @@ impl Formattable for WherePredicate {
             WherePredicate::Type(t) => {
                 let mut sg = new_sg(out);
                 if let Some(hot) = &t.lifetimes {
-                    append_comments(out, base_indent, &mut sg, hot.for_token.span.start());
+                    append_whitespace(out, base_indent, &mut sg, hot.for_token.span.start());
                     sg.seg(out, "for");
                     append_bracketed_list_common(
                         out,
@@ -324,7 +324,7 @@ impl Formattable for GenericParam {
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let build_base = |out: &mut MakeSegsState, base_indent: &Alignment| {
                         let mut sg = new_sg(out);
-                        append_comments(out, base_indent, &mut sg, t.ident.span().start());
+                        append_whitespace(out, base_indent, &mut sg, t.ident.span().start());
                         sg.seg(out, &t.ident);
                         if t.colon_token.is_some() && !t.bounds.is_empty() {
                             sg.seg(out, ": ");
@@ -354,9 +354,9 @@ impl Formattable for GenericParam {
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let build_base = |out: &mut MakeSegsState, base_indent: &Alignment| {
                         let mut sg = new_sg(out);
-                        append_comments(out, base_indent, &mut sg, c.const_token.span.start());
+                        append_whitespace(out, base_indent, &mut sg, c.const_token.span.start());
                         sg.seg(out, "const ");
-                        append_comments(out, base_indent, &mut sg, c.ident.span().start());
+                        append_whitespace(out, base_indent, &mut sg, c.ident.span().start());
                         sg.seg(out, &c.ident.to_string());
                         sg.seg(out, ": ");
                         sg.child(c.ty.make_segs(out, base_indent));
@@ -390,7 +390,7 @@ impl Formattable for TypeParamBound {
                     syn::TraitBoundModifier::Maybe(_) => sg.seg(out, "?"),
                 }
                 if let Some(hot) = &t.lifetimes {
-                    append_comments(out, base_indent, &mut sg, hot.for_token.span.start());
+                    append_whitespace(out, base_indent, &mut sg, hot.for_token.span.start());
                     sg.seg(out, "for");
                     append_bracketed_list_common(
                         out,
@@ -477,7 +477,7 @@ impl Formattable for &Type {
             Type::BareFn(x) => {
                 let mut sg = new_sg(out);
                 if let Some(hot) = &x.lifetimes {
-                    append_comments(out, base_indent, &mut sg, hot.for_token.span.start());
+                    append_whitespace(out, base_indent, &mut sg, hot.for_token.span.start());
                     sg.seg(out, "for");
                     append_bracketed_list_common(
                         out,
@@ -491,18 +491,18 @@ impl Formattable for &Type {
                     );
                 }
                 if let Some(un) = &x.unsafety {
-                    append_comments(out, base_indent, &mut sg, un.span.start());
+                    append_whitespace(out, base_indent, &mut sg, un.span.start());
                     sg.seg(out, "unsafe ");
                 }
                 if let Some(abi) = &x.abi {
-                    append_comments(out, base_indent, &mut sg, abi.extern_token.span.start());
+                    append_whitespace(out, base_indent, &mut sg, abi.extern_token.span.start());
                     sg.seg(out, "extern ");
                     if let Some(name) = &abi.name {
-                        append_comments(out, base_indent, &mut sg, name.span().start());
+                        append_whitespace(out, base_indent, &mut sg, name.span().start());
                         sg.seg(out, name.to_token_stream().to_string());
                     }
                 }
-                append_comments(out, base_indent, &mut sg, x.fn_token.span.start());
+                append_whitespace(out, base_indent, &mut sg, x.fn_token.span.start());
                 sg.seg(out, "fn");
                 sg.child(
                     new_sg_bracketed_list(
@@ -526,7 +526,7 @@ impl Formattable for &Type {
                 match &x.output {
                     ReturnType::Default => { },
                     ReturnType::Type(t, ty) => {
-                        append_comments(out, base_indent, &mut sg, t.spans[0].start());
+                        append_whitespace(out, base_indent, &mut sg, t.spans[0].start());
                         sg.seg(out, " -> ");
                         sg.child(ty.make_segs(out, base_indent));
                     },
@@ -658,16 +658,16 @@ impl Formattable for FnArg {
                     let mut sg = new_sg(out);
                     let mut need_space = false;
                     if let Some(y) = &x.reference {
-                        append_comments(out, base_indent, &mut sg, y.0.span.start());
+                        append_whitespace(out, base_indent, &mut sg, y.0.span.start());
                         sg.seg(out, "&");
                         if let Some(lt) = &y.1 {
-                            append_comments(out, base_indent, &mut sg, lt.apostrophe.start());
+                            append_whitespace(out, base_indent, &mut sg, lt.apostrophe.start());
                             sg.seg(out, lt.to_string());
                             need_space = true;
                         }
                     }
                     if let Some(y) = &x.mutability {
-                        append_comments(out, base_indent, &mut sg, y.span.start());
+                        append_whitespace(out, base_indent, &mut sg, y.span.start());
                         sg.seg(out, format!("{}mut", if need_space {
                             " "
                         } else {
@@ -675,7 +675,7 @@ impl Formattable for FnArg {
                         }));
                         need_space = true;
                     }
-                    append_comments(out, base_indent, &mut sg, x.self_token.span.start());
+                    append_whitespace(out, base_indent, &mut sg, x.self_token.span.start());
                     sg.seg(out, format!("{}self", if need_space {
                         " "
                     } else {

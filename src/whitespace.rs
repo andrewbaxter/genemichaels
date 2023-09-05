@@ -1,12 +1,11 @@
-use anyhow::{
-    anyhow,
-    Result,
-};
+use loga::ea;
 use markdown::mdast::Node;
 use crate::{
     Comment,
     CommentMode,
     es,
+    Whitespace,
+    WhitespaceMode,
 };
 use proc_macro2::{
     LineColumn,
@@ -38,7 +37,9 @@ fn unicode_len(text: &str) -> VisualLen {
     VisualLen(text.chars().count())
 }
 
-pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Comment>>, TokenStream)> {
+pub fn extract_whitespaces(
+    source: &str,
+) -> Result<(HashMap<HashLineColumn, Vec<Whitespace>>, TokenStream), loga::Error> {
     let mut line_lookup = vec![];
     {
         let mut offset = 0usize;
@@ -57,9 +58,9 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
         source: &'a str,
         // starting offset of each line
         line_lookup: Vec<usize>,
-        comments: HashMap<HashLineColumn, Vec<Comment>>,
-        // records the beginning of the last line extracted - this is the destination for transposed
-        // comments
+        whitespaces: HashMap<HashLineColumn, Vec<Whitespace>>,
+        // records the beginning of the last line extracted - this is the destination for
+        // transposed comments
         line_start: Option<LineColumn>,
         last_offset: usize,
         start_re: Option<UnicodeRegex>,
@@ -76,7 +77,7 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
                 self.source[line_start_offset..].chars().take(loc.column).map(char::len_utf8).sum::<usize>()
         }
 
-        fn add_comments(&mut self, end: LineColumn, whole_text: &str) {
+        fn add_comments(&mut self, end: LineColumn, between_ast_nodes: &str) {
             let start_re =
                 &self
                     .start_re
@@ -87,7 +88,8 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
                 &self.block_event_re.get_or_insert_with(|| UnicodeRegex::new(r#"((?:/\*)|(?:\*/))"#).unwrap());
 
             struct CommentBuffer {
-                out: Vec<Comment>,
+                blank_lines: usize,
+                out: Vec<Whitespace>,
                 mode: CommentMode,
                 lines: Vec<String>,
                 loc: LineColumn,
@@ -98,11 +100,14 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
                     if self.lines.is_empty() {
                         return;
                     }
-                    self.out.push(Comment {
+                    self.out.push(Whitespace {
                         loc: self.loc,
-                        mode: self.mode,
-                        lines: self.lines.split_off(0).join("\n"),
+                        mode: crate::WhitespaceMode::Comment(Comment {
+                            mode: self.mode,
+                            lines: self.lines.split_off(0).join("\n"),
+                        }),
                     });
+                    self.blank_lines = 0;
                 }
 
                 fn add(&mut self, mode: CommentMode, line: &str) {
@@ -112,15 +117,27 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
                     self.mode = mode;
                     self.lines.push(line.to_string());
                 }
+
+                fn add_blank_lines(&mut self, text: &str) {
+                    let blank_lines = text.as_bytes().iter().filter(|x| **x == b'\n').count();
+                    if blank_lines > 1 {
+                        self.flush();
+                        self.out.push(Whitespace {
+                            loc: self.loc,
+                            mode: crate::WhitespaceMode::BlankLines(blank_lines - 1),
+                        });
+                    }
+                }
             }
 
             let mut buffer = CommentBuffer {
+                blank_lines: 0,
                 out: vec![],
                 mode: CommentMode::Normal,
                 lines: vec![],
                 loc: end,
             };
-            let mut text = whole_text;
+            let mut text = between_ast_nodes;
             'comment_loop : loop {
                 match start_re.captures(text) {
                     Some(found_start) => {
@@ -130,6 +147,9 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
                                 .or_else(|| found_start.get(3))
                                 .or_else(|| found_start.get(4))
                                 .unwrap();
+                        if buffer.out.is_empty() && buffer.lines.is_empty() {
+                            buffer.add_blank_lines(&text[..start_prefix_match.start()]);
+                        }
                         match start_prefix_match.as_str() {
                             "//" => {
                                 let mode = {
@@ -202,23 +222,44 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
                         }
                     },
                     None => {
+                        if buffer.out.is_empty() && buffer.lines.is_empty() {
+                            buffer.add_blank_lines(text);
+                        }
                         break 'comment_loop;
                     },
                 }
             }
             buffer.flush();
             if !buffer.out.is_empty() {
-                let comments = self.comments.entry(HashLineColumn(end)).or_insert(vec![]);
-                if let Some(previous) = comments.last_mut() {
+                let whitespaces = self.whitespaces.entry(HashLineColumn(end)).or_insert(vec![]);
+
+                // Merge with existing comments (basically only if comments come before and after
+                // at the end of the line)
+                'merge : loop {
+                    let Some(previous_whitespace) = whitespaces.last_mut() else {
+                        break;
+                    };
+                    let WhitespaceMode:: Comment(previous_comment) =& mut previous_whitespace.mode else {
+                        break;
+                    };
                     let start = buffer.out.remove(0);
-                    if previous.mode == start.mode {
-                        previous.lines.push_str("\n");
-                        previous.lines.push_str(&start.lines);
-                    } else {
-                        buffer.out.insert(0, start);
+                    loop {
+                        let WhitespaceMode:: Comment(start_comment) =& start.mode else {
+                            break;
+                        };
+                        if previous_comment.mode != start_comment.mode {
+                            break;
+                        }
+                        previous_comment.lines.push_str("\n");
+                        previous_comment.lines.push_str(&start_comment.lines);
+                        break 'merge;
                     }
+                    buffer.out.insert(0, start);
+                    break;
                 }
-                comments.extend(buffer.out);
+
+                // Add rest without merging
+                whitespaces.extend(buffer.out);
             }
         }
 
@@ -262,7 +303,7 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
     let mut state = State {
         source,
         line_lookup,
-        comments: HashMap::new(),
+        whitespaces: HashMap::new(),
         last_offset: 0usize,
         line_start: None,
         start_re: None,
@@ -292,8 +333,9 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
                 proc_macro2::TokenTree::Punct(g) => {
                     let offset = state.to_offset(g.span().start());
                     if g.as_char() == '#' && &state.source[offset .. offset + 1] == "/" {
-                        // Syn converts doc comments into doc attrs, work around that here by detecting a mismatch between the token
-                        // and the source (written /, token is #) and skipping all tokens within the fake doc attr range
+                        // Syn converts doc comments into doc attrs, work around that here by detecting a
+                        // mismatch between the token and the source (written /, token is #) and skipping
+                        // all tokens within the fake doc attr range
                         loop {
                             let in_comment = ts.peek().map(|n| n.span().start() < g.span().end()).unwrap_or(false);
                             if !in_comment {
@@ -323,11 +365,9 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
             TokenStream::from_str(
                 source,
             ).map_err(
-                |e| anyhow!(
-                    "Error reconverting token stream at {}:{}: {:?}",
-                    e.span().start().line,
-                    e.span().start().column,
-                    e
+                |e| loga::err_with(
+                    "Error undoing syn parse transformations",
+                    ea!(line = e.span().start().line, column = e.span().start().column, error = e.to_string()),
                 ),
             )?,
         );
@@ -335,7 +375,7 @@ pub fn extract_comments(source: &str) -> Result<(HashMap<HashLineColumn, Vec<Com
         line: 0,
         column: 1,
     }, &source[state.last_offset..]);
-    Ok((state.comments, tokens))
+    Ok((state.whitespaces, tokens))
 }
 
 struct State {
@@ -465,12 +505,13 @@ impl LineState {
         let max_len = s.calc_max_width();
 
         struct FoundWritableLen<'a> {
-            /// How much of text can be written to the current line. If a break is used, will be equal to the
-            /// break point, but if the whole string is written may be longer
+            /// How much of text can be written to the current line. If a break is used, will
+            /// be equal to the break point, but if the whole string is written may be longer
             writable: usize,
             /// If a break is used, the break and the remaining unused breaks
             previous_break: Option<(usize, &'a [usize])>,
-            /// The next break after the last break before the max length, 2nd fallback (after retro-break)
+            /// The next break after the last break before the max length, 2nd fallback (after
+            /// retro-break)
             next_break: Option<(usize, &'a [usize])>,
         }
 
@@ -566,13 +607,15 @@ impl LineState {
                 found.previous_break.map(|b| b.1).unwrap_or(breaks),
             );
         } else if let Some((at, explicit_wrap)) = s.backward_break.take() {
-            // Couldn't split forward but there's a retroactive split point in previously written segments
+            // Couldn't split forward but there's a retroactive split point in previously
+            // written segments
             let prefix = state.line_buffer.split_off(at);
             s.flush(state, out, explicit_wrap, true);
             state.line_buffer.push_str(&prefix);
             write_forward_breaks(state, &mut s, out, max_len, true, text.to_string(), 0, breaks);
         } else if let Some((b, breaks)) = found.next_break {
-            // No retroactive split, try first split after max len (overflow, but better than nothing)
+            // No retroactive split, try first split after max len (overflow, but better than
+            // nothing)
             write_forward(state, &mut s, &text[..b], Some(b));
             write_forward_breaks(state, &mut s, out, max_len, false, (&text[b..]).to_string(), b, breaks);
         } else {
@@ -910,10 +953,10 @@ pub fn format_md(
     rel_max_width: Option<usize>,
     prefix: &str,
     source: &str,
-) -> Result<()> {
-    // TODO, due to a bug a bunch of unreachable branches might have had code added.  I'd
-    // like to go back and see if some block-level starts can be removed in contexts they
-    // shouldn't appear.
+) -> Result<(), loga::Error> {
+    // TODO, due to a bug a bunch of unreachable branches might have had code added.
+    // I'd like to go back and see if some block-level starts can be removed in
+    // contexts they shouldn't appear.
     match es!({
         let mut out = String::new();
         let mut state = State {
@@ -923,7 +966,7 @@ pub fn format_md(
         let ast = markdown::to_mdast(source, &markdown::ParseOptions {
             constructs: markdown::Constructs { ..Default::default() },
             ..Default::default()
-        }).map_err(|e| anyhow!("{}", e))?;
+        }).map_err(|e| loga::err_with("Error parsing markdown", ea!(err = e)))?;
         recurse_write(
             &mut state,
             &mut out,

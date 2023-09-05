@@ -8,8 +8,6 @@ repository = "https://github.com/andrewbaxter/genemichaels"
 readme = "readme.md"
 
 [dependencies]
-anyhow = "1.0.68"
-clap = { version = "4.0.29", features = ["derive"] }
 markdown = { git = "https://github.com/wooorm/markdown-rs", rev = "af202d3f0ea24e0a957b02a6f9fb23c6c3b4afe7", version = "1.0.0-alpha.5" }
 proc-macro2 = { version = "1.0.49", features = ["span-locations"] }
 quote = "1.0.23"
@@ -19,3 +17,11 @@ walkdir = "2.3.2"
 threadpool = "1.8.1"
 cargo-manifest = "0.7.1"
 derive_more = "0.99.17"
+aargvark = { version = "0.0.4", path = "../aargvark" }
+serde = { version = "1.0.188", features = ["derive"] }
+serde_json = "1.0.105"
+console = "0.15.7"
+loga = "0.1.5"
+
+[patch.crates-io]
+cargo-manifest = { git = "https://github.com/andrewbaxter/fork-cargo-manifest", rev = "1957fc45baa9b16f894ffcbaecbd8289a026d2a9" }

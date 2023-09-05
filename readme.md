@@ -1,6 +1,6 @@
 # Gene Michaels
 
-Status: **Alpha**. Tested against various code bases and doesn't blow them up, but there could still be some missed things. Right now post-formatting pre-writing it re-parses and confirms all comments are consumed as safety checks. Also files over 500kb may take all your memory and invoke the OOM killer.
+Status: **Alpha**. I've been using it for months without issue, and I've tested against various code bases and doesn't blow them up. Right now post-formatting pre-writing it re-parses and confirms all comments are consumed as safety checks. Also files over 500kb may take all your memory and invoke the OOM killer.
 
 - formats everything
 - doesn't not format some things
@@ -12,26 +12,59 @@ Everything includes macros and comments. Dog fooded in this repo.
 
 ### Differences to Rustfmt
 
-* This formats all macros, Rustfmt only formats macros under certain conditions
-* This is fully deterministic, Rustfmt keeps certain stylistic choices like
-* Rustfmt has [several](https://github.com/rust-lang/rustfmt/issues/3863) [restrictions](https://github.com/rust-lang/rustfmt/issues/2896) in what it formats normally, this always formats everything (if it doesn't it's a bug)
-* This also reformats comments per Markdown rules
+- This formats all macros, Rustfmt only formats macros under certain conditions
+- This is fully deterministic, Rustfmt keeps certain stylistic choices like
+- Rustfmt has [several](https://github.com/rust-lang/rustfmt/issues/3863) [restrictions](https://github.com/rust-lang/rustfmt/issues/2896) in what it formats normally, this always formats everything (if it doesn't it's a bug)
+- This also reformats comments per Markdown rules
 
 # Usage
 
-Run `cargo install genemichaels`
+Run `cargo install genemichaels`.
+
+Running `genemichaels` will by default format all files in the current package (looking at `Cargo.toml` in the current directory). You can also pass in a list of filenames to format.
+
+## VS Code
 
 If you're using VS Code, add the setting:
 
 ```
   "rust-analyzer.rustfmt.overrideCommand": [
-    "${userHome}/.cargo/bin/genemichaels"
+    "${userHome}/.cargo/bin/genemichaels --stdin"
   ]
 ```
 
 to use it with reckless abandon.
 
-To skip specific files, in the first 5 lines of the source add a comment containing ``nogenemichaels``.
+## Configuration
+
+The config contains parameters that tweak the formatting output, suitable for establishing a convention for a project. Things that don't affect the output (thread count, verbosity, etc) are command line arguments instead.
+
+The configuration file is json, but it will strip lines starting with `//` first if you want to add comments.
+
+Here's the config file. All values shown are defaults and the keys can be omitted if the default works for you.
+
+```jsonc
+{}
+```
+
+## Disabling formatting for specific comments
+
+Since comments are assumed to be markdown they will be formatted per markdown rules. To disable this for certain comments, start the comment with `//.` like
+
+```
+//. fn main() {
+//.    println!("hi");
+//. }
+```
+
+## Disabling formatting for specific files
+
+To skip specific files, in the first 5 lines of the source add a comment containing `nogenemichaels`, ex:
+
+```rust
+// nogenemichaels
+...
+```
 
 # Programmatic usage
 
@@ -42,6 +75,8 @@ There are three main functions:
 - `genemichaels::format_str` - formats a string (full rust source file, doesn't support snippets at the moment).
 - `genemichaels::format_ast` - formats AST element (implements `genemichaels::Formattable`, most `syn::*` structs do). Comments need to be passed in separately, if you have any.
 - `genemichaels::extract_comments` - takes a string of source code and extracts comments, mapping each comment to the start of a syntax element
+
+If you want to format a `TokenStream`, parse it into an AST with `syn::parse2::<syn::File>(token_stream)` then call `format_ast`.
 
 The format functions also return lost comments - comments not formatted/added to the formatted source after processing. In an ideal world this wouldn't exist, but right now comments are added on a case by case basis and not all source tokens support comments.
 
@@ -60,29 +95,9 @@ At a very high level:
 
 Then the algorithm basically wraps nodes until all lines are less than the max line width.
 
-### Leaveraging multi-threading
+## Multi-threading
 
-`genemichaels` now uses multi-threading!
-
-This is the `time` output of a single threaded run, formatting a large codebase (78730 lines of rust):
-```
-    Finished workspace formatting successfully in 15.99s
-
-________________________________________________________
-Executed in   16.00 secs    fish           external
-   usr time   14.59 secs  331.00 micros   14.59 secs
-   sys time    1.19 secs  174.00 micros    1.19 secs
-```
-and with multi-threading:
-```
-    Finished workspace formatting successfully in 11.99s
-
-________________________________________________________
-Executed in   12.06 secs    fish           external
-   usr time   35.99 secs  349.00 micros   35.99 secs
-   sys time    4.87 secs   64.00 micros    4.87 secs
-```
-
+By default Gene Michaels formats multiple files on all available cores, but this uses proportionally more memory. If you have a project with particularly large files you can restrict to a smaller number of cores in the configuration.
 
 ## Comments
 

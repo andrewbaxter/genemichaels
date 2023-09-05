@@ -8,10 +8,27 @@ use genemichaels::{
 fn rt(text: &str) {
     let res = format_str(text, &FormatConfig {
         max_width: 120,
+        keep_max_blank_lines: 0,
         ..Default::default()
     }).unwrap();
     assert!(res.lost_comments.is_empty(), "Comments remain: {:?}", res.lost_comments);
-    assert!(text == res.rendered, "Formatted text changed:\n\nBefore:\n{}\n\nAfter:\n{}\n", text, res.rendered);
+    assert!(
+        text == res.rendered,
+        "Formatted text changed:\n\nBefore:\n{}\n\nAfter:\n{}\n",
+        text
+            .lines()
+            .enumerate()
+            .map(|(line, text)| format!("{:>03} {}", line, text))
+            .collect::<Vec<String>>()
+            .join("\n"),
+        res
+            .rendered
+            .lines()
+            .enumerate()
+            .map(|(line, text)| format!("{:>03} {}", line, text))
+            .collect::<Vec<String>>()
+            .join("\n")
+    );
 }
 
 #[test]
@@ -131,6 +148,12 @@ fn rt_macro_blockcomma() {
 }
 
 #[test]
+fn rt_macro_star_equal() {
+    rt(r#"x!(a *= b);
+"#);
+}
+
+#[test]
 fn rt_comments_end() {
     rt(r#"const X: i32 = 7;
 // This is where the file ends.
@@ -195,6 +218,38 @@ fn rt_comments_generic_type1() {
     // hi
     F: FnOnce(i32) -> i32,
 >(F);
+"#);
+}
+
+#[test]
+fn rt_comments_blank_nokeep1() {
+    let res = format_str(r#"
+
+
+fn main() { }
+"#, &FormatConfig {
+        max_width: 120,
+        keep_max_blank_lines: 0,
+        ..Default::default()
+    }).unwrap();
+    assert_eq!(res.rendered, r#"fn main() { }
+"#);
+}
+
+#[test]
+fn rt_comments_blank_keep1() {
+    let res = format_str(r#"
+
+
+fn main() { }
+"#, &FormatConfig {
+        max_width: 120,
+        keep_max_blank_lines: 1,
+        ..Default::default()
+    }).unwrap();
+    assert_eq!(res.rendered, r#"
+
+fn main() { }
 "#);
 }
 
@@ -313,6 +368,14 @@ fn rt_match_attr_indent1() {
         #[something]
         X => { },
     }
+}
+"#);
+}
+
+#[test]
+fn rt_extern_c_static1() {
+    rt(r#"extern "C" {
+    static X: Y;
 }
 "#);
 }

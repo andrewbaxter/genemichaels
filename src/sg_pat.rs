@@ -13,7 +13,7 @@ use crate::{
         new_sg_outer_attrs,
         new_sg_binary,
         new_sg_macro,
-        append_comments,
+        append_whitespace,
     },
     sg_type::{
         build_extended_path,
@@ -94,17 +94,17 @@ impl Formattable for &Pat {
                                 let sg = &mut sg0;
                                 let prefix_start = t.paren_token.span.start();
                                 let suffix_start = t.paren_token.span.end().prev();
-                                if out.comments.contains_key(&HashLineColumn(suffix_start)) {
+                                if out.whitespaces.contains_key(&HashLineColumn(suffix_start)) {
                                     sg.initial_split();
                                 }
-                                append_comments(out, base_indent, sg, prefix_start);
+                                append_whitespace(out, base_indent, sg, prefix_start);
                                 sg.seg(out, "(");
                                 let indent = base_indent.indent();
                                 let empty = x.leading_vert.is_some() || !x.cases.is_empty();
                                 if empty {
                                     sg.split(out, indent.clone(), true);
                                     if let Some(v) = &x.leading_vert {
-                                        append_comments(out, base_indent, sg, v.span.start());
+                                        append_whitespace(out, base_indent, sg, v.span.start());
                                         sg.seg(out, "| ");
                                     }
                                     append_inline_list_raw(
@@ -116,7 +116,7 @@ impl Formattable for &Pat {
                                         InlineListSuffix::<Expr>::None,
                                     );
                                 }
-                                append_comments(out, &indent, sg, suffix_start);
+                                append_whitespace(out, &indent, sg, suffix_start);
                                 if !empty {
                                     sg.split(out, base_indent.clone(), false);
                                 }
@@ -155,7 +155,7 @@ impl Formattable for &Pat {
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     if let Some(t) = &x.leading_vert {
-                        append_comments(out, base_indent, &mut sg, t.span.start());
+                        append_whitespace(out, base_indent, &mut sg, t.span.start());
                         sg.seg(out, "| ");
                     }
                     append_inline_list_raw(
@@ -352,7 +352,7 @@ impl Formattable for FieldPat {
                     syn::Member::Named(x) => sg.seg(out, x),
                     syn::Member::Unnamed(x) => sg.seg(out, x.index),
                 };
-                append_comments(out, base_indent, &mut sg, col.span.start());
+                append_whitespace(out, base_indent, &mut sg, col.span.start());
                 sg.seg(out, ": ");
             }
             sg.child(self.pat.make_segs(out, base_indent));
