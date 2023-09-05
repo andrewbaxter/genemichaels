@@ -29,7 +29,7 @@ If you're using VS Code, add the setting:
 
 ```
   "rust-analyzer.rustfmt.overrideCommand": [
-    "${userHome}/.cargo/bin/genemichaels --stdin"
+    "${userHome}/.cargo/bin/genemichaels", "--stdin"
   ]
 ```
 
