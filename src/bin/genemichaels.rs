@@ -43,10 +43,15 @@ const CONFIG_JSON: &str = ".genemichaels.json";
 
 #[derive(Aargvark)]
 enum Logging {
+    /// Don't output anything except formatted output. Exit code is the only way to
+    /// identify an error.
     Silent,
+    /// Do detailed logging.
     Debug,
 }
 
+/// A deterministic, simple rule based Rust source code formatter. Even formats
+/// macros!
 #[derive(Aargvark)]
 struct Args {
     /// Formats each listed file, overwriting with the formatted version. If empty,
@@ -57,7 +62,7 @@ struct Args {
     stdin: Option<()>,
     /// Explicitly specify a config file path. If not specified, will look for a config
     /// file next to the `Config.toml` if formatting a project or in the current
-    /// directory otherwise.
+    /// directory otherwise. See the readme for options.
     config: Option<PathBuf>,
     /// Change the log level.
     log: Option<Logging>,
@@ -150,6 +155,14 @@ fn main() {
     let log = &log;
     let res = es!({
         if args.stdin.is_some() {
+            if !args.files.is_empty() {
+                return Err(
+                    log.new_err_with(
+                        "If you use stdin you can't pass any files",
+                        ea!(files = args.files.iter().map(|f| f.to_string_lossy()).collect::<Vec<_>>().dbg_str()),
+                    ),
+                )
+            }
             let config = load_config(&log, &[args.config, Some(PathBuf::from(CONFIG_JSON))])?;
             es!({
                 let mut source = Vec::new();

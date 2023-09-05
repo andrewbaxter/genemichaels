@@ -44,7 +44,27 @@ The configuration file is json, but it will strip lines starting with `//` first
 Here's the config file. All values shown are defaults and the keys can be omitted if the default works for you.
 
 ```jsonc
-{}
+{
+  // Ideal maximum line width. If there's an unbreakable element the line won't be split.
+  "max_width": 120,
+  // When breaking a child element, also break all parent elements.
+  "root_splits": false,
+  // Break a `()` or `{}` if it has greater than this number of children.  Set to `null` to
+  // disable breaking due to high child counts.
+  "split_brace_threshold": 1,
+  // Break a `#[]` on a separate line before the element it's associated with.
+  "split_attributes": true,
+  // Put the `where` clause on a new line.
+  "split_where": true,
+  // Maximum relative line length for comments (past the comment indentation level). Can be
+  // `null` to disable relative wrapping.  If disabled, still wraps at `max_width`.
+  "comment_width": 80,
+  // If reformatting comments results in an error, abort formatting the document.
+  "comment_errors_fatal": false,
+  // If there are blank lines beyond what genemichaels would add itself, keep up to this number
+  // of them.
+  "keep_max_blank_lines": 0
+}
 ```
 
 ## Disabling formatting for specific comments

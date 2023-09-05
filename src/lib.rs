@@ -482,9 +482,7 @@ impl Formattable for &Ident {
 #[derive(Debug, Copy, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct FormatConfig {
-    /// Try to wrap to this width
     pub max_width: usize,
-    /// If a node is split, all parents of the node must also be split
     pub root_splits: bool,
     pub split_brace_threshold: Option<usize>,
     pub split_attributes: bool,

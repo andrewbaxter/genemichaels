@@ -4,7 +4,9 @@ version = 3
 
 [[package]]
 name = "aargvark"
-version = "0.0.4"
+version = "0.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9d02e9b96fc60b8d9e7c9ce1911b866e7d1443c52ac2310688d38650a5ec20d2"
 dependencies = [
  "aargvark_proc_macros",
  "comfy-table",
@@ -14,7 +16,9 @@ dependencies = [
 
 [[package]]
 name = "aargvark_proc_macros"
-version = "0.0.2"
+version = "0.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "938de5f9f9018a81d07b8c54920ce635cfa73c95a2e57d2f6ab66f07210a3832"
 dependencies = [
  "convert_case 0.6.0",
  "proc-macro2",
@@ -63,8 +67,9 @@ checksum = "a3e2c3daef883ecc1b5d58c15adae93470a91d425f3532ba1695849656af3fc1"
 
 [[package]]
 name = "cargo-manifest"
-version = "0.7.1"
-source = "git+https://github.com/andrewbaxter/fork-cargo-manifest?rev=1957fc45baa9b16f894ffcbaecbd8289a026d2a9#1957fc45baa9b16f894ffcbaecbd8289a026d2a9"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1736b349e902d565a0a6a3d00927ed9440ba1a6c3ad756d64afad15f235da0b3"
 dependencies = [
  "serde",
  "toml",
@@ -214,7 +219,7 @@ dependencies = [
 
 [[package]]
 name = "genemichaels"
-version = "0.1.21"
+version = "0.2.0"
 dependencies = [
  "aargvark",
  "cargo-manifest",
@@ -377,10 +382,10 @@ dependencies = [
 
 [[package]]
 name = "markdown"
-version = "1.0.0-alpha.5"
-source = "git+https://github.com/wooorm/markdown-rs?rev=af202d3f0ea24e0a957b02a6f9fb23c6c3b4afe7#af202d3f0ea24e0a957b02a6f9fb23c6c3b4afe7"
+version = "1.0.0-alpha.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08be37c7b5269bb027f69cdf446c96099d1e8da723c0d5fb78856adc6a50680f"
 dependencies = [
- "log",
  "unicode-id",
 ]
 
