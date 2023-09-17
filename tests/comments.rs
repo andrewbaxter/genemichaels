@@ -118,7 +118,7 @@ fn extract_blank_before_end() {
 
 #[test]
 fn from_rt_blank_keep1() {
-    let got = extract_whitespaces_first(5, r#"
+    let got = extract_whitespaces_first(1, r#"
 
 fn main() {
 }

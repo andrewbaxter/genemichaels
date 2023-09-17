@@ -236,6 +236,14 @@ fn main() { }
 "#);
 }
 
+/// The start of the file is a special case since the first line is already on a
+/// new line.  So for elements following others, a "blank line" is a new line from
+/// the previous element, then another new line to the start of the next. But for
+/// SOF a blank line is just one new line.
+///
+/// This should probably be handled explicitly, but for now a single function that
+/// assumes it's extracting comments from non-SOF will generally be correct and
+/// simpler, I don't think SOF blank lines are that important...
 #[test]
 fn rt_comments_blank_keep1() {
     let res = format_str(r#"

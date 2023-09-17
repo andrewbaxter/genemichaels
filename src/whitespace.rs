@@ -122,13 +122,14 @@ pub fn extract_whitespaces(
                 }
 
                 fn add_blank_lines(&mut self, text: &str) {
-                    let blank_lines =
-                        text.as_bytes().iter().filter(|x| **x == b'\n').count().min(self.keep_max_blank_lines);
-                    if blank_lines > 1 {
+                    let blank_lines = text.as_bytes().iter().filter(|x| **x == b'\n').count();
+                    if blank_lines > 1 && self.keep_max_blank_lines > 0 {
                         self.flush();
                         self.out.push(Whitespace {
                             loc: self.loc,
-                            mode: crate::WhitespaceMode::BlankLines(blank_lines - 1),
+                            mode: crate::WhitespaceMode::BlankLines(
+                                (blank_lines - 1).min(self.keep_max_blank_lines),
+                            ),
                         });
                     }
                 }
