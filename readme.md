@@ -61,8 +61,9 @@ Here's the config file. All values shown are defaults and the keys can be omitte
   "comment_width": 80,
   // If reformatting comments results in an error, abort formatting the document.
   "comment_errors_fatal": false,
-  // If there are blank lines beyond what genemichaels would add itself, keep up to this number
-  // of them.
+  // Genemichaels will replace line breaks with it's own deterministic line breaks.  You can
+  // use this to keep extra line breaks (1 will keep up to 1 extra line break) during comment
+  // extraction. This is unused during formatting.
   "keep_max_blank_lines": 0
 }
 ```
@@ -104,16 +105,20 @@ The format functions also return lost comments - comments not formatted/added to
 
 At a very high level:
 
-- The syntax tree is converted into "split groups" which have segments
+- The syntax tree is converted into a linear list of segments, where each segment is a member of exactly one "split group". A split group has a single boolean switch of state: split or not split.
 
-  For instance, a split group for `match {}` might have segments `match` `{` `<break>` and `}`. These segments are interleaved (other group's segments may come between `{` and `}`) in a single line, to start.
+  For instance, a split group for `match {}` might have segments `match` `{` `<break>` and `}`. These segments are interleaved with other groups' segments, for instance other segments may come between `{` and `}`.
 
-  If the split group is triggered to split, `<break>` and everything after it on that line are moved to a new line after the line they were on.
+  All split groups start in the not split state.
 
-- The split groups form a tree, with each node having children
-- The segments form a linear list (well, list of lists), as they'd appear in the source code
+  When a split group split state is toggled, `<break>` and everything after it on that line are moved to a new line after the line they were on.
 
-Then the algorithm basically wraps nodes until all lines are less than the max line width.
+The algorithm basically wraps nodes until all lines are less than the max line width.
+
+This was a simplified explanation; there are a few other factors:
+
+- Alignments
+- Segments that change depending on whether their group is split or not (i.e. the `<break>` above which only breaks the line when the group is split, vs unconditional breaks)
 
 ## Multi-threading
 
@@ -127,10 +132,6 @@ Comments deserve a special mention since they're handled out of band.
 
 When building split groups, if the current syntax element has a token with a line/column matching an extracted comment, the comment is added to the split group.
 
-### Verbatim comments
-
-Gene Michaels supports an extra comment type, `//.` which signals a verbatim comment, which isn't processed. Use these for commenting out source code.
-
 ## Macros
 
 Macros are formatted with a couple tricks:
@@ -139,6 +140,10 @@ Macros are formatted with a couple tricks:
 2. If it doesn't, it's split by `;` and `,` since those are usually separators, then the above is tried for each chunk.
 3. Otherwise each token in the macro is concatenated with spaces (with a couple other per-case tweaks)
 
+Formatting end user use of macros is prioritized over formatting `macro_rules`, since macros are used more than they're defined. Most macros look like normalish Rust syntax so many of the normal formatting rules can be used.
+
 ## Q&A
 
 See [this Reddit post](https://www.reddit.com/r/rust/comments/zo54gj/gene_michaels_alternative_rust_code_formatter/) for many questions and answers.
+
+For other questions or bug reports, etc. please use issues and/or discussions here.

@@ -38,6 +38,7 @@ fn unicode_len(text: &str) -> VisualLen {
 }
 
 pub fn extract_whitespaces(
+    keep_max_blank_lines: usize,
     source: &str,
 ) -> Result<(HashMap<HashLineColumn, Vec<Whitespace>>, TokenStream), loga::Error> {
     let mut line_lookup = vec![];
@@ -56,6 +57,7 @@ pub fn extract_whitespaces(
 
     struct State<'a> {
         source: &'a str,
+        keep_max_blank_lines: usize,
         // starting offset of each line
         line_lookup: Vec<usize>,
         whitespaces: HashMap<HashLineColumn, Vec<Whitespace>>,
@@ -88,6 +90,7 @@ pub fn extract_whitespaces(
                 &self.block_event_re.get_or_insert_with(|| UnicodeRegex::new(r#"((?:/\*)|(?:\*/))"#).unwrap());
 
             struct CommentBuffer {
+                keep_max_blank_lines: usize,
                 blank_lines: usize,
                 out: Vec<Whitespace>,
                 mode: CommentMode,
@@ -119,7 +122,8 @@ pub fn extract_whitespaces(
                 }
 
                 fn add_blank_lines(&mut self, text: &str) {
-                    let blank_lines = text.as_bytes().iter().filter(|x| **x == b'\n').count();
+                    let blank_lines =
+                        text.as_bytes().iter().filter(|x| **x == b'\n').count().min(self.keep_max_blank_lines);
                     if blank_lines > 1 {
                         self.flush();
                         self.out.push(Whitespace {
@@ -131,6 +135,7 @@ pub fn extract_whitespaces(
             }
 
             let mut buffer = CommentBuffer {
+                keep_max_blank_lines: self.keep_max_blank_lines,
                 blank_lines: 0,
                 out: vec![],
                 mode: CommentMode::Normal,
@@ -301,8 +306,9 @@ pub fn extract_whitespaces(
 
     // Extract comments
     let mut state = State {
-        source,
-        line_lookup,
+        source: source,
+        keep_max_blank_lines: keep_max_blank_lines,
+        line_lookup: line_lookup,
         whitespaces: HashMap::new(),
         last_offset: 0usize,
         line_start: None,

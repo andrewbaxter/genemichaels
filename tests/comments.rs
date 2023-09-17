@@ -8,8 +8,8 @@ use genemichaels::{
 };
 use proc_macro2::LineColumn;
 
-fn extract_whitespaces_first(text: &str) -> Vec<Whitespace> {
-    let (mut whitespaces, tokens) = extract_whitespaces(text).unwrap();
+fn extract_whitespaces_first(keep_max_blank_lines: usize, text: &str) -> Vec<Whitespace> {
+    let (mut whitespaces, tokens) = extract_whitespaces(keep_max_blank_lines, text).unwrap();
     return whitespaces.remove(&HashLineColumn(tokens.into_iter().next().unwrap().span().start())).unwrap();
 }
 
@@ -34,12 +34,15 @@ fn eq_whitespaces(got: Vec<Whitespace>, expect: Vec<Whitespace>) {
     assert_eq!(got, expect, "Mismatch:\nGot:\n{:?}\n\nExpected:\n{:?}\n", got, expect);
 }
 
-fn t(text: &str, expect: Vec<Whitespace>) {
-    eq_whitespaces(extract_whitespaces_first(&format!("{}\nconst THING: i32 = 7;", text)), expect);
+fn t(keep_max_blank_lines: usize, text: &str, expect: Vec<Whitespace>) {
+    eq_whitespaces(
+        extract_whitespaces_first(keep_max_blank_lines, &format!("{}\nconst THING: i32 = 7;", text)),
+        expect,
+    );
 }
 
-fn t_end(text: &str, expect: Vec<Whitespace>) {
-    let (mut comments, _) = extract_whitespaces(text).unwrap();
+fn t_end(keep_max_blank_lines: usize, text: &str, expect: Vec<Whitespace>) {
+    let (mut comments, _) = extract_whitespaces(keep_max_blank_lines, text).unwrap();
     let got = comments.remove(&HashLineColumn(LineColumn {
         line: 0,
         column: 1,
@@ -75,6 +78,7 @@ fn blanks(count: usize) -> Whitespace {
 #[test]
 fn comments_line_end1() {
     t(
+        0,
         "// comment 1\nconst THING: i32 = 7; // the thing\n",
         vec![comment(CommentMode::Normal, " comment 1\n the thing")],
     );
@@ -82,39 +86,39 @@ fn comments_line_end1() {
 
 #[test]
 fn comments_block_outer1() {
-    t("/** outer1 */", vec![comment(CommentMode::DocOuter, "outer1")]);
+    t(0, "/** outer1 */", vec![comment(CommentMode::DocOuter, "outer1")]);
 }
 
 #[test]
 fn comments_block_empty1() {
-    t("/**/", vec![comment(CommentMode::Normal, "")]);
+    t(0, "/**/", vec![comment(CommentMode::Normal, "")]);
 }
 
 #[test]
 fn extract_end() {
-    let (comments, _) = extract_whitespaces("const THING: i32 = 7;\n// The end.").unwrap();
+    let (comments, _) = extract_whitespaces(0, "const THING: i32 = 7;\n// The end.").unwrap();
     assert!(!comments.is_empty());
 }
 
 #[test]
 fn extract_end2() {
-    let (comments, _) = extract_whitespaces("const THING: i32 = 7;\n// The end.\n").unwrap();
+    let (comments, _) = extract_whitespaces(0, "const THING: i32 = 7;\n// The end.\n").unwrap();
     assert!(!comments.is_empty());
 }
 
 #[test]
 fn extract_blank_before_text() {
-    t("\n\n//x", vec![blanks(1), comment(CommentMode::Normal, "x")]);
+    t(5, "\n\n//x", vec![blanks(1), comment(CommentMode::Normal, "x")]);
 }
 
 #[test]
 fn extract_blank_before_end() {
-    t_end("\n\n//x", vec![blanks(1), comment(CommentMode::Normal, "x")]);
+    t_end(5, "\n\n//x", vec![blanks(1), comment(CommentMode::Normal, "x")]);
 }
 
 #[test]
 fn from_rt_blank_keep1() {
-    let got = extract_whitespaces_first(r#"
+    let got = extract_whitespaces_first(5, r#"
 
 fn main() {
 }

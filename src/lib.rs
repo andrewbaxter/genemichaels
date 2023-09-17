@@ -516,7 +516,7 @@ pub struct FormatRes {
 pub use whitespace::extract_whitespaces;
 
 pub fn format_str(source: &str, config: &FormatConfig) -> Result<FormatRes, loga::Error> {
-    let (whitespaces, tokens) = extract_whitespaces(source)?;
+    let (whitespaces, tokens) = extract_whitespaces(config.keep_max_blank_lines, source)?;
     format_ast(
         syn::parse2::<File>(
             tokens,
@@ -764,19 +764,18 @@ pub fn format_ast(
                         }
                     },
                     SegmentContent::Whitespace((b, whitespaces)) => {
-                        for (i, whitespace) in whitespaces.iter().enumerate() {
+                        for (comment_i, whitespace) in whitespaces.iter().enumerate() {
                             match &whitespace.mode {
                                 WhitespaceMode::BlankLines(count) => {
-                                    let use_count = (*count).min(config.keep_max_blank_lines);
-                                    if use_count > 0 {
-                                        for _ in 0 .. use_count {
+                                    if *count > 0 {
+                                        for _ in 0 .. *count {
                                             push!("\n");
                                         }
                                         continue;
                                     }
                                 },
                                 WhitespaceMode::Comment(comment) => {
-                                    if i > 0 {
+                                    if comment_i > 0 {
                                         push!("\n");
                                     }
                                     let prefix = format!("{}//{} ", " ".repeat(b.get()), match comment.mode {
