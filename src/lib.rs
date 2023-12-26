@@ -190,7 +190,7 @@ pub fn vark_explicit<T: AargvarkTrait>(command: String, args: Vec<String>) -> T 
             for e in state.errors {
                 text.push_str("\n");
                 text.push_str(&format!(" * {}\n", e.err));
-                text.push_str(&format!("  while parsing {:?} at\n", e.breadcrumbs));
+                text.push_str(&format!("   while processing command {:?} at\n", e.breadcrumbs));
                 text.push_str("   ");
                 text.push_str(&display_args);
                 text.push_str("\n");
