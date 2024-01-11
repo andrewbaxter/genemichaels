@@ -1,6 +1,6 @@
 [package]
 name = "aargvark"
-version = "0.0.7"
+version = "0.0.8"
 edition = "2021"
 license = "ISC"
 description = "Self-similar argument parsing"
@@ -24,6 +24,6 @@ serde_yaml = { version = "0", optional = true }
 convert_case = "0.6.0"
 comfy-table = { version = "7.1.0", features = ["custom_styling"] }
 url = { version = "2", optional = true }
-http = { version = "0", optional = true }
+http = { version = "1", optional = true }
 serde = { version = "1", optional = true }
-console = "0.15.7"
+console = "0.15.8"
