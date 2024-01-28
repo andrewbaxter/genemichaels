@@ -6,23 +6,26 @@ Self-similar derive-based command line argument parsing, in the same genre as Cl
 This attempts to support parsing arbitrarily complex command line arguments. Like with Serde, you can combine structs, vecs, enums in any way you want. Just because you can doesn't mean you should.
 
 ```
-$ echo This is an example help output, sans light ansi styling
-$ ./target/debug/spagh-cli publish -h
-Usage: ./target/debug/spagh-cli publish PUBLISH
+$ # This is an example help output, sans light ansi styling
+$ spagh set -h
+Usage: spagh set > IDENTITY DATA
 
-Create or replace existing publish data for an identity on a publisher server
+    IDENTITY: BACKED-IDENTITY-ARG       Identity to publish as
+    DATA: <PATH> | -                    Data to publish.  Must be json in the structure `{KEY: {"ttl": MINUTES, "value": DATA}, ...}`
 
+BACKED-IDENTITY-ARG: local | card
 
-PUBLISH: SERVER IDENTITY DATA
+    An identity with its associated secret.
 
- SERVER: <URI>                          URL of a server with publishing set up
- IDENTITY: IDENTITY                     Identity to publish as
- DATA: <PATH>|-                         Data to publish.  Must be json in the structure `{KEY: {"ttl": SECONDS, "value": "DATA"}, ...}`
+    local <PATH>                        A file containing a generated key
+    card card                           PC/SC card with ED25519 key
 
-IDENTITY: local | card
+card: PCSC-ID PIN
 
- local <PATH>|-
- card PCSC-ID PIN
+    PCSC-ID: <STRING>                   Card to register, using id per pcscd (not identity id)
+    PIN: <STRING>                       Card pin
+
+$
 ```
 
 # Why or why not

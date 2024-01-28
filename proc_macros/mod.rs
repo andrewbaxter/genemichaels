@@ -401,7 +401,7 @@ fn gen_impl_struct(
                             PeekR:: Help => {
                                 aargvark:: show_help_and_exit(state, | state | {
                                     return aargvark:: HelpPartialProduction {
-                                        description: #field_help_docstr.to_string(),
+                                        description: #help_docstr.to_string(),
                                         content: build_partial_help(state, #required_i, &optional),
                                     };
                                 });
