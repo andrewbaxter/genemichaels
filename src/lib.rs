@@ -1,3 +1,5 @@
+#![doc= include_str !("../readme.md")]
+
 use std::{
     any::TypeId,
     cell::RefCell,
