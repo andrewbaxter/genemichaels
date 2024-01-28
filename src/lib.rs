@@ -1,6 +1,20 @@
 use std::{
+    any::TypeId,
+    cell::RefCell,
+    collections::{
+        HashMap,
+        HashSet,
+    },
     env::args,
-    process::exit,
+    ffi::{
+        OsString,
+    },
+    fs,
+    hash::Hash,
+    io::{
+        stdin,
+        Read,
+    },
     net::{
         SocketAddr,
         SocketAddrV4,
@@ -10,16 +24,8 @@ use std::{
         Ipv6Addr,
     },
     path::PathBuf,
-    io::{
-        stdin,
-        Read,
-    },
-    fs,
-    collections::HashSet,
-    hash::Hash,
-    ffi::{
-        OsString,
-    },
+    process::exit,
+    rc::Rc,
 };
 pub use aargvark_proc_macros::Aargvark;
 use comfy_table::Cell;
@@ -35,7 +41,6 @@ pub enum R<T> {
     EOF,
     Err,
     Ok(T),
-    Help,
 }
 
 #[doc(hidden)]
@@ -51,72 +56,6 @@ pub struct VarkState {
     i: usize,
     pub breadcrumbs: Vec<String>,
     errors: Vec<VarkErr>,
-    pub simple_enum_root: bool,
-}
-
-#[doc(hidden)]
-pub fn join_strs(sep: &str, v: &[&str]) -> String {
-    v.join(sep)
-}
-
-pub fn style_type(l: &str) -> String {
-    console::Style::new().magenta().apply_to(l).to_string()
-}
-
-pub fn style_link(l: &str) -> String {
-    console::Style::new().blue().apply_to(l).to_string()
-}
-
-pub fn style_section(l: &str) -> String {
-    console::Style::new().bold().apply_to(l).to_string()
-}
-
-#[doc(hidden)]
-pub fn generate_help_section_usage_prefix(state: &VarkState) -> (String, HashSet<String>) {
-    let mut text = style_section("Usage: ");
-    for (i, s) in state.breadcrumbs.iter().enumerate() {
-        if i > 0 {
-            text.push_str(" ");
-        }
-        text.push_str(s);
-    }
-    return (text, HashSet::new());
-}
-
-#[doc(hidden)]
-pub fn generate_help_section_suffix(
-    docstr: &str,
-    placeholders: Vec<&str>,
-    placeholders_detail: Vec<(&str, &str)>,
-    joiner: &str,
-) -> String {
-    let mut out = String::new();
-    out.push_str(" ");
-    for (i, p) in placeholders.iter().enumerate() {
-        if i > 0 {
-            out.push_str(joiner);
-        }
-        out.push_str(p);
-    }
-    out.push_str("\n\n");
-    if !docstr.is_empty() {
-        out.push_str(docstr);
-        out.push_str("\n\n");
-    }
-    let mut table = comfy_table::Table::new();
-    table.load_preset(comfy_table::presets::NOTHING);
-    table.set_content_arrangement(comfy_table::ContentArrangement::Dynamic);
-    for (placeholder, docstr) in placeholders_detail {
-        // One space due to invisible border
-        table.add_row(vec![comfy_table::Cell::new(format!("   {}", placeholder)), Cell::new(docstr)]);
-    }
-    table.set_constraints(vec![comfy_table::ColumnConstraint::Boundaries {
-        lower: comfy_table::Width::Percentage(20),
-        upper: comfy_table::Width::Percentage(60),
-    }]);
-    out.push_str(&table.to_string());
-    out.push_str("\n\n");
-    return out;
 }
 
 impl VarkState {
@@ -165,7 +104,6 @@ pub fn vark_explicit<T: AargvarkTrait>(command: String, args: Vec<String>) -> T 
         i: 0,
         breadcrumbs: vec![command],
         errors: vec![],
-        simple_enum_root: true,
     };
     match T::vark(&mut state) {
         R::EOF => {
@@ -211,12 +149,6 @@ pub fn vark_explicit<T: AargvarkTrait>(command: String, args: Vec<String>) -> T 
             }
             return v;
         },
-        R::Help => {
-            let (mut text, mut seen_sections) = generate_help_section_usage_prefix(&state);
-            T::generate_help_section_suffix(&mut text, &mut seen_sections);
-            eprintln!("{}\n", text.trim());
-            exit(0);
-        },
     }
 }
 
@@ -231,23 +163,28 @@ pub fn vark<T: AargvarkTrait>() -> T {
 /// parsable enums/structs.
 pub trait AargvarkTrait: Sized {
     fn vark(state: &mut VarkState) -> R<Self>;
-    fn generate_help_placeholder() -> String;
-    fn generate_help_section(text: &mut String, seen_sections: &mut HashSet<String>);
-    fn generate_help_section_suffix(text: &mut String, seen_sections: &mut HashSet<String>);
+    fn build_help_pattern(state: &mut HelpState) -> HelpPattern;
 }
 
 /// A helper enum, providing a simpler interface for types that can be parsed from
 /// a single primitive string.
 pub trait AargvarkFromStr: Sized {
     fn from_str(s: &str) -> Result<Self, String>;
-    fn generate_help_placeholder() -> String;
+    fn build_help_pattern(state: &mut HelpState) -> HelpPattern;
 }
 
 impl<T: AargvarkFromStr> AargvarkTrait for T {
     fn vark(state: &mut VarkState) -> R<Self> {
         let s = match state.peek() {
             PeekR::None => return R::EOF,
-            PeekR::Help => return R::Help,
+            PeekR::Help => {
+                show_help_and_exit(state, |state| {
+                    return HelpPartialProduction {
+                        description: "".to_string(),
+                        content: HelpPartialContent::Pattern(<Self as AargvarkTrait>::build_help_pattern(state)),
+                    };
+                });
+            },
             PeekR::Ok(s) => s,
         };
         match T::from_str(s) {
@@ -259,24 +196,20 @@ impl<T: AargvarkFromStr> AargvarkTrait for T {
         }
     }
 
-    fn generate_help_placeholder() -> String {
-        T::generate_help_placeholder()
+    fn build_help_pattern(state: &mut HelpState) -> HelpPattern {
+        return <T as AargvarkFromStr>::build_help_pattern(state);
     }
-
-    fn generate_help_section(_text: &mut String, _seen_sections: &mut HashSet<String>) { }
-
-    fn generate_help_section_suffix(_text: &mut String, _seen_sections: &mut HashSet<String>) { }
 }
 
 macro_rules! auto_from_str{
     ($placeholder: literal, $t: ty) => {
         impl AargvarkFromStr for $t {
             fn from_str(s: &str) -> Result<Self, String> {
-                <Self as std::str::FromStr>::from_str(s).map_err(|e| e.to_string())
+                return <Self as std::str::FromStr>::from_str(s).map_err(|e| e.to_string());
             }
 
-            fn generate_help_placeholder() -> String {
-                style_type(&format!("<{}>", $placeholder))
+            fn build_help_pattern(_state: &mut HelpState) -> HelpPattern {
+                return HelpPattern(vec![HelpPatternElement:: Type($placeholder.to_string())]);
             }
         }
     };
@@ -325,18 +258,23 @@ auto_from_str!("PATH", PathBuf);
 #[cfg(feature = "http_types")]
 auto_from_str!("URI", http::Uri);
 
-impl AargvarkTrait for bool {
-    fn vark(state: &mut VarkState) -> R<Self> {
-        return state.r_ok(true);
+impl AargvarkFromStr for bool {
+    fn from_str(s: &str) -> Result<Self, String> {
+        return <Self as std::str::FromStr>::from_str(s).map_err(|e| e.to_string());
     }
 
-    fn generate_help_placeholder() -> String {
-        return style_type("<BOOL>");
+    fn build_help_pattern(_state: &mut HelpState) -> HelpPattern {
+        return HelpPattern(
+            vec![
+                HelpPatternElement::Variant(
+                    vec![
+                        HelpPattern(vec![HelpPatternElement::Literal("true".to_string())]),
+                        HelpPattern(vec![HelpPatternElement::Literal("false".to_string())])
+                    ],
+                )
+            ],
+        );
     }
-
-    fn generate_help_section(_text: &mut String, _seen_sections: &mut HashSet<String>) { }
-
-    fn generate_help_section_suffix(_text: &mut String, _seen_sections: &mut HashSet<String>) { }
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -373,8 +311,17 @@ impl AargvarkFromStr for AargvarkFile {
         }
     }
 
-    fn generate_help_placeholder() -> String {
-        return style_type("<PATH>|-");
+    fn build_help_pattern(state: &mut HelpState) -> HelpPattern {
+        return HelpPattern(
+            vec![
+                HelpPatternElement::Variant(
+                    vec![
+                        <PathBuf as AargvarkTrait>::build_help_pattern(state),
+                        HelpPattern(vec![HelpPatternElement::Literal("-".to_string())])
+                    ],
+                )
+            ],
+        );
     }
 }
 
@@ -399,8 +346,17 @@ impl<T: for<'a> serde::Deserialize<'a>> AargvarkFromStr for AargvarkJson<T> {
         };
     }
 
-    fn generate_help_placeholder() -> String {
-        format!("<{}>|{}", style_type("PATH"), style_type("-"))
+    fn build_help_pattern(state: &mut HelpState) -> HelpPattern {
+        return HelpPattern(
+            vec![
+                HelpPatternElement::Variant(
+                    vec![
+                        <PathBuf as AargvarkTrait>::build_help_pattern(state),
+                        HelpPattern(vec![HelpPatternElement::Literal("-".to_string())])
+                    ],
+                )
+            ],
+        );
     }
 }
 
@@ -435,8 +391,17 @@ impl<T: for<'a> serde::Deserialize<'a>> AargvarkFromStr for AargvarkYaml<T> {
         };
     }
 
-    fn generate_help_placeholder() -> String {
-        format!("<{}>|{}", style_type("PATH"), style_type("-"))
+    fn build_help_pattern(state: &mut HelpState) -> HelpPattern {
+        return HelpPattern(
+            vec![
+                HelpPatternElement::Variant(
+                    vec![
+                        <PathBuf as AargvarkTrait>::build_help_pattern(state),
+                        HelpPattern(vec![HelpPatternElement::Literal("-".to_string())])
+                    ],
+                )
+            ],
+        );
     }
 }
 
@@ -452,7 +417,6 @@ impl<T: Clone> Clone for AargvarkYaml<T> {
 
 #[doc(hidden)]
 pub fn vark_from_iter<T: AargvarkTrait, C: FromIterator<T>>(state: &mut VarkState) -> R<C> {
-    state.simple_enum_root = false;
     let mut out = vec![];
     let mut rewind_to = state.position();
     let mut i = 0usize;
@@ -462,9 +426,6 @@ pub fn vark_from_iter<T: AargvarkTrait, C: FromIterator<T>>(state: &mut VarkStat
         let r = T::vark(state);
         state.breadcrumbs.pop();
         match r {
-            R::Help => {
-                return R::Help;
-            },
             R::Ok(v) => {
                 out.push(v);
                 rewind_to = state.position();
@@ -482,16 +443,8 @@ impl<T: AargvarkTrait> AargvarkTrait for Vec<T> {
         return vark_from_iter(state);
     }
 
-    fn generate_help_placeholder() -> String {
-        return format!("{}{}", T::generate_help_placeholder(), style_link("[ ...]"));
-    }
-
-    fn generate_help_section(text: &mut String, seen_sections: &mut HashSet<String>) {
-        Self::generate_help_section_suffix(text, seen_sections);
-    }
-
-    fn generate_help_section_suffix(text: &mut String, seen_sections: &mut HashSet<String>) {
-        T::generate_help_section(text, seen_sections);
+    fn build_help_pattern(state: &mut HelpState) -> HelpPattern {
+        return HelpPattern(vec![HelpPatternElement::Array(T::build_help_pattern(state))]);
     }
 }
 
@@ -500,15 +453,369 @@ impl<T: AargvarkTrait + Eq + Hash> AargvarkTrait for HashSet<T> {
         return vark_from_iter(state);
     }
 
-    fn generate_help_placeholder() -> String {
-        return format!("{}{}", T::generate_help_placeholder(), style_link("[ ...]"));
+    fn build_help_pattern(state: &mut HelpState) -> HelpPattern {
+        return HelpPattern(vec![HelpPatternElement::Array(T::build_help_pattern(state))]);
+    }
+}
+
+fn style_usage(s: impl AsRef<str>) -> String {
+    return s.as_ref().to_string();
+}
+
+fn style_description(s: impl AsRef<str>) -> String {
+    return s.as_ref().to_string();
+}
+
+fn style_id(s: impl AsRef<str>) -> String {
+    return console::Style::new().blue().dim().apply_to(s.as_ref()).to_string();
+}
+
+fn style_type(s: impl AsRef<str>) -> String {
+    return console::Style::new().magenta().apply_to(s.as_ref()).to_string();
+}
+
+fn style_logical(s: impl AsRef<str>) -> String {
+    return console::Style::new().dim().apply_to(s.as_ref()).to_string();
+}
+
+fn style_literal(s: impl AsRef<str>) -> String {
+    return console::Style::new().bold().apply_to(s.as_ref()).to_string();
+}
+
+#[derive(Hash, PartialEq, Eq, Clone, Copy)]
+pub struct HelpProductionKey {
+    type_id: TypeId,
+    variant: usize,
+}
+
+struct HelpProduction {
+    id: String,
+    description: String,
+    content: HelpProductionType,
+}
+
+pub enum HelpPartialContent {
+    Pattern(HelpPattern),
+    Production(HelpProductionType),
+}
+
+impl HelpPartialContent {
+    pub fn struct_(fields: Vec<HelpField>, optional_fields: Vec<HelpOptionalField>) -> Self {
+        return HelpPartialContent::Production(
+            HelpProductionType::Struct(Rc::new(RefCell::new(HelpProductionTypeStruct {
+                fields: fields,
+                optional_fields: optional_fields,
+            }))),
+        );
     }
 
-    fn generate_help_section(text: &mut String, seen_sections: &mut HashSet<String>) {
-        Self::generate_help_section_suffix(text, seen_sections);
+    pub fn enum_(variants: Vec<HelpVariant>) -> Self {
+        return HelpPartialContent::Production(HelpProductionType::Enum(Rc::new(RefCell::new(variants))));
+    }
+}
+
+pub struct HelpPartialProduction {
+    pub description: String,
+    pub content: HelpPartialContent,
+}
+
+pub enum HelpProductionType {
+    Struct(Rc<RefCell<HelpProductionTypeStruct>>),
+    Enum(Rc<RefCell<Vec<HelpVariant>>>),
+}
+
+pub struct HelpProductionTypeStruct {
+    pub fields: Vec<HelpField>,
+    pub optional_fields: Vec<HelpOptionalField>,
+}
+
+pub struct HelpField {
+    pub id: String,
+    pub pattern: HelpPattern,
+    pub description: String,
+}
+
+pub struct HelpOptionalField {
+    pub literal: String,
+    pub pattern: HelpPattern,
+    pub description: String,
+}
+
+pub struct HelpVariant {
+    pub literal: String,
+    pub pattern: HelpPattern,
+    pub description: String,
+}
+
+#[derive(Clone)]
+pub struct HelpPattern(pub Vec<HelpPatternElement>);
+
+impl HelpPattern {
+    fn render(&self, stack: &mut Vec<(HelpProductionKey, Rc<HelpProduction>)>, state: &HelpState) -> String {
+        let mut out = String::new();
+        for (i, e) in self.0.iter().enumerate() {
+            if i > 0 {
+                out.push_str(" ");
+            }
+            out.push_str(&e.render(stack, state));
+        }
+        return out;
+    }
+}
+
+#[derive(Clone)]
+pub enum HelpPatternElement {
+    Literal(String),
+    Type(String),
+    Reference(HelpProductionKey),
+    Option(HelpPattern),
+    Array(HelpPattern),
+    Variant(Vec<HelpPattern>),
+}
+
+impl HelpPatternElement {
+    fn render(&self, stack: &mut Vec<(HelpProductionKey, Rc<HelpProduction>)>, state: &HelpState) -> String {
+        match self {
+            HelpPatternElement::Literal(l) => return style_literal(l),
+            HelpPatternElement::Type(i) => return style_type(format!("<{}>", i)),
+            HelpPatternElement::Reference(i) => {
+                let production = state.productions.get(i).unwrap();
+                stack.push((*i, production.clone()));
+                return style_id(production.id.as_str())
+            },
+            HelpPatternElement::Option(i) => return format!(
+                "{}{}{}",
+                style_logical("["),
+                i.render(stack, state),
+                style_logical("]")
+            ),
+            HelpPatternElement::Array(i) => return format!("{}{}", i.render(stack, state), style_logical("[ ...]")),
+            HelpPatternElement::Variant(i) => return i
+                .iter()
+                .map(|x| x.render(stack, state))
+                .collect::<Vec<_>>()
+                .join(&style_logical(" | ")),
+        }
+    }
+}
+
+pub struct HelpState {
+    // Write during building
+    name_counter: HashMap<String, usize>,
+    // Write during building, read during rendering
+    productions: HashMap<HelpProductionKey, Rc<HelpProduction>>,
+}
+
+impl HelpState {
+    fn add(
+        &mut self,
+        type_id: TypeId,
+        type_id_variant: usize,
+        id: impl ToString,
+        description: impl ToString,
+        content: HelpProductionType,
+    ) -> HelpProductionKey {
+        let mut id = id.to_string();
+        let count = *self.name_counter.entry(id.clone()).and_modify(|x| *x += 1).or_insert(1);
+        if count > 1 {
+            id = format!("{} ({})", id, count);
+        }
+        let key = HelpProductionKey {
+            type_id: type_id,
+            variant: type_id_variant,
+        };
+        self.productions.insert(key, Rc::new(HelpProduction {
+            id: id,
+            description: description.to_string(),
+            content: content,
+        }));
+        return key;
     }
 
-    fn generate_help_section_suffix(text: &mut String, seen_sections: &mut HashSet<String>) {
-        T::generate_help_section(text, seen_sections);
+    pub fn add_struct(
+        &mut self,
+        type_id: TypeId,
+        type_id_variant: usize,
+        id: impl ToString,
+        description: impl ToString,
+    ) -> (HelpProductionKey, Rc<RefCell<HelpProductionTypeStruct>>) {
+        let out = Rc::new(RefCell::new(HelpProductionTypeStruct {
+            fields: vec![],
+            optional_fields: vec![],
+        }));
+        let key = self.add(type_id, type_id_variant, id, description, HelpProductionType::Struct(out.clone()));
+        return (key, out);
     }
+
+    pub fn add_enum(
+        &mut self,
+        type_id: TypeId,
+        type_id_variant: usize,
+        id: impl ToString,
+        description: impl ToString,
+    ) -> (HelpProductionKey, Rc<RefCell<Vec<HelpVariant>>>) {
+        let out = Rc::new(RefCell::new(vec![]));
+        let key = self.add(type_id, type_id_variant, id, description, HelpProductionType::Enum(out.clone()));
+        return (key, out);
+    }
+}
+
+pub fn show_help_and_exit<
+    F: FnOnce(&mut HelpState) -> HelpPartialProduction,
+>(state: &VarkState, build_root: F) -> ! {
+    fn format_desc(out: &mut String, desc: &str) {
+        if !desc.is_empty() {
+            out.push_str(
+                &style_description(
+                    textwrap::wrap(
+                        desc,
+                        &textwrap::Options::with_termwidth().initial_indent("    ").subsequent_indent("    "),
+                    ).join("\n"),
+                ),
+            );
+            out.push_str("\n\n");
+        }
+    }
+
+    fn format_pattern(out: &mut String, content: &HelpProductionType) {
+        match content {
+            HelpProductionType::Struct(struct_) => {
+                let struct_ = struct_.borrow();
+                for f in &struct_.fields {
+                    out.push_str(" ");
+                    out.push_str(&style_id(&f.id));
+                }
+                if !struct_.optional_fields.is_empty() {
+                    out.push_str(" ");
+                    out.push_str(&style_logical("[ ...OPT]"));
+                }
+            },
+            HelpProductionType::Enum(fields) => {
+                for (i, f) in fields.borrow().iter().enumerate() {
+                    if i > 0 {
+                        out.push_str(" |");
+                    }
+                    out.push_str(" ");
+                    out.push_str(&style_literal(&f.literal));
+                }
+            },
+        }
+    }
+
+    fn format_content(
+        out: &mut String,
+        stack: &mut Vec<(HelpProductionKey, Rc<HelpProduction>)>,
+        help_state: &HelpState,
+        content: &HelpProductionType,
+    ) {
+        let mut table = comfy_table::Table::new();
+        table.load_preset(comfy_table::presets::NOTHING);
+        table.set_content_arrangement(comfy_table::ContentArrangement::Dynamic);
+        match content {
+            HelpProductionType::Struct(struct_) => {
+                let struct_ = struct_.borrow();
+                for f in &struct_.fields {
+                    table.add_row(
+                        vec![
+                            comfy_table::Cell::new(
+                                format!("   {}: {}", style_id(&f.id), f.pattern.render(stack, help_state)),
+                            ),
+                            Cell::new(style_description(&f.description))
+                        ],
+                    );
+                }
+                for f in &struct_.optional_fields {
+                    let mut elems = vec![HelpPatternElement::Literal(f.literal.clone())];
+                    elems.extend(f.pattern.0.clone());
+                    table.add_row(
+                        vec![
+                            comfy_table::Cell::new(
+                                format!(
+                                    "   {}",
+                                    HelpPatternElement::Option(HelpPattern(elems)).render(stack, help_state)
+                                ),
+                            ),
+                            Cell::new(style_description(&f.description))
+                        ],
+                    );
+                }
+            },
+            HelpProductionType::Enum(fields) => {
+                for f in &*fields.borrow() {
+                    table.add_row(
+                        vec![
+                            comfy_table::Cell::new(
+                                format!("   {} {}", style_literal(&f.literal), f.pattern.render(stack, help_state)),
+                            ),
+                            Cell::new(style_description(&f.description))
+                        ],
+                    );
+                }
+            },
+        }
+        table.set_constraints(vec![comfy_table::ColumnConstraint::Boundaries {
+            lower: comfy_table::Width::Percentage(20),
+            upper: comfy_table::Width::Percentage(60),
+        }]);
+        out.push_str(&table.to_string());
+        out.push_str("\n\n");
+    }
+
+    let mut help_state = HelpState {
+        name_counter: HashMap::new(),
+        productions: HashMap::new(),
+    };
+    let mut stack = Vec::<(HelpProductionKey, Rc<HelpProduction>)>::new();
+    let mut seen_productions = HashSet::<HelpProductionKey>::new();
+    let partial = build_root(&mut help_state);
+
+    // Write initial partial production
+    let mut out = style_usage("Usage:");
+    for s in &state.breadcrumbs {
+        out.push_str(" ");
+        out.push_str(&style_literal(s));
+    }
+    out.push_str(" >");
+    let mut temp_stack = vec![];
+    match &partial.content {
+        HelpPartialContent::Pattern(p) => {
+            if !p.0.is_empty() {
+                out.push_str(" ");
+                out.push_str(&p.render(&mut temp_stack, &help_state));
+            }
+        },
+        HelpPartialContent::Production(content) => {
+            format_pattern(&mut out, content);
+        },
+    }
+    out.push_str("\n\n");
+    format_desc(&mut out, &partial.description);
+    match &partial.content {
+        HelpPartialContent::Pattern(_) => {
+            out.push_str("\n\n");
+        },
+        HelpPartialContent::Production(content) => {
+            format_content(&mut out, &mut temp_stack, &mut help_state, content);
+        },
+    }
+    temp_stack.reverse();
+    stack.extend(temp_stack);
+
+    // Recurse productions
+    while let Some((key, top)) = stack.pop() {
+        if !seen_productions.insert(key) {
+            continue;
+        }
+        out.push_str(&style_id(&top.id));
+        out.push_str(":");
+        format_pattern(&mut out, &top.content);
+        out.push_str("\n\n");
+        format_desc(&mut out, &top.description);
+        let mut temp_stack = vec![];
+        format_content(&mut out, &mut temp_stack, &mut help_state, &top.content);
+        temp_stack.reverse();
+        stack.extend(temp_stack);
+    }
+    print!("{}", out);
+    exit(0);
 }

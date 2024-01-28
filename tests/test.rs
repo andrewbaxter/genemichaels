@@ -108,3 +108,14 @@ fn t_struct_opt_last() {
         a: Some("wowo".into()),
     });
 }
+
+#[test]
+fn t_help_break() {
+    #[derive(Aargvark, PartialEq, Debug)]
+    struct Naya {
+        b: Option<()>,
+    }
+
+    let v: Naya = vark_explicit("".to_string(), svec!["noh", "--a", "wowo"]);
+    assert_eq!(v, Naya { b: None });
+}

@@ -36,7 +36,7 @@ Why this and not Clap?
 Why not this?
 
 - Some command line parsing conventions were discarded in order to simplify and maintain self-similarity. A lot of command line conventions are inconsistent or break down as you nest things, after all.
-- There's less customizability. Some tricks (like `-v` `-vv` `-vvv`) break patterns and probably won't ever be implemented. Other things just haven't been implemented yet due to lack of time.
+- Quirky CLI parsing generally isn't supported: Some tricks (like `-v` `-vv` `-vvv`) break patterns and probably won't ever be implemented. (Other things just haven't been implemented yet due to lack of time)
 - Alpha
 
 # Conventions and usage
@@ -76,3 +76,17 @@ Some additional wrappers are provided for automatically loading (and parsing) fi
 - `AargvarkYaml<T>` requires feature `serde_yaml`
 
 To parse your own types, implement `AargvarkTrait`, or if your type takes a single string argument you can implement `AargvarkFromStr`.
+
+# Advanced usage
+
+- Prevent recursion in help
+
+  Add `#[vark(break)]` to a type to prevent recursing into any of the children. This is useful for subcommand enums - attach this to the enum and it will list the arguments but not the arguments' arguments (unless you do `-h` after specifying one on the command line).
+
+- Rename enum variants and option keys
+
+  Add `#[vark(name="x")]` to a field.
+
+- Change placeholder text
+
+  Add `#[vark(id="x")]` to a field.
