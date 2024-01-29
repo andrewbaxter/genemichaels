@@ -34,7 +34,6 @@ use comfy_table::Cell;
 
 struct VarkErr {
     i: usize,
-    breadcrumbs: Vec<String>,
     err: String,
 }
 
@@ -54,9 +53,9 @@ pub enum PeekR<'a> {
 
 #[doc(hidden)]
 pub struct VarkState {
+    command: Option<String>,
     args: Vec<String>,
     i: usize,
-    pub breadcrumbs: Vec<String>,
     errors: Vec<VarkErr>,
 }
 
@@ -91,7 +90,6 @@ impl VarkState {
     pub fn r_err<T>(&mut self, text: String) -> R<T> {
         self.errors.push(VarkErr {
             i: self.i,
-            breadcrumbs: self.breadcrumbs.clone(),
             err: text,
         });
         return R::Err;
@@ -100,11 +98,11 @@ impl VarkState {
 
 /// Parse the explicitly passed in arguments. The `command` is only used in help
 /// text.
-pub fn vark_explicit<T: AargvarkTrait>(command: String, args: Vec<String>) -> T {
+pub fn vark_explicit<T: AargvarkTrait>(command: Option<String>, args: Vec<String>) -> T {
     let mut state = VarkState {
+        command: command,
         args: args,
         i: 0,
-        breadcrumbs: vec![command],
         errors: vec![],
     };
     match T::vark(&mut state) {
@@ -130,7 +128,6 @@ pub fn vark_explicit<T: AargvarkTrait>(command: String, args: Vec<String>) -> T 
             for e in state.errors {
                 text.push_str("\n");
                 text.push_str(&format!(" * {}\n", e.err));
-                text.push_str(&format!("   while processing command {:?} at\n", e.breadcrumbs));
                 text.push_str("   ");
                 text.push_str(&display_args);
                 text.push_str("\n");
@@ -157,7 +154,7 @@ pub fn vark_explicit<T: AargvarkTrait>(command: String, args: Vec<String>) -> T 
 /// Parse the command line arguments into the specified type.
 pub fn vark<T: AargvarkTrait>() -> T {
     let mut args = args();
-    let command = args.next().unwrap_or("unknown!".to_string());
+    let command = args.next();
     return vark_explicit(command, args.collect::<Vec<String>>());
 }
 
@@ -421,12 +418,8 @@ impl<T: Clone> Clone for AargvarkYaml<T> {
 pub fn vark_from_iter<T: AargvarkTrait, C: FromIterator<T>>(state: &mut VarkState) -> R<C> {
     let mut out = vec![];
     let mut rewind_to = state.position();
-    let mut i = 0usize;
     loop {
-        i += 1;
-        state.breadcrumbs.push(format!("[{}]", i));
         let r = T::vark(state);
-        state.breadcrumbs.pop();
         match r {
             R::Ok(v) => {
                 out.push(v);
@@ -773,7 +766,11 @@ pub fn show_help_and_exit<
 
     // Write initial partial production
     let mut out = style_usage("Usage:");
-    for s in &state.breadcrumbs {
+    if let Some(s) = &state.command {
+        out.push_str(" ");
+        out.push_str(&style_literal(s));
+    }
+    for s in state.args.iter().take(state.i) {
         out.push_str(" ");
         out.push_str(&style_literal(s));
     }

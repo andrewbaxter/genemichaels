@@ -82,14 +82,18 @@ To parse your own types, implement `AargvarkTrait`, or if your type takes a sing
 
 # Advanced usage
 
+- Vecs
+
+  Vec elements are space separated. The way vec parsing works is it attempts to parse as many elements as possible. When parsing one element fails, it rewinds to after it parsed the last successful element and proceeds from the next field after the vec.
+
 - Prevent recursion in help
 
-  Add `#[vark(break)]` to a type to prevent recursing into any of the children. This is useful for subcommand enums - attach this to the enum and it will list the arguments but not the arguments' arguments (unless you do `-h` after specifying one on the command line).
+  Add `#[vark(break)]` to a type, field, or variant to prevent recursing into any of the children. This is useful for subcommand enums - attach this to the enum and it will list the arguments but not the arguments' arguments (unless you do `-h` after specifying one on the command line).
 
 - Rename enum variants and option keys
 
   Add `#[vark(name="x")]` to a field.
 
-- Change placeholder text
+- Change placeholder (id) string
 
   Add `#[vark(id="x")]` to a field.

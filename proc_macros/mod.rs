@@ -193,24 +193,9 @@ fn gen_impl_unnamed(
             placeholder.reverse();
             String::from_iter(placeholder)
         });
-        let push_breadcrumb;
-        let pop_breadcrumb;
-        if !help_unit_transparent {
-            push_breadcrumb = quote!{
-                state.breadcrumbs.push(#placeholder.to_string());
-            };
-            pop_breadcrumb = quote!{
-                state.breadcrumbs.pop();
-            };
-        } else {
-            push_breadcrumb = quote!();
-            pop_breadcrumb = quote!();
-        }
         parse_positional.push(quote!{
-            #push_breadcrumb 
             //. .
             let r = #vark;
-            #pop_breadcrumb 
             //. .
             let #f_ident = match r {
                 R:: Ok(v) => {
@@ -273,6 +258,7 @@ fn gen_impl_struct(
     parent_ident: TokenStream,
     ident: TokenStream,
     help_placeholder: &str,
+    vark_attr: &VarkAttr,
     help_docstr: &str,
     subtype_index: usize,
     d: &Fields,
@@ -361,7 +347,13 @@ fn gen_impl_struct(
                             return R::Ok(true);
                         }
                     });
-                    let field_help_pattern = gen.help_pattern;
+                    let field_help_pattern;
+                    if vark_attr.help_break || field_vark_attr.help_break {
+                        field_help_pattern = quote!(aargvark::HelpPattern(vec![]));
+                    }
+                    else {
+                        field_help_pattern = gen.help_pattern;
+                    }
                     let help_field = quote!{
                         aargvark:: HelpOptionalField {
                             literal: #flag.to_string(),
@@ -587,7 +579,7 @@ fn gen_impl(ast: syn::DeriveInput) -> TokenStream {
     let ident = &ast.ident;
     let vark_attr = get_vark(&ast.attrs);
     let help_docstr = get_docstr(&ast.attrs);
-    let help_placeholder = vark_attr.id.unwrap_or_else(|| ident.to_string().to_case(Case::UpperKebab));
+    let help_placeholder = vark_attr.id.clone().unwrap_or_else(|| ident.to_string().to_case(Case::UpperKebab));
     let vark;
     let help_build;
     match &ast.data {
@@ -597,6 +589,7 @@ fn gen_impl(ast: syn::DeriveInput) -> TokenStream {
                     ast.ident.to_token_stream(),
                     ast.ident.to_token_stream(),
                     &help_placeholder,
+                    &vark_attr,
                     &help_docstr,
                     0,
                     &d.fields,
@@ -613,12 +606,16 @@ fn gen_impl(ast: syn::DeriveInput) -> TokenStream {
                 let variant_help_docstr = get_docstr(&v.attrs);
                 let variant_ident = &v.ident;
                 let name_str =
-                    variant_vark_attr.literal.unwrap_or_else(|| variant_ident.to_string().to_case(Case::Kebab));
+                    variant_vark_attr
+                        .literal
+                        .clone()
+                        .unwrap_or_else(|| variant_ident.to_string().to_case(Case::Kebab));
                 let gen =
                     gen_impl_struct(
                         ident.to_token_stream(),
                         quote!(#ident:: #variant_ident),
                         &name_str,
+                        &variant_vark_attr,
                         "",
                         subtype_index + 1,
                         &v.fields,
@@ -629,14 +626,11 @@ fn gen_impl(ast: syn::DeriveInput) -> TokenStream {
                 vark_cases.push(quote!{
                     #name_str => {
                         state.consume();
-                        state.breadcrumbs.push(#name_str.to_string());
-                        let v = #vark;
-                        state.breadcrumbs.pop();
-                        v
+                        #vark
                     }
                 });
                 let help_variant_pattern;
-                if vark_attr.help_break {
+                if vark_attr.help_break || variant_vark_attr.help_break {
                     help_variant_pattern = quote!(aargvark::HelpPattern(vec![]));
                 } else {
                     help_variant_pattern = partial_help_variant_pattern;

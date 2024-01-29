@@ -12,13 +12,13 @@ macro_rules! svec{
 
 #[test]
 fn t_str() {
-    let v: String = vark_explicit("".to_string(), svec!["a"]);
+    let v: String = vark_explicit(None, svec!["a"]);
     assert_eq!(v, "a");
 }
 
 #[test]
 fn t_vec() {
-    let v: Vec<String> = vark_explicit("".to_string(), svec!["a", "b"]);
+    let v: Vec<String> = vark_explicit(None, svec!["a", "b"]);
     assert_eq!(v, svec!["a", "b"]);
 }
 
@@ -29,7 +29,7 @@ fn t_enum_unit() {
         ToqQuol,
     }
 
-    let v: Yol = vark_explicit("".to_string(), svec!["toq-quol"]);
+    let v: Yol = vark_explicit(None, svec!["toq-quol"]);
     assert_eq!(v, Yol::ToqQuol);
 }
 
@@ -40,7 +40,7 @@ fn t_enum_tuple() {
         ToqQuol(String, String),
     }
 
-    let v: Yol = vark_explicit("".to_string(), svec!["toq-quol", "yon", "nor"]);
+    let v: Yol = vark_explicit(None, svec!["toq-quol", "yon", "nor"]);
     assert_eq!(v, Yol::ToqQuol("yon".into(), "nor".into()));
 }
 
@@ -53,7 +53,7 @@ fn t_enum_struct() {
         },
     }
 
-    let v: Yol = vark_explicit("".to_string(), svec!["toq-quol", "pahla"]);
+    let v: Yol = vark_explicit(None, svec!["toq-quol", "pahla"]);
     assert_eq!(v, Yol::ToqQuol { a: "pahla".into() });
 }
 
@@ -64,7 +64,7 @@ fn t_struct() {
         a: String,
     }
 
-    let v: Naya = vark_explicit("".to_string(), svec!["wowo"]);
+    let v: Naya = vark_explicit(None, svec!["wowo"]);
     assert_eq!(v, Naya { a: "wowo".into() });
 }
 
@@ -75,7 +75,7 @@ fn t_struct_opt_only() {
         a: Option<String>,
     }
 
-    let v: Naya = vark_explicit("".to_string(), svec!["--a", "wowo"]);
+    let v: Naya = vark_explicit(None, svec!["--a", "wowo"]);
     assert_eq!(v, Naya { a: Some("wowo".into()) });
 }
 
@@ -87,7 +87,7 @@ fn t_struct_opt_first() {
         a: Option<String>,
     }
 
-    let v: Naya = vark_explicit("".to_string(), svec!["--a", "wowo", "noh"]);
+    let v: Naya = vark_explicit(None, svec!["--a", "wowo", "noh"]);
     assert_eq!(v, Naya {
         b: "noh".into(),
         a: Some("wowo".into()),
@@ -102,7 +102,7 @@ fn t_struct_opt_last() {
         a: Option<String>,
     }
 
-    let v: Naya = vark_explicit("".to_string(), svec!["noh", "--a", "wowo"]);
+    let v: Naya = vark_explicit(None, svec!["noh", "--a", "wowo"]);
     assert_eq!(v, Naya {
         b: "noh".into(),
         a: Some("wowo".into()),
@@ -116,6 +116,6 @@ fn t_help_break() {
         b: Option<()>,
     }
 
-    let v: Naya = vark_explicit("".to_string(), svec!["noh", "--a", "wowo"]);
+    let v: Naya = vark_explicit(None, svec!["noh", "--a", "wowo"]);
     assert_eq!(v, Naya { b: None });
 }
