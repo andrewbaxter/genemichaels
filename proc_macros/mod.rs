@@ -257,6 +257,8 @@ fn gen_impl_unnamed(
 fn gen_impl_struct(
     parent_ident: TokenStream,
     ident: TokenStream,
+    decl_generics: &TokenStream,
+    forward_generics: &TokenStream,
     help_placeholder: &str,
     vark_attr: &VarkAttr,
     help_docstr: &str,
@@ -268,6 +270,7 @@ fn gen_impl_struct(
             let mut help_fields = vec![];
             let mut partial_help_fields = vec![];
             let mut vark_optional_fields = vec![];
+            let mut vark_optional_fields_default = vec![];
             let mut vark_parse_optional_cases = vec![];
             let mut vark_parse_positional = vec![];
             let mut vark_copy_fields = vec![];
@@ -320,6 +323,9 @@ fn gen_impl_struct(
                         );
                     vark_optional_fields.push(quote!{
                         #field_ident: Option < #ty >,
+                    });
+                    vark_optional_fields_default.push(quote!{
+                        #field_ident: None,
                     });
                     vark_copy_fields.push(quote!{
                         #field_ident: optional.#field_ident
@@ -452,12 +458,14 @@ fn gen_impl_struct(
             let vark = quote!{
                 {
                     loop {
-                        #[derive(Default)] struct Optional {
+                        struct Optional #decl_generics {
                             #(#vark_optional_fields) *
                         }
-                        let mut optional = Optional::default();
-                        fn parse_optional(
-                            optional: &mut Optional,
+                        let mut optional = Optional {
+                            #(#vark_optional_fields_default) *
+                        };
+                        fn parse_optional #decl_generics(
+                            optional:& mut Optional #forward_generics,
                             state: &mut aargvark::VarkState,
                             s: String
                         ) -> R < bool > {
@@ -467,10 +475,10 @@ fn gen_impl_struct(
                                 _ => return R:: Ok(false),
                             };
                         }
-                        fn build_partial_help(
+                        fn build_partial_help #decl_generics(
                             state: &mut aargvark::HelpState,
                             required_i: usize,
-                            optional: &Optional
+                            optional:& Optional #forward_generics,
                         ) -> aargvark:: HelpPartialContent {
                             let mut fields = vec![];
                             let mut optional_fields = vec![];
@@ -577,6 +585,23 @@ fn gen_impl_struct(
 
 fn gen_impl(ast: syn::DeriveInput) -> TokenStream {
     let ident = &ast.ident;
+    let decl_generics = ast.generics.to_token_stream();
+    let forward_generics;
+    {
+        let mut parts = vec![];
+        for p in ast.generics.params {
+            match p {
+                syn::GenericParam::Type(p) => parts.push(p.ident.to_token_stream()),
+                syn::GenericParam::Lifetime(p) => parts.push(p.lifetime.to_token_stream()),
+                syn::GenericParam::Const(p) => parts.push(p.ident.to_token_stream()),
+            }
+        }
+        if parts.is_empty() {
+            forward_generics = quote!();
+        } else {
+            forward_generics = quote!(< #(#parts), *>);
+        }
+    }
     let vark_attr = get_vark(&ast.attrs);
     let help_docstr = get_docstr(&ast.attrs);
     let help_placeholder = vark_attr.id.clone().unwrap_or_else(|| ident.to_string().to_case(Case::UpperKebab));
@@ -588,6 +613,8 @@ fn gen_impl(ast: syn::DeriveInput) -> TokenStream {
                 gen_impl_struct(
                     ast.ident.to_token_stream(),
                     ast.ident.to_token_stream(),
+                    &decl_generics,
+                    &forward_generics,
                     &help_placeholder,
                     &vark_attr,
                     &help_docstr,
@@ -614,6 +641,8 @@ fn gen_impl(ast: syn::DeriveInput) -> TokenStream {
                     gen_impl_struct(
                         ident.to_token_stream(),
                         quote!(#ident:: #variant_ident),
+                        &decl_generics,
+                        &forward_generics,
                         &name_str,
                         &variant_vark_attr,
                         "",
@@ -683,8 +712,8 @@ fn gen_impl(ast: syn::DeriveInput) -> TokenStream {
         syn::Data::Union(_) => panic!("Union not supported"),
     };
     return quote!{
-        impl aargvark:: AargvarkTrait for #ident {
-            fn vark(state: &mut aargvark::VarkState) -> aargvark:: R < #ident > {
+        impl #decl_generics aargvark:: AargvarkTrait for #ident #forward_generics {
+            fn vark(state: &mut aargvark::VarkState) -> aargvark:: R < #ident #forward_generics > {
                 use aargvark::R;
                 use aargvark::PeekR;
                 #vark

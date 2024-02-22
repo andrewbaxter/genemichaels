@@ -1,6 +1,7 @@
 use aargvark::{
     self,
     vark_explicit,
+    AargvarkTrait,
 };
 use aargvark_proc_macros::Aargvark;
 
@@ -110,12 +111,12 @@ fn t_struct_opt_last() {
 }
 
 #[test]
-fn t_help_break() {
+fn t_generic() {
     #[derive(Aargvark, PartialEq, Debug)]
-    struct Naya {
-        b: Option<()>,
+    struct Naya<T: 'static + AargvarkTrait> {
+        b: Option<T>,
     }
 
-    let v: Naya = vark_explicit(None, svec!["noh", "--a", "wowo"]);
-    assert_eq!(v, Naya { b: None });
+    let v: Naya<String> = vark_explicit(None, svec!["--b", "hi"]);
+    assert_eq!(v, Naya { b: Some("hi".to_string()) });
 }
