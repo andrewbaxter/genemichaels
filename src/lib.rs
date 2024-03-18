@@ -31,10 +31,11 @@ use std::{
 };
 pub use aargvark_proc_macros::Aargvark;
 use comfy_table::Cell;
+use unicode_width::UnicodeWidthStr;
 
-struct VarkErr {
-    i: usize,
-    err: String,
+pub struct VarkFailure {
+    pub arg_offset: usize,
+    pub error: String,
 }
 
 #[doc(hidden)]
@@ -56,7 +57,7 @@ pub struct VarkState {
     command: Option<String>,
     args: Vec<String>,
     i: usize,
-    errors: Vec<VarkErr>,
+    errors: Vec<VarkFailure>,
 }
 
 impl VarkState {
@@ -88,17 +89,91 @@ impl VarkState {
     }
 
     pub fn r_err<T>(&mut self, text: String) -> R<T> {
-        self.errors.push(VarkErr {
-            i: self.i,
-            err: text,
+        self.errors.push(VarkFailure {
+            arg_offset: self.i,
+            error: text,
         });
         return R::Err;
     }
 }
 
-/// Parse the explicitly passed in arguments. The `command` is only used in help
-/// text.
-pub fn vark_explicit<T: AargvarkTrait>(command: Option<String>, args: Vec<String>) -> T {
+pub enum ErrorDetail {
+    /// The command was empty
+    Empty,
+    /// Fully parsed command but additional unconsumed arguments follow (offset of
+    /// first unrecognized argument)
+    TooMuch(usize),
+    /// Aargvark considers multiple possible parses. This is a list of considered
+    /// parses, in order of when they were ruled out.
+    Incorrect(Vec<VarkFailure>),
+}
+
+/// Returned by `vark_explicit`. `command` is whatever is passed as `command` to
+/// `vark_explicit`, the first of argv if using `vark`. `args` is the remaining
+/// arguments.
+pub struct Error {
+    pub command: Option<String>,
+    pub args: Vec<String>,
+    pub detail: ErrorDetail,
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.detail {
+            ErrorDetail::Empty => {
+                return "You must specify arguments, use --help for more info".fmt(f);
+            },
+            ErrorDetail::TooMuch(first) => {
+                return format_args!(
+                    "Error parsing command line arguments: final arguments are unrecognized\n{:?}",
+                    &self.args[*first..]
+                ).fmt(f);
+            },
+            ErrorDetail::Incorrect(failures) => {
+                let mut display_args = vec![];
+                if let Some(c) = &self.command {
+                    display_args.push(c.clone());
+                }
+                display_args.extend(self.args.iter().map(|a| format!("{:?}", a)));
+                let mut display_arg_offsets = vec![];
+                {
+                    let mut offset = 0;
+                    for d in &display_args {
+                        display_arg_offsets.push(offset);
+                        offset += d.width() + 1;
+                    }
+                    display_arg_offsets.push(offset);
+                }
+                let mut display_args = display_args.join(" ");
+                display_args.push_str(" <END>");
+                let mut text = "Error parsing arguments.\n".to_string();
+                for e in failures.iter().rev() {
+                    text.push_str("\n");
+                    text.push_str(&format!(" * {}\n", e.error));
+                    text.push_str("   ");
+                    text.push_str(&display_args);
+                    text.push_str("\n");
+                    text.push_str("   ");
+                    text.push_str(&" ".repeat(display_arg_offsets.get(e.arg_offset).cloned().unwrap_or(0usize)));
+                    text.push_str("^\n");
+                }
+                return text.fmt(f);
+            },
+        }
+    }
+}
+
+impl std::fmt::Debug for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        return std::fmt::Display::fmt(self, f);
+    }
+}
+
+impl std::error::Error for Error { }
+
+/// Parse the explicitly passed in arguments - don't read application globals. The
+/// `command` is only used in help and error text.
+pub fn vark_explicit<T: AargvarkTrait>(command: Option<String>, args: Vec<String>) -> Result<T, Error> {
     let mut state = VarkState {
         command: command,
         args: args,
@@ -107,46 +182,28 @@ pub fn vark_explicit<T: AargvarkTrait>(command: Option<String>, args: Vec<String
     };
     match T::vark(&mut state) {
         R::EOF => {
-            eprintln!("You must specify command line arguments, use --help for more info.");
-            exit(1);
+            return Err(Error {
+                command: state.command,
+                args: state.args,
+                detail: ErrorDetail::Empty,
+            });
         },
         R::Err => {
-            let display_args: Vec<String> = state.args.iter().map(|a| format!("{:?}", a)).collect();
-            let mut display_arg_offsets = vec![];
-            {
-                let mut offset = 0;
-                for d in &display_args {
-                    display_arg_offsets.push(offset);
-                    offset += d.chars().count() + 1;
-                }
-                display_arg_offsets.push(offset);
-            }
-            let mut display_args = display_args.join(" ");
-            display_args.push_str(" <END>");
-            let mut text = "Error parsing command line arguments.\n".to_string();
-            state.errors.reverse();
-            for e in state.errors {
-                text.push_str("\n");
-                text.push_str(&format!(" * {}\n", e.err));
-                text.push_str("   ");
-                text.push_str(&display_args);
-                text.push_str("\n");
-                text.push_str("   ");
-                text.push_str(&" ".repeat(display_arg_offsets.get(e.i).cloned().unwrap_or(0usize)));
-                text.push_str("^\n");
-            }
-            eprintln!("{}\n", text);
-            exit(1);
+            return Err(Error {
+                command: state.command,
+                args: state.args,
+                detail: ErrorDetail::Incorrect(state.errors),
+            });
         },
         R::Ok(v) => {
             if state.i != state.args.len() {
-                eprintln!(
-                    "Error parsing command line arguments: final arguments are unrecognized\n{:?}",
-                    &state.args[state.i..]
-                );
-                exit(1);
+                return Err(Error {
+                    command: state.command,
+                    args: state.args,
+                    detail: ErrorDetail::TooMuch(state.i),
+                });
             }
-            return v;
+            return Ok(v);
         },
     }
 }
@@ -155,7 +212,13 @@ pub fn vark_explicit<T: AargvarkTrait>(command: Option<String>, args: Vec<String
 pub fn vark<T: AargvarkTrait>() -> T {
     let mut args = args();
     let command = args.next();
-    return vark_explicit(command, args.collect::<Vec<String>>());
+    match vark_explicit(command, args.collect::<Vec<String>>()) {
+        Ok(v) => return v,
+        Err(e) => {
+            eprintln!("{:?}", e);
+            exit(1);
+        },
+    }
 }
 
 /// Anything that implements this trait can be parsed and used as a field in other
