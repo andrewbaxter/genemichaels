@@ -131,8 +131,10 @@ impl std::fmt::Display for Error {
             },
             ErrorDetail::Incorrect(failures) => {
                 let mut display_args = vec![];
+                let mut offset_offset = 0;
                 if let Some(c) = &self.command {
                     display_args.push(c.clone());
+                    offset_offset = 1;
                 }
                 display_args.extend(self.args.iter().map(|a| format!("{:?}", a)));
                 let mut display_arg_offsets = vec![];
@@ -154,7 +156,11 @@ impl std::fmt::Display for Error {
                     text.push_str(&display_args);
                     text.push_str("\n");
                     text.push_str("   ");
-                    text.push_str(&" ".repeat(display_arg_offsets.get(e.arg_offset).cloned().unwrap_or(0usize)));
+                    text.push_str(
+                        &" ".repeat(
+                            display_arg_offsets.get(e.arg_offset + offset_offset).cloned().unwrap_or(0usize),
+                        ),
+                    );
                     text.push_str("^\n");
                 }
                 return text.fmt(f);
