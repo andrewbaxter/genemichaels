@@ -831,6 +831,10 @@ impl Formattable for Item {
                     append_vis(out, base_indent, &mut sg, &x.vis);
                     append_whitespace(out, base_indent, &mut sg, x.static_token.span.start());
                     sg.seg(out, "static ");
+                    if let Some(x) = x.mutability {
+                        append_whitespace(out, base_indent, &mut sg, x.span.start());
+                        sg.seg(out, "mut ");
+                    }
                     sg.seg(out, &x.ident.to_string());
                     sg.seg(out, ": ");
                     sg.child(x.ty.make_segs(out, base_indent));
