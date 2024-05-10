@@ -1,41 +1,44 @@
-use aargvark::{
-    Aargvark,
-    vark,
-};
-use genemichaels::{
-    format_str,
-    FormatConfig,
-    es,
-};
-use loga::{
-    Log,
-    ea,
-    ResultContext,
-    DebugDisplay,
-    fatal,
-};
-use threadpool::ThreadPool;
-use std::{
-    collections::HashSet,
-    env::current_dir,
-    fs::{
-        self,
-        read,
+use {
+    aargvark::{
+        Aargvark,
+        vark,
     },
-    io::Read,
-    path::{
-        Path,
-        PathBuf,
+    genemichaels::{
+        format_str,
+        FormatConfig,
+        es,
     },
-    process,
-    ffi::OsStr,
-    sync::{
-        Arc,
-        Mutex,
+    loga::{
+        ea,
+        fatal,
+        DebugDisplay,
+        ResultContext,
+        StandardFlag,
+        StandardLog,
     },
-};
-use syn::{
-    File,
+    threadpool::ThreadPool,
+    std::{
+        collections::HashSet,
+        env::current_dir,
+        fs::{
+            self,
+            read,
+        },
+        io::Read,
+        path::{
+            Path,
+            PathBuf,
+        },
+        process,
+        ffi::OsStr,
+        sync::{
+            Arc,
+            Mutex,
+        },
+    },
+    syn::{
+        File,
+    },
 };
 
 const CARGO_TOML: &str = "Cargo.toml";
@@ -50,7 +53,7 @@ enum Logging {
     Debug,
 }
 
-/// A deterministic, simple rule based Rust source code formatter. Even formats
+/// A deterministic, simple, rule based Rust source code formatter. Even formats
 /// macros!
 #[derive(Aargvark)]
 struct Args {
@@ -75,13 +78,13 @@ fn skip(src: &str) -> bool {
     src.lines().take(5).any(|l| l.contains("`nogenemichaels`"))
 }
 
-fn load_config(log: &Log, paths: &[Option<PathBuf>]) -> Result<FormatConfig, loga::Error> {
+fn load_config(log: &StandardLog, paths: &[Option<PathBuf>]) -> Result<FormatConfig, loga::Error> {
     let Some(path) = paths.iter().filter_map(|p| {
         let Some(p) = p else {
             return None;
         };
         if !p.exists() {
-            log.debug("Tried config path not found", ea!(path = p.to_string_lossy()));
+            log.log_with(StandardFlag::Debug, "Tried config path not found", ea!(path = p.to_string_lossy()));
             return None;
         }
         return Some(p);
@@ -92,8 +95,8 @@ fn load_config(log: &Log, paths: &[Option<PathBuf>]) -> Result<FormatConfig, log
     let log = &log;
     return Ok(
         serde_json::from_str(
-            &String::from_utf8(read(path).log_context(log, "Failed to read config file")?)
-                .log_context(log, "Failed to decode file as utf8")?
+            &String::from_utf8(read(path).stack_context(log, "Failed to read config file")?)
+                .stack_context(log, "Failed to decode file as utf8")?
                 .lines()
                 .filter(|l| {
                     if l.trim_start().starts_with("//") {
@@ -103,15 +106,15 @@ fn load_config(log: &Log, paths: &[Option<PathBuf>]) -> Result<FormatConfig, log
                 })
                 .collect::<Vec<&str>>()
                 .join("\n"),
-        ).log_context(log, "Failed to parse file as json")?,
+        ).stack_context(log, "Failed to parse file as json")?,
     );
 }
 
-fn process_file_contents(log: &Log, config: &FormatConfig, source: &str) -> Result<String, loga::Error> {
+fn process_file_contents(log: &StandardLog, config: &FormatConfig, source: &str) -> Result<String, loga::Error> {
     let res = format_str(source, config)?;
     if !res.lost_comments.is_empty() {
         return Err(
-            log.new_err_with(
+            log.err_with(
                 "Encountered a bug; some comments were lost during formatting",
                 ea!(comments = res.lost_comments.values().flatten().collect::<Vec<_>>().dbg_str()),
             ),
@@ -121,7 +124,7 @@ fn process_file_contents(log: &Log, config: &FormatConfig, source: &str) -> Resu
         Ok(_) => { },
         Err(e) => {
             return Err(
-                log.new_err_with(
+                log.err_with(
                     "Encountered a bug; formatted source code couldn't be re-parsed in verification step",
                     ea!(
                         line = e.span().start().line,
@@ -147,17 +150,23 @@ fn process_file_contents(log: &Log, config: &FormatConfig, source: &str) -> Resu
 
 fn main() {
     let args = vark::<Args>();
-    let log = loga::new(match args.log {
-        Some(Logging::Silent) => loga::Level::Error,
-        Some(Logging::Debug) => loga::Level::Debug,
-        None => loga::Level::Info,
-    });
+    let mut log_flags = vec![StandardFlag::Error, StandardFlag::Warning];
+    match args.log {
+        Some(Logging::Silent) => { },
+        Some(Logging::Debug) => {
+            log_flags.extend([StandardFlag::Info, StandardFlag::Debug]);
+        },
+        None => {
+            log_flags.extend([StandardFlag::Info]);
+        },
+    }
+    let log = StandardLog::new().with_flags(&log_flags);
     let log = &log;
     let res = es!({
         if args.stdin.is_some() {
             if !args.files.is_empty() {
                 return Err(
-                    log.new_err_with(
+                    log.err_with(
                         "If you use stdin you can't pass any files",
                         ea!(files = args.files.iter().map(|f| f.to_string_lossy()).collect::<Vec<_>>().dbg_str()),
                     ),
@@ -176,7 +185,7 @@ fn main() {
                     print!("{}", out);
                     return Ok(());
                 }
-            }).log_context(log, "Error formatting stdin")?;
+            }).stack_context(log, "Error formatting stdin")?;
         } else if !args.files.is_empty() {
             let config = load_config(&log, &[args.config, Some(PathBuf::from(CONFIG_JSON))])?;
             let mut pool = FormatPool::new(log, args.thread_count, config);
@@ -198,9 +207,7 @@ fn main() {
             }
             let Some(manifest_path) = project_cargo_toml else {
                 return Err(
-                    log.new_err(
-                        "Couldn't find a Cargo.toml manifest in any directory up to filesystem root; aborting",
-                    ),
+                    log.err("Couldn't find a Cargo.toml manifest in any directory up to filesystem root; aborting"),
                 );
             };
             let config =
@@ -277,7 +284,8 @@ fn main() {
                         search
                             .pool
                             .log
-                            .warn(
+                            .log_with(
+                                StandardFlag::Warning,
                                 "Failed to read manifest, skipping manifest-configured directories",
                                 ea!(path = manifest_path.to_string_lossy(), err = e),
                             );
@@ -314,14 +322,14 @@ fn main() {
 }
 
 struct FormatPool {
-    log: Log,
+    log: StandardLog,
     config: FormatConfig,
     pool: ThreadPool,
     errors: Arc<Mutex<Vec<loga::Error>>>,
 }
 
 impl FormatPool {
-    fn new(log: &Log, thread_count: Option<usize>, config: FormatConfig) -> FormatPool {
+    fn new(log: &StandardLog, thread_count: Option<usize>, config: FormatConfig) -> FormatPool {
         return FormatPool {
             log: log.clone(),
             config: config,
@@ -338,7 +346,7 @@ impl FormatPool {
 
     fn process_file(&mut self, file: PathBuf) {
         let log = self.log.fork(ea!(file = file.to_string_lossy()));
-        log.info("Formatting file", ea!());
+        log.log_with(StandardFlag::Info, "Formatting file", ea!());
         let config = self.config.clone();
         let errors = self.errors.clone();
         self.pool.execute(move || {
@@ -346,7 +354,7 @@ impl FormatPool {
             let res = es!({
                 let source = fs::read_to_string(&file).context("Failed to read source file")?;
                 if skip(&source) {
-                    log.info("Skipping due to skip comment", ea!());
+                    log.log_with(StandardFlag::Info, "Skipping due to skip comment", ea!());
                     return Ok(());
                 }
                 fs::write(
@@ -354,7 +362,7 @@ impl FormatPool {
                     process_file_contents(log, &config, &source).context("Error doing formatting")?.as_bytes(),
                 ).context("Error writing formatted code back")?;
                 return Ok(());
-            }).log_context(log, "Error formatting file");
+            }).stack_context(log, "Error formatting file");
             match res {
                 Ok(_) => (),
                 Err(e) => {
@@ -367,7 +375,7 @@ impl FormatPool {
     fn join(&mut self) -> Result<(), loga::Error> {
         self.pool.join();
         if self.pool.panic_count() > 0 {
-            return Err(self.log.new_err("Panic(s) occurred during formatting."));
+            return Err(self.log.err("Panic(s) occurred during formatting."));
         }
         let errors = self.errors.lock().unwrap();
         if !errors.is_empty() {

@@ -1,6 +1,6 @@
 # Gene Michaels
 
-Status: **Alpha**. I've been using it for months without issue, and I've tested against various code bases and doesn't blow them up. Right now post-formatting pre-writing it re-parses and confirms all comments are consumed as safety checks. Also files over 500kb may take all your memory and invoke the OOM killer.
+Status: **Delta** (the one after gamma). I've been using it for years without major issue, and I've tested against various code bases and doesn't blow them up. I think other people might use it too! Right now post-formatting pre-writing it re-parses and confirms all comments are consumed as safety checks. Also files over 500kb may take all your memory and invoke the OOM killer.
 
 - formats everything
 - doesn't not format some things

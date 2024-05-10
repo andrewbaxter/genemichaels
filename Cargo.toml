@@ -1,6 +1,6 @@
 [package]
 name = "genemichaels"
-version = "0.2.4"
+version = "0.3.0"
 edition = "2021"
 license = "ISC"
 description = "Makes your code formatty"
@@ -9,16 +9,16 @@ readme = "readme.md"
 
 [dependencies]
 markdown = { version = "1.0.0-alpha.12" }
-proc-macro2 = { version = "1.*", features = ["span-locations"] }
-quote = "1.*"
-structre = "0.0.*"
-syn = { version = "1.*", features = ["full"] }
-walkdir = "2.*"
-threadpool = "1.*"
-cargo-manifest = "0.*"
-derive_more = "0.*"
-aargvark = { version = "0.0.*" }
-serde = { version = "1.*", features = ["derive"] }
-serde_json = "1.0.*"
-console = "0.15.*"
-loga = "0.1.*"
+proc-macro2 = { version = "1", features = ["span-locations"] }
+quote = "1"
+structre = "0.0"
+syn = { version = "1", features = ["full"] }
+walkdir = "2"
+threadpool = "1"
+cargo-manifest = "0"
+derive_more = "0"
+aargvark = { version = "0.2" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+console = "0.15"
+loga = "0.4"
