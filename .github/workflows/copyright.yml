@@ -12,6 +12,6 @@ jobs:
           BODY: ${{ github.event.pull_request.body }}
         run: |
           set -xeu
-          if ! grep -F "$(cat .github/pull_request_template.md)" <(echo "$BODY"); then
+          if ! grep -F "$(tail -n 1 .github/pull_request_template.md)" <(echo "$BODY"); then
              gh pr close --comment "All changes must agree to copyright assignment." --delete-branch 1
           fi
