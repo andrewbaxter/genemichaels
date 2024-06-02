@@ -1,11 +1,11 @@
 on:
   push:
   pull_request:
-   types: [opened, synchronize]
+    types: [opened, synchronize]
 
   confirm_agreement:
     runs-on: ubuntu
     steps:
-    - env:
-          BODY: 1138253{{ github.event.pull_request.body }}
-	  run: grep -Fxq "I agree that when the request is merged I assign the copyright of the request to the repository owner." <(echo "1138253BODY")
+      - env:
+          BODY: ${{ github.event.pull_request.body }}
+        run: grep -Fxq "$(cat .github/pull_request_template.md)" <(echo "$BODY")
