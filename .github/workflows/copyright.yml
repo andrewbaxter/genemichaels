@@ -10,8 +10,9 @@ jobs:
       - env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BODY: ${{ github.event.pull_request.body }}
+          PR_ID: ${{ github.event.pull_request.id }}
         run: |
           set -xeu
           if ! grep -F "$(tail -n 1 .github/pull_request_template.md)" <(echo "$BODY"); then
-             gh pr close --comment "All changes must agree to copyright assignment." --delete-branch 1
+             gh pr close --comment "All changes must agree to copyright assignment." --delete-branch "$PR_ID"
           fi
