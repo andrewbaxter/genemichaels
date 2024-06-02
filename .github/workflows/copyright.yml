@@ -1,6 +1,6 @@
 on:
   pull_request:
-    types: [opened, synchronize]
+    types: [opened, edited, synchronize]
 
 jobs:
   confirm_agreement:
