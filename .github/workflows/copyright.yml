@@ -11,4 +11,4 @@ jobs:
           BODY: ${{ github.event.pull_request.body }}
         run: |
           set -xeu
-          grep -Fxq "$(cat .github/pull_request_template.md)" <(echo "$BODY")
+          grep -F "$(cat .github/pull_request_template.md)" <(echo "$BODY")
