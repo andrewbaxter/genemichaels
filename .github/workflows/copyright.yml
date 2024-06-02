@@ -6,6 +6,9 @@ jobs:
   confirm_agreement:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v2
       - env:
           BODY: ${{ github.event.pull_request.body }}
-        run: grep -Fxq "$(cat .github/pull_request_template.md)" <(echo "$BODY")
+        run: |
+          set -xeu
+          grep -Fxq "$(cat .github/pull_request_template.md)" <(echo "$BODY")
