@@ -3,6 +3,7 @@ on:
   pull_request:
     types: [opened, synchronize]
 
+jobs:
   confirm_agreement:
     runs-on: ubuntu
     steps:
