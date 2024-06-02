@@ -1,11 +1,10 @@
 on:
-  push:
   pull_request:
     types: [opened, synchronize]
 
 jobs:
   confirm_agreement:
-    runs-on: ubuntu
+    runs-on: ubuntu-latest
     steps:
       - env:
           BODY: ${{ github.event.pull_request.body }}
