@@ -121,7 +121,7 @@ impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.detail {
             ErrorDetail::Empty => {
-                return "You must specify arguments, use --help for more info".fmt(f);
+                return "Missing arguments, use --help for more info".fmt(f);
             },
             ErrorDetail::TooMuch(first) => {
                 return format_args!(
@@ -843,7 +843,6 @@ pub fn show_help_and_exit<
         out.push_str(" ");
         out.push_str(&style_literal(s));
     }
-    out.push_str(" >");
     let mut temp_stack = vec![];
     match &partial.content {
         HelpPartialContent::Pattern(p) => {
