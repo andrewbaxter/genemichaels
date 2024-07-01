@@ -247,7 +247,7 @@ fn main() {
                 let manifest_dir = manifest_path.parent().unwrap();
                 match cargo_manifest::Manifest::from_path(&manifest_path) {
                     Ok(manifest) => {
-                        for bin in manifest.bin.into_iter().flatten() {
+                        for bin in manifest.bin.into_iter() {
                             if let Some(bin_path) = bin.path {
                                 process_dir(search, manifest_dir.join(bin_path).parent().unwrap().to_owned());
                             }
@@ -257,17 +257,17 @@ fn main() {
                                 process_dir(search, manifest_dir.join(lib_path).parent().unwrap().to_owned());
                             }
                         }
-                        for bench in manifest.bench.into_iter().flatten() {
+                        for bench in manifest.bench.into_iter() {
                             if let Some(bench_path) = bench.path {
                                 process_dir(search, manifest_dir.join(bench_path).parent().unwrap().to_owned());
                             }
                         }
-                        for test in manifest.test.into_iter().flatten() {
+                        for test in manifest.test.into_iter() {
                             if let Some(test_path) = test.path {
                                 process_dir(search, manifest_dir.join(test_path).parent().unwrap().to_owned());
                             }
                         }
-                        for example in manifest.example.into_iter().flatten() {
+                        for example in manifest.example.into_iter() {
                             if let Some(example_path) = example.path {
                                 process_dir(search, manifest_dir.join(example_path).parent().unwrap().to_owned());
                             }
