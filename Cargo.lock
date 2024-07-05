@@ -292,7 +292,7 @@ dependencies = [
 
 [[package]]
 name = "genemichaels"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "aargvark 0.2.2",
  "cargo-manifest",

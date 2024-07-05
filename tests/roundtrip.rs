@@ -393,3 +393,11 @@ fn rt_static_mut1() {
     rt(r#"static mut X: Y = Y(7);
 "#);
 }
+
+#[test]
+fn rt_labeled_block() {
+    rt(r#"fn main() {
+    'label: { }
+}
+"#);
+}

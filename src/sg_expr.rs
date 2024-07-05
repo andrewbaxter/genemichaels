@@ -272,15 +272,23 @@ impl Formattable for &Expr {
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    new_sg_block(
-                        out,
-                        base_indent,
-                        e.block.brace_token.span.start(),
-                        "{",
-                        Some(&e.attrs),
-                        &e.block.stmts,
-                        e.block.brace_token.span.end().prev(),
-                    )
+                    let mut sg = new_sg(out);
+                    if let Some(l) = &e.label {
+                        append_whitespace(out, base_indent, &mut sg, l.name.apostrophe.start());
+                        sg.seg(out, &format!("{}: ", l.name));
+                    }
+                    sg.child(
+                        new_sg_block(
+                            out,
+                            base_indent,
+                            e.block.brace_token.span.start(),
+                            "{",
+                            Some(&e.attrs),
+                            &e.block.stmts,
+                            e.block.brace_token.span.end().prev(),
+                        ),
+                    );
+                    sg.build(out)
                 },
             ),
             Expr::Box(e) => new_sg_outer_attrs(
