@@ -522,6 +522,80 @@ impl<T: AargvarkTrait + Eq + Hash> AargvarkTrait for HashSet<T> {
     }
 }
 
+/// A key-value argument type (single argument) that takes the format `K=V` where
+/// both `K` and `V` need to be string-parsable types. The argument is split at the
+/// first unescaped `=` - additional `=` in the key can be escaped with `\`.
+///
+/// This is used for the `HashMap` implementation which takes a series of arguments
+/// like `a=a b=b c=123`.
+struct AargvarkKV<K, V> {
+    pub key: K,
+    pub value: V,
+}
+
+impl<K: AargvarkFromStr, V: AargvarkFromStr> AargvarkTrait for AargvarkKV<K, V> {
+    fn vark(state: &mut VarkState) -> R<Self> {
+        let res = String::vark(state);
+        let res = match res {
+            R::EOF => return R::EOF,
+            R::Err => return R::Err,
+            R::Ok(r) => r,
+        };
+        let mut res = res.into_bytes().into_iter();
+        let mut k = vec![];
+        let mut escape = false;
+        for c in &mut res {
+            if escape {
+                k.push(c);
+                escape = false;
+            } else {
+                if c == b'\\' {
+                    escape = true;
+                } else if c == b'=' {
+                    break;
+                } else {
+                    k.push(c);
+                }
+            }
+        }
+        let key = match K::from_str(&unsafe {
+            String::from_utf8_unchecked(k)
+        }) {
+            Ok(r) => r,
+            Err(e) => return state.r_err(format!("Error parsing map key: {}", e)),
+        };
+        let value = match V::from_str(&unsafe {
+            String::from_utf8_unchecked(res.collect())
+        }) {
+            Ok(r) => r,
+            Err(e) => return state.r_err(format!("Error parsing map value: {}", e)),
+        };
+        return state.r_ok(AargvarkKV {
+            key: key,
+            value: value,
+        });
+    }
+
+    fn build_help_pattern(_state: &mut HelpState) -> HelpPattern {
+        return HelpPattern(vec![HelpPatternElement::Literal("K=V".to_string())]);
+    }
+}
+
+impl<K: AargvarkFromStr + Eq + Hash, V: AargvarkFromStr> AargvarkTrait for HashMap<K, V> {
+    fn vark(state: &mut VarkState) -> R<Self> {
+        let res = match <Vec<AargvarkKV<K, V>>>::vark(state) {
+            R::EOF => return R::EOF,
+            R::Err => return R::Err,
+            R::Ok(r) => r,
+        };
+        return state.r_ok(res.into_iter().map(|kv| (kv.key, kv.value)).collect());
+    }
+
+    fn build_help_pattern(state: &mut HelpState) -> HelpPattern {
+        return <Vec<AargvarkKV<K, V>>>::build_help_pattern(state);
+    }
+}
+
 fn style_usage(s: impl AsRef<str>) -> String {
     return s.as_ref().to_string();
 }

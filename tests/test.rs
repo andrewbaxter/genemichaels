@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use aargvark::{
     self,
     vark_explicit,
@@ -119,4 +120,15 @@ fn t_generic() {
 
     let v: Naya<String> = vark_explicit(None, svec!["--b", "hi"]).unwrap();
     assert_eq!(v, Naya { b: Some("hi".to_string()) });
+}
+
+#[test]
+fn t_map() {
+    let v = vark_explicit::<HashMap<String, i32>>(None, svec!["a=2", "b=3"]).unwrap();
+    assert_eq!(v, {
+        let mut m = HashMap::new();
+        m.insert("a".to_string(), 2);
+        m.insert("b".to_string(), 3);
+        m
+    });
 }
