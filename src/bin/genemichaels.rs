@@ -1,25 +1,24 @@
 use {
     aargvark::{
-        Aargvark,
         vark,
+        Aargvark,
     },
     genemichaels::{
+        es,
         format_str,
         FormatConfig,
-        es,
     },
     loga::{
         ea,
         fatal,
         DebugDisplay,
+        Log,
         ResultContext,
-        StandardFlag,
-        StandardLog,
     },
-    threadpool::ThreadPool,
     std::{
         collections::HashSet,
         env::current_dir,
+        ffi::OsStr,
         fs::{
             self,
             read,
@@ -30,15 +29,13 @@ use {
             PathBuf,
         },
         process,
-        ffi::OsStr,
         sync::{
             Arc,
             Mutex,
         },
     },
-    syn::{
-        File,
-    },
+    syn::File,
+    threadpool::ThreadPool,
 };
 
 const CARGO_TOML: &str = "Cargo.toml";
@@ -78,13 +75,13 @@ fn skip(src: &str) -> bool {
     src.lines().take(5).any(|l| l.contains("`nogenemichaels`"))
 }
 
-fn load_config(log: &StandardLog, paths: &[Option<PathBuf>]) -> Result<FormatConfig, loga::Error> {
+fn load_config(log: &Log, paths: &[Option<PathBuf>]) -> Result<FormatConfig, loga::Error> {
     let Some(path) = paths.iter().filter_map(|p| {
         let Some(p) = p else {
             return None;
         };
         if !p.exists() {
-            log.log_with(StandardFlag::Debug, "Tried config path not found", ea!(path = p.to_string_lossy()));
+            log.log_with(loga::DEBUG, "Tried config path not found", ea!(path = p.to_string_lossy()));
             return None;
         }
         return Some(p);
@@ -110,7 +107,7 @@ fn load_config(log: &StandardLog, paths: &[Option<PathBuf>]) -> Result<FormatCon
     );
 }
 
-fn process_file_contents(log: &StandardLog, config: &FormatConfig, source: &str) -> Result<String, loga::Error> {
+fn process_file_contents(log: &Log, config: &FormatConfig, source: &str) -> Result<String, loga::Error> {
     let res = format_str(source, config)?;
     if !res.lost_comments.is_empty() {
         return Err(
@@ -150,17 +147,11 @@ fn process_file_contents(log: &StandardLog, config: &FormatConfig, source: &str)
 
 fn main() {
     let args = vark::<Args>();
-    let mut log_flags = vec![StandardFlag::Error, StandardFlag::Warning];
-    match args.log {
-        Some(Logging::Silent) => { },
-        Some(Logging::Debug) => {
-            log_flags.extend([StandardFlag::Info, StandardFlag::Debug]);
-        },
-        None => {
-            log_flags.extend([StandardFlag::Info]);
-        },
-    }
-    let log = StandardLog::new().with_flags(&log_flags);
+    let log = Log::new_root(match args.log {
+        Some(Logging::Silent) => loga::WARN,
+        Some(Logging::Debug) => loga::DEBUG,
+        None => loga::INFO,
+    });
     let log = &log;
     let res = es!({
         if args.stdin.is_some() {
@@ -285,7 +276,7 @@ fn main() {
                             .pool
                             .log
                             .log_with(
-                                StandardFlag::Warning,
+                                loga::WARN,
                                 "Failed to read manifest, skipping manifest-configured directories",
                                 ea!(path = manifest_path.to_string_lossy(), err = e),
                             );
@@ -322,14 +313,14 @@ fn main() {
 }
 
 struct FormatPool {
-    log: StandardLog,
+    log: Log,
     config: FormatConfig,
     pool: ThreadPool,
     errors: Arc<Mutex<Vec<loga::Error>>>,
 }
 
 impl FormatPool {
-    fn new(log: &StandardLog, thread_count: Option<usize>, config: FormatConfig) -> FormatPool {
+    fn new(log: &Log, thread_count: Option<usize>, config: FormatConfig) -> FormatPool {
         return FormatPool {
             log: log.clone(),
             config: config,
@@ -346,7 +337,7 @@ impl FormatPool {
 
     fn process_file(&mut self, file: PathBuf) {
         let log = self.log.fork(ea!(file = file.to_string_lossy()));
-        log.log_with(StandardFlag::Info, "Formatting file", ea!());
+        log.log_with(loga::INFO, "Formatting file", ea!());
         let config = self.config.clone();
         let errors = self.errors.clone();
         self.pool.execute(move || {
@@ -354,7 +345,7 @@ impl FormatPool {
             let res = es!({
                 let source = fs::read_to_string(&file).context("Failed to read source file")?;
                 if skip(&source) {
-                    log.log_with(StandardFlag::Info, "Skipping due to skip comment", ea!());
+                    log.log_with(loga::INFO, "Skipping due to skip comment", ea!());
                     return Ok(());
                 }
                 fs::write(

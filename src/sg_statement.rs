@@ -25,7 +25,6 @@ use crate::{
     MakeSegsState,
     MarginGroup,
     SplitGroupBuilder,
-    TrivialLineColMath,
     check_split_brace_threshold,
     SplitGroupIdx,
     sg_general_lists::{
@@ -46,6 +45,7 @@ use syn::{
     Item,
     ReturnType,
     Signature,
+    StaticMutability,
     Stmt,
     TraitItem,
     UseTree,
@@ -56,12 +56,8 @@ use syn::{
 fn append_vis(out: &mut MakeSegsState, base_indent: &Alignment, node: &mut SplitGroupBuilder, vis: &Visibility) {
     match vis {
         syn::Visibility::Public(x) => {
-            append_whitespace(out, base_indent, node, x.pub_token.span.start());
+            append_whitespace(out, base_indent, node, x.span.start());
             node.seg(out, "pub ");
-        },
-        syn::Visibility::Crate(x) => {
-            append_whitespace(out, base_indent, node, x.crate_token.span.start());
-            node.seg(out, "crate ");
         },
         syn::Visibility::Restricted(r) => {
             append_whitespace(out, base_indent, node, r.pub_token.span.start());
@@ -120,7 +116,7 @@ fn new_sg_sig(out: &mut MakeSegsState, base_indent: &Alignment, sig: &Signature)
         new_sg_bracketed_list(
             out,
             base_indent,
-            sig.paren_token.span.start(),
+            sig.paren_token.span.open().start(),
             "(",
             false,
             ",",
@@ -132,7 +128,7 @@ fn new_sg_sig(out: &mut MakeSegsState, base_indent: &Alignment, sig: &Signature)
             } else {
                 InlineListSuffix::Punct
             },
-            sig.paren_token.span.end().prev(),
+            sig.paren_token.span.close().start(),
             ")",
         ),
     );
@@ -154,8 +150,8 @@ impl FormattableStmt for Stmt {
         match self {
             Stmt::Local(_) => (MarginGroup::None, false),
             Stmt::Item(i) => i.want_margin(),
-            Stmt::Expr(_) => (MarginGroup::None, false),
-            Stmt::Semi(_, _) => (MarginGroup::None, false),
+            Stmt::Expr(_, _) => (MarginGroup::None, false),
+            Stmt::Macro(_) => (MarginGroup::None, false),
         }
     }
 }
@@ -170,25 +166,59 @@ impl Formattable for Stmt {
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     append_whitespace(out, base_indent, &mut sg, l.let_token.span.start());
-                    sg.seg(out, "let ");
+                    sg.seg(out, &l.let_token.to_token_stream());
                     sg.child(l.pat.make_segs(out, base_indent));
                     if let Some(init) = &l.init {
-                        append_binary(out, base_indent, &mut sg, " =", init.1.as_ref());
+                        append_binary(
+                            out,
+                            base_indent,
+                            &mut sg,
+                            &format!(" {}", &init.eq_token.to_token_stream()),
+                            |out: &mut MakeSegsState, base_indent: &Alignment| {
+                                let mut sg = new_sg(out);
+                                sg.child(init.expr.make_segs(out, base_indent));
+                                if let Some((t, else_branch)) = &init.diverge {
+                                    append_whitespace(out, base_indent, &mut sg, t.span.start());
+                                    sg.seg(out, &format!(" {} ", t.to_token_stream()));
+                                    sg.child(else_branch.make_segs(out, base_indent));
+                                }
+                                sg.build(out)
+                            },
+                        );
                     }
                     append_whitespace(out, base_indent, &mut sg, l.semi_token.span.start());
-                    sg.seg(out, ";");
+                    sg.seg(out, &l.semi_token.to_token_stream());
                     sg.build(out)
                 },
             ),
             Stmt::Item(i) => i.make_segs(out, base_indent),
-            Stmt::Expr(e) => e.make_segs(out, base_indent),
-            Stmt::Semi(e, semi) => {
-                let mut sg = new_sg(out);
-                sg.child(e.make_segs(out, base_indent));
-                append_whitespace(out, base_indent, &mut sg, semi.span.start());
-                sg.seg(out, ";");
-                sg.build(out)
+            Stmt::Expr(e, semi) => {
+                if let Some(semi) = semi {
+                    let mut sg = new_sg(out);
+                    sg.child(e.make_segs(out, base_indent));
+                    append_whitespace(out, base_indent, &mut sg, semi.span.start());
+                    sg.seg(out, semi.to_token_stream().to_string());
+                    sg.build(out)
+                } else {
+                    e.make_segs(out, base_indent)
+                }
             },
+            Stmt::Macro(e) => new_sg_outer_attrs(
+                out,
+                base_indent,
+                &e.attrs,
+                |out: &mut MakeSegsState, base_indent: &Alignment| {
+                    if let Some(semi) = &e.semi_token {
+                        let mut sg = new_sg(out);
+                        sg.child(new_sg_macro(out, base_indent, &e.mac, false));
+                        append_whitespace(out, base_indent, &mut sg, semi.span.start());
+                        sg.seg(out, ";");
+                        sg.build(out)
+                    } else {
+                        new_sg_macro(out, base_indent, &e.mac, false)
+                    }
+                },
+            ),
         }
     }
 
@@ -196,8 +226,8 @@ impl Formattable for Stmt {
         match self {
             Stmt::Local(l) => !l.attrs.is_empty(),
             Stmt::Item(i) => i.has_attrs(),
-            Stmt::Expr(e) => e.has_attrs(),
-            Stmt::Semi(e, _) => e.has_attrs(),
+            Stmt::Expr(e, _) => e.has_attrs(),
+            Stmt::Macro(e) => !e.attrs.is_empty(),
         }
     }
 }
@@ -234,7 +264,7 @@ impl Formattable for ForeignItem {
                     append_vis(out, base_indent, &mut sg, &x.vis);
                     let mut prefix = String::new();
                     prefix.push_str("static ");
-                    if let Some(x) = x.mutability {
+                    if let StaticMutability::Mut(x) = x.mutability {
                         append_whitespace(out, base_indent, &mut sg, x.span.start());
                         prefix.push_str("mut ");
                     }
@@ -296,7 +326,7 @@ impl FormattableStmt for ImplItem {
     fn want_margin(&self) -> (MarginGroup, bool) {
         match self {
             ImplItem::Const(_) => (MarginGroup::None, false),
-            ImplItem::Method(_) => (MarginGroup::BlockDef, true),
+            ImplItem::Fn(_) => (MarginGroup::BlockDef, true),
             ImplItem::Type(_) => (MarginGroup::None, false),
             ImplItem::Macro(_) => (MarginGroup::BlockDef, true),
             ImplItem::Verbatim(_) => (MarginGroup::None, false),
@@ -335,7 +365,7 @@ impl Formattable for ImplItem {
                     sg.build(out)
                 },
             ),
-            ImplItem::Method(x) => new_sg_outer_attrs(
+            ImplItem::Fn(x) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &x.attrs,
@@ -347,11 +377,11 @@ impl Formattable for ImplItem {
                         new_sg_block(
                             out,
                             base_indent,
-                            x.block.brace_token.span.start(),
+                            x.block.brace_token.span.open().start(),
                             " {",
                             Some(&x.attrs),
                             &x.block.stmts,
-                            x.block.brace_token.span.end().prev(),
+                            x.block.brace_token.span.close().start(),
                         ),
                     );
                     sg.reverse_children();
@@ -401,7 +431,7 @@ impl Formattable for ImplItem {
     fn has_attrs(&self) -> bool {
         match self {
             ImplItem::Const(x) => !x.attrs.is_empty(),
-            ImplItem::Method(x) => !x.attrs.is_empty(),
+            ImplItem::Fn(x) => !x.attrs.is_empty(),
             ImplItem::Type(x) => !x.attrs.is_empty(),
             ImplItem::Macro(x) => !x.attrs.is_empty(),
             ImplItem::Verbatim(_) => false,
@@ -414,7 +444,7 @@ impl FormattableStmt for TraitItem {
     fn want_margin(&self) -> (MarginGroup, bool) {
         match self {
             TraitItem::Const(_) => (MarginGroup::None, false),
-            TraitItem::Method(m) => (MarginGroup::BlockDef, m.default.is_some()),
+            TraitItem::Fn(m) => (MarginGroup::BlockDef, m.default.is_some()),
             TraitItem::Type(_) => (MarginGroup::None, false),
             TraitItem::Macro(_) => (MarginGroup::BlockDef, true),
             TraitItem::Verbatim(_) => (MarginGroup::None, false),
@@ -437,7 +467,7 @@ impl Formattable for TraitItem {
                             let mut sg = new_sg(out);
                             append_whitespace(out, base_indent, &mut sg, x.const_token.span.start());
                             let mut prefix = String::new();
-                            prefix.push_str("const ");
+                            prefix.push_str(&format!("{} ", x.const_token.to_token_stream()));
                             prefix.push_str(&x.ident.to_string());
                             sg.seg(out, &prefix);
                             append_binary(out, base_indent, &mut sg, ":", &x.ty);
@@ -456,7 +486,7 @@ impl Formattable for TraitItem {
                     sg.build(out)
                 },
             ),
-            TraitItem::Method(x) => new_sg_outer_attrs(
+            TraitItem::Fn(x) => new_sg_outer_attrs(
                 out,
                 base_indent,
                 &x.attrs,
@@ -468,11 +498,11 @@ impl Formattable for TraitItem {
                             new_sg_block(
                                 out,
                                 base_indent,
-                                d.brace_token.span.start(),
+                                d.brace_token.span.open().start(),
                                 " {",
                                 None,
                                 &d.stmts,
-                                d.brace_token.span.end().prev(),
+                                d.brace_token.span.close().start(),
                             ),
                         );
                         sg.reverse_children();
@@ -566,7 +596,7 @@ impl Formattable for TraitItem {
     fn has_attrs(&self) -> bool {
         match self {
             TraitItem::Const(x) => !x.attrs.is_empty(),
-            TraitItem::Method(x) => !x.attrs.is_empty(),
+            TraitItem::Fn(x) => !x.attrs.is_empty(),
             TraitItem::Type(x) => !x.attrs.is_empty(),
             TraitItem::Macro(x) => !x.attrs.is_empty(),
             TraitItem::Verbatim(_) => false,
@@ -585,7 +615,6 @@ impl FormattableStmt for Item {
             Item::ForeignMod(_) => (MarginGroup::BlockDef, true),
             Item::Impl(_) => (MarginGroup::BlockDef, true),
             Item::Macro(_) => (MarginGroup::BlockDef, true),
-            Item::Macro2(_) => (MarginGroup::BlockDef, true),
             Item::Mod(m) => (MarginGroup::BlockDef, m.content.is_some()),
             Item::Static(_) => (MarginGroup::None, false),
             Item::Struct(s) => (MarginGroup::BlockDef, match &s.fields {
@@ -643,10 +672,10 @@ impl Formattable for Item {
                         out,
                         base_indent,
                         &mut sg,
-                        x.brace_token.span.start(),
+                        x.brace_token.span.open().start(),
                         &x.variants,
                         None::<Expr>,
-                        x.brace_token.span.end().prev(),
+                        x.brace_token.span.close().start(),
                     );
                     sg.build(out)
                 },
@@ -681,11 +710,11 @@ impl Formattable for Item {
                         new_sg_block(
                             out,
                             base_indent,
-                            x.block.brace_token.span.start(),
+                            x.block.brace_token.span.open().start(),
                             " {",
                             Some(&x.attrs),
                             &x.block.stmts,
-                            x.block.brace_token.span.end().prev(),
+                            x.block.brace_token.span.close().start(),
                         ),
                     );
                     sg.reverse_children();
@@ -710,11 +739,11 @@ impl Formattable for Item {
                         out,
                         base_indent,
                         &mut sg,
-                        x.brace_token.span.start(),
+                        x.brace_token.span.open().start(),
                         " {",
                         Some(&x.attrs),
                         &x.items,
-                        x.brace_token.span.end().prev(),
+                        x.brace_token.span.close().start(),
                     );
                     sg.build(out)
                 },
@@ -756,11 +785,11 @@ impl Formattable for Item {
                         out,
                         base_indent,
                         &mut sg,
-                        x.brace_token.span.start(),
+                        x.brace_token.span.open().start(),
                         " {",
                         Some(&x.attrs),
                         &x.items,
-                        x.brace_token.span.end().prev(),
+                        x.brace_token.span.close().start(),
                     );
                     sg.build(out)
                 },
@@ -780,20 +809,6 @@ impl Formattable for Item {
                     sg.build(out)
                 },
             ),
-            Item::Macro2(x) => new_sg_outer_attrs(
-                out,
-                base_indent,
-                &x.attrs,
-                |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut sg = new_sg(out);
-                    append_vis(out, base_indent, &mut sg, &x.vis);
-                    sg.seg(out, "macro ");
-                    sg.seg(out, &x.ident.to_string());
-                    let indent = base_indent.indent();
-                    append_macro_body(out, &indent, &mut sg, x.rules.clone());
-                    sg.build(out)
-                },
-            ),
             Item::Mod(x) => new_sg_outer_attrs(
                 out,
                 base_indent,
@@ -809,11 +824,11 @@ impl Formattable for Item {
                             out,
                             base_indent,
                             &mut sg,
-                            content.0.span.start(),
+                            content.0.span.open().start(),
                             " {",
                             Some(&x.attrs),
                             &content.1,
-                            content.0.span.end().prev(),
+                            content.0.span.close().start(),
                         );
                     } else {
                         append_whitespace(out, base_indent, &mut sg, x.semi.unwrap().span.start());
@@ -831,7 +846,7 @@ impl Formattable for Item {
                     append_vis(out, base_indent, &mut sg, &x.vis);
                     append_whitespace(out, base_indent, &mut sg, x.static_token.span.start());
                     sg.seg(out, "static ");
-                    if let Some(x) = x.mutability {
+                    if let StaticMutability::Mut(x) = x.mutability {
                         append_whitespace(out, base_indent, &mut sg, x.span.start());
                         sg.seg(out, "mut ");
                     }
@@ -869,10 +884,10 @@ impl Formattable for Item {
                                 out,
                                 base_indent,
                                 &mut sg,
-                                s.brace_token.span.start(),
+                                s.brace_token.span.open().start(),
                                 &s.named,
                                 None::<Expr>,
-                                s.brace_token.span.end().prev(),
+                                s.brace_token.span.close().start(),
                             );
                         },
                         syn::Fields::Unnamed(t) => {
@@ -880,10 +895,10 @@ impl Formattable for Item {
                                 out,
                                 base_indent,
                                 &mut sg,
-                                t.paren_token.span.start(),
+                                t.paren_token.span.open().start(),
                                 "(",
                                 &t.unnamed,
-                                t.paren_token.span.end().prev(),
+                                t.paren_token.span.close().start(),
                                 ")",
                             );
                             if let Some(wh) = &x.generics.where_clause {
@@ -944,11 +959,11 @@ impl Formattable for Item {
                         new_sg_block(
                             out,
                             base_indent,
-                            x.brace_token.span.start(),
+                            x.brace_token.span.open().start(),
                             " {",
                             Some(&x.attrs),
                             &x.items,
-                            x.brace_token.span.end().prev(),
+                            x.brace_token.span.close().start(),
                         ),
                     );
                     sg.build(out)
@@ -1021,10 +1036,10 @@ impl Formattable for Item {
                         out,
                         base_indent,
                         &mut sg,
-                        x.fields.brace_token.span.start(),
+                        x.fields.brace_token.span.open().start(),
                         &x.fields.named,
                         None::<Expr>,
-                        x.fields.brace_token.span.end().prev(),
+                        x.fields.brace_token.span.close().start(),
                     );
                     sg.build(out)
                 },
@@ -1065,7 +1080,6 @@ impl Formattable for Item {
             Item::ForeignMod(x) => !x.attrs.is_empty(),
             Item::Impl(x) => !x.attrs.is_empty(),
             Item::Macro(x) => !x.attrs.is_empty(),
-            Item::Macro2(x) => !x.attrs.is_empty(),
             Item::Mod(x) => !x.attrs.is_empty(),
             Item::Static(x) => !x.attrs.is_empty(),
             Item::Struct(x) => !x.attrs.is_empty(),
@@ -1095,10 +1109,10 @@ impl Formattable for Variant {
                         out,
                         base_indent,
                         &mut sg,
-                        s.brace_token.span.start(),
+                        s.brace_token.span.open().start(),
                         &s.named,
                         None::<Expr>,
-                        s.brace_token.span.end().prev(),
+                        s.brace_token.span.close().start(),
                     );
                 },
                 syn::Fields::Unnamed(t) => {
@@ -1106,10 +1120,10 @@ impl Formattable for Variant {
                         out,
                         base_indent,
                         &mut sg,
-                        t.paren_token.span.start(),
+                        t.paren_token.span.open().start(),
                         "(",
                         &t.unnamed,
-                        t.paren_token.span.end().prev(),
+                        t.paren_token.span.close().start(),
                         ")",
                     );
                 },
@@ -1175,13 +1189,13 @@ impl Formattable for &UseTree {
                     out,
                     base_indent,
                     &mut sg,
-                    x.brace_token.span.start(),
+                    x.brace_token.span.open().start(),
                     "{",
                     true,
                     ",",
                     &x.items,
                     InlineListSuffix::<Expr>::Punct,
-                    x.brace_token.span.end().prev(),
+                    x.brace_token.span.close().start(),
                     "}",
                 );
             },

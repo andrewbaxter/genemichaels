@@ -32,7 +32,6 @@ use crate::{
     Alignment,
     Formattable,
     MakeSegsState,
-    TrivialLineColMath,
     check_split_brace_threshold,
     SplitGroupIdx,
     sg_general_lists::{
@@ -116,12 +115,21 @@ fn new_sg_dotted(out: &mut MakeSegsState, base_indent: &Alignment, root: Dotted)
                     if let Some(tf) = &e.turbofish {
                         let mut sg = new_sg(out);
                         sg.child(build_base(out, base_indent));
+                        let prefix;
+                        let prefix_start;
+                        if let Some(colon2) = tf.colon2_token {
+                            prefix = "::<";
+                            prefix_start = colon2.spans[0].start();
+                        } else {
+                            prefix = "<";
+                            prefix_start = tf.lt_token.span.start();
+                        }
                         append_bracketed_list_common(
                             out,
                             base_indent,
                             &mut sg,
-                            tf.colon2_token.spans[0].start(),
-                            "::<",
+                            prefix_start,
+                            prefix,
                             &tf.args,
                             tf.lt_token.span.start(),
                             ">",
@@ -135,10 +143,10 @@ fn new_sg_dotted(out: &mut MakeSegsState, base_indent: &Alignment, root: Dotted)
                     out,
                     base_indent,
                     &mut sg,
-                    e.paren_token.span.start(),
+                    e.paren_token.span.open().start(),
                     "(",
                     &e.args,
-                    e.paren_token.span.end().prev(),
+                    e.paren_token.span.close().start(),
                     ")",
                 );
                 sg.build(out)
@@ -188,10 +196,10 @@ impl Formattable for &Expr {
                     new_sg_bracketed_list_common(
                         out,
                         base_indent,
-                        e.bracket_token.span.start(),
+                        e.bracket_token.span.open().start(),
                         "[",
                         &e.elems,
-                        e.bracket_token.span.end().prev(),
+                        e.bracket_token.span.close().start(),
                         "]",
                     )
                 },
@@ -202,21 +210,6 @@ impl Formattable for &Expr {
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     new_sg_binary(out, base_indent, e.left.as_ref(), e.eq_token.span.start(), " =", e.right.as_ref())
-                },
-            ),
-            Expr::AssignOp(e) => new_sg_outer_attrs(
-                out,
-                base_indent,
-                &e.attrs,
-                |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    new_sg_binary(
-                        out,
-                        base_indent,
-                        e.left.as_ref(),
-                        e.op.to_token_stream().into_iter().next().unwrap().span().start(),
-                        &format!(" {}", e.op.to_token_stream()),
-                        e.right.as_ref(),
-                    )
                 },
             ),
             Expr::Async(e) => new_sg_outer_attrs(
@@ -235,11 +228,11 @@ impl Formattable for &Expr {
                         out,
                         base_indent,
                         &mut sg,
-                        e.block.brace_token.span.start(),
+                        e.block.brace_token.span.open().start(),
                         " {",
                         Some(&e.attrs),
                         &e.block.stmts,
-                        e.block.brace_token.span.end().prev(),
+                        e.block.brace_token.span.close().start(),
                     );
                     sg.build(out)
                 },
@@ -281,25 +274,13 @@ impl Formattable for &Expr {
                         new_sg_block(
                             out,
                             base_indent,
-                            e.block.brace_token.span.start(),
+                            e.block.brace_token.span.open().start(),
                             "{",
                             Some(&e.attrs),
                             &e.block.stmts,
-                            e.block.brace_token.span.end().prev(),
+                            e.block.brace_token.span.close().start(),
                         ),
                     );
-                    sg.build(out)
-                },
-            ),
-            Expr::Box(e) => new_sg_outer_attrs(
-                out,
-                base_indent,
-                &e.attrs,
-                |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut sg = new_sg(out);
-                    append_whitespace(out, base_indent, &mut sg, e.box_token.span.start());
-                    sg.seg(out, "box ");
-                    sg.child(e.expr.make_segs(out, base_indent));
                     sg.build(out)
                 },
             ),
@@ -332,10 +313,10 @@ impl Formattable for &Expr {
                         out,
                         base_indent,
                         &mut sg,
-                        e.paren_token.span.start(),
+                        e.paren_token.span.open().start(),
                         "(",
                         &e.args,
-                        e.paren_token.span.end().prev(),
+                        e.paren_token.span.close().start(),
                         ")",
                     );
                     sg.build(out)
@@ -471,11 +452,11 @@ impl Formattable for &Expr {
                         out,
                         base_indent,
                         &mut sg,
-                        e.body.brace_token.span.start(),
+                        e.body.brace_token.span.open().start(),
                         " {",
                         Some(&e.attrs),
                         &e.body.stmts,
-                        e.body.brace_token.span.end().prev(),
+                        e.body.brace_token.span.close().start(),
                     );
                     sg.build(out)
                 },
@@ -507,11 +488,11 @@ impl Formattable for &Expr {
                             out,
                             base_indent,
                             &mut sg,
-                            e.then_branch.brace_token.span.start(),
+                            e.then_branch.brace_token.span.open().start(),
                             " {",
                             Some(&e.attrs),
                             &e.then_branch.stmts,
-                            e.then_branch.brace_token.span.end().prev(),
+                            e.then_branch.brace_token.span.close().start(),
                         );
                         sg.build(out)
                     });
@@ -575,11 +556,11 @@ impl Formattable for &Expr {
                         out,
                         base_indent,
                         &mut sg,
-                        e.body.brace_token.span.start(),
+                        e.body.brace_token.span.open().start(),
                         "loop {",
                         Some(&e.attrs),
                         &e.body.stmts,
-                        e.body.brace_token.span.end().prev(),
+                        e.body.brace_token.span.close().start(),
                     );
                     sg.build(out)
                 },
@@ -655,7 +636,7 @@ impl Formattable for &Expr {
                         sg.seg_unsplit(out, " ");
                     }
                     sg.split(out, base_indent.clone(), false);
-                    append_whitespace(out, base_indent, &mut sg, e.brace_token.span.end().prev());
+                    append_whitespace(out, base_indent, &mut sg, e.brace_token.span.close().start());
                     sg.seg(out, "}");
                     sg.build(out)
                 },
@@ -674,10 +655,10 @@ impl Formattable for &Expr {
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
-                    append_whitespace(out, base_indent, &mut sg, e.paren_token.span.start());
+                    append_whitespace(out, base_indent, &mut sg, e.paren_token.span.open().start());
                     sg.seg(out, "(");
                     sg.child(e.expr.make_segs(out, base_indent));
-                    append_whitespace(out, base_indent, &mut sg, e.paren_token.span.end().prev());
+                    append_whitespace(out, base_indent, &mut sg, e.paren_token.span.close().start());
                     sg.seg(out, ")");
                     sg.build(out)
                 },
@@ -699,7 +680,7 @@ impl Formattable for &Expr {
                         syn::RangeLimits::HalfOpen(x) => ("..", x.spans[0].start()),
                         syn::RangeLimits::Closed(x) => ("..=", x.spans[0].start()),
                     };
-                    match (&e.from, &e.to) {
+                    match (&e.start, &e.end) {
                         (None, None) => new_sg_lit(out, Some((base_indent, tok_loc)), tok),
                         (None, Some(r)) => {
                             let mut sg = new_sg(out);
@@ -739,7 +720,13 @@ impl Formattable for &Expr {
                 base_indent,
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    build_array_type(out, base_indent, e.bracket_token.span.start(), e.expr.as_ref(), e.len.as_ref())
+                    build_array_type(
+                        out,
+                        base_indent,
+                        e.bracket_token.span.open().start(),
+                        e.expr.as_ref(),
+                        e.len.as_ref(),
+                    )
                 },
             ),
             Expr::Return(e) => new_sg_outer_attrs(
@@ -775,7 +762,7 @@ impl Formattable for &Expr {
                         out,
                         base_indent,
                         &mut sg,
-                        e.brace_token.span.start(),
+                        e.brace_token.span.open().start(),
                         &e.fields,
                         e.dot2_token.as_ref().map(|d| |out: &mut MakeSegsState, base_indent: &Alignment| {
                             let mut sg = new_sg(out);
@@ -786,7 +773,7 @@ impl Formattable for &Expr {
                             }
                             sg.build(out)
                         }),
-                        e.brace_token.span.end().prev(),
+                        e.brace_token.span.close().start(),
                     );
                     sg.build(out)
                 },
@@ -818,11 +805,11 @@ impl Formattable for &Expr {
                         out,
                         base_indent,
                         &mut sg,
-                        e.block.brace_token.span.start(),
+                        e.block.brace_token.span.open().start(),
                         " {",
                         Some(&e.attrs),
                         &e.block.stmts,
-                        e.block.brace_token.span.end().prev(),
+                        e.block.brace_token.span.close().start(),
                     );
                     sg.build(out)
                 },
@@ -835,23 +822,15 @@ impl Formattable for &Expr {
                     new_sg_bracketed_list(
                         out,
                         base_indent,
-                        e.paren_token.span.start(),
+                        e.paren_token.span.open().start(),
                         "(",
                         false,
                         ",",
                         &e.elems,
                         InlineListSuffix::UnitPunct::<Expr>,
-                        e.paren_token.span.end().prev(),
+                        e.paren_token.span.close().start(),
                         ")",
                     )
-                },
-            ),
-            Expr::Type(e) => new_sg_outer_attrs(
-                out,
-                base_indent,
-                &e.attrs,
-                |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    new_sg_binary(out, base_indent, e.expr.as_ref(), e.colon_token.span.start(), ":", e.ty.as_ref())
                 },
             ),
             Expr::Unary(e) => new_sg_outer_attrs(
@@ -882,11 +861,11 @@ impl Formattable for &Expr {
                         out,
                         base_indent,
                         &mut sg,
-                        e.block.brace_token.span.start(),
+                        e.block.brace_token.span.open().start(),
                         "unsafe {",
                         Some(&e.attrs),
                         &e.block.stmts,
-                        e.block.brace_token.span.end().prev(),
+                        e.block.brace_token.span.close().start(),
                     );
                     sg.build(out)
                 },
@@ -913,11 +892,11 @@ impl Formattable for &Expr {
                         out,
                         base_indent,
                         &mut sg,
-                        e.body.brace_token.span.start(),
+                        e.body.brace_token.span.open().start(),
                         " {",
                         Some(&e.attrs),
                         &e.body.stmts,
-                        e.body.brace_token.span.end().prev(),
+                        e.body.brace_token.span.close().start(),
                     );
                     sg.build(out)
                 },
@@ -937,6 +916,38 @@ impl Formattable for &Expr {
                     sg.build(out)
                 },
             ),
+            Expr::Const(e) => new_sg_outer_attrs(
+                out,
+                base_indent,
+                &e.attrs,
+                |out: &mut MakeSegsState, base_indent: &Alignment| {
+                    let mut sg = new_sg(out);
+                    append_whitespace(out, base_indent, &mut sg, e.const_token.span.start());
+                    sg.seg(out, "const");
+                    append_bracketed_statement_list(
+                        out,
+                        base_indent,
+                        &mut sg,
+                        e.block.brace_token.span.open().start(),
+                        " {",
+                        Some(&e.attrs),
+                        &e.block.stmts,
+                        e.block.brace_token.span.close().start(),
+                    );
+                    sg.build(out)
+                },
+            ),
+            Expr::Infer(e) => new_sg_outer_attrs(
+                out,
+                base_indent,
+                &e.attrs,
+                |out: &mut MakeSegsState, _base_indent: &Alignment| {
+                    let mut node = new_sg(out);
+                    append_whitespace(out, base_indent, &mut node, e.underscore_token.span.start());
+                    node.seg(out, e.underscore_token.to_token_stream());
+                    node.build(out)
+                },
+            ),
             _ => unreachable!(),
         }
     }
@@ -945,12 +956,10 @@ impl Formattable for &Expr {
         match self {
             Expr::Array(x) => !x.attrs.is_empty(),
             Expr::Assign(x) => !x.attrs.is_empty(),
-            Expr::AssignOp(x) => !x.attrs.is_empty(),
             Expr::Async(x) => !x.attrs.is_empty(),
             Expr::Await(x) => !x.attrs.is_empty(),
             Expr::Binary(x) => !x.attrs.is_empty(),
             Expr::Block(x) => !x.attrs.is_empty(),
-            Expr::Box(x) => !x.attrs.is_empty(),
             Expr::Break(x) => !x.attrs.is_empty(),
             Expr::Call(x) => !x.attrs.is_empty(),
             Expr::Cast(x) => !x.attrs.is_empty(),
@@ -977,12 +986,13 @@ impl Formattable for &Expr {
             Expr::Try(x) => !x.attrs.is_empty(),
             Expr::TryBlock(x) => !x.attrs.is_empty(),
             Expr::Tuple(x) => !x.attrs.is_empty(),
-            Expr::Type(x) => !x.attrs.is_empty(),
             Expr::Unary(x) => !x.attrs.is_empty(),
             Expr::Unsafe(x) => !x.attrs.is_empty(),
             Expr::Verbatim(_) => false,
             Expr::While(x) => !x.attrs.is_empty(),
             Expr::Yield(x) => !x.attrs.is_empty(),
+            Expr::Const(x) => !x.attrs.is_empty(),
+            Expr::Infer(x) => !x.attrs.is_empty(),
             _ => unreachable!(),
         }
     }

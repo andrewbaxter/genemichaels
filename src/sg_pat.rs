@@ -1,55 +1,45 @@
-use std::{
-    fmt::Write,
-};
-use syn::{
-    Expr,
-    FieldPat,
-    Pat,
-};
-use crate::{
-    new_sg,
-    new_sg_lit,
-    sg_general::{
-        new_sg_outer_attrs,
-        new_sg_binary,
-        new_sg_macro,
-        append_whitespace,
+use {
+    crate::{
+        new_sg,
+        new_sg_lit,
+        sg_general::{
+            append_bracketed_statement_list,
+            append_whitespace,
+            new_sg_binary,
+            new_sg_macro,
+            new_sg_outer_attrs,
+        },
+        sg_general_lists::{
+            append_bracketed_list_common,
+            append_bracketed_list_curly,
+            append_inline_list_raw,
+            new_sg_bracketed_list,
+            new_sg_bracketed_list_common,
+            InlineListSuffix,
+        },
+        sg_type::{
+            append_path,
+            build_extended_path,
+            build_ref,
+        },
+        Alignment,
+        Formattable,
+        HashLineColumn,
+        MakeSegsState,
+        SplitGroupIdx,
     },
-    sg_type::{
-        build_extended_path,
-        build_ref,
-        append_path,
+    quote::ToTokens,
+    std::fmt::Write,
+    syn::{
+        Expr,
+        FieldPat,
+        Pat,
     },
-    Alignment,
-    Formattable,
-    MakeSegsState,
-    TrivialLineColMath,
-    SplitGroupIdx,
-    sg_general_lists::{
-        append_inline_list_raw,
-        append_bracketed_list_curly,
-        new_sg_bracketed_list_common,
-        append_bracketed_list_common,
-        InlineListSuffix,
-        new_sg_bracketed_list,
-    },
-    HashLineColumn,
 };
 
 impl Formattable for &Pat {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
         match self {
-            Pat::Box(x) => new_sg_outer_attrs(
-                out,
-                base_indent,
-                &x.attrs,
-                |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut node = new_sg(out);
-                    node.seg(out, "box ");
-                    node.child(x.pat.as_ref().make_segs(out, base_indent));
-                    node.build(out)
-                },
-            ),
             Pat::Ident(x) => new_sg_outer_attrs(
                 out,
                 base_indent,
@@ -92,8 +82,8 @@ impl Formattable for &Pat {
                                 // https://github.com/dtolnay/syn/issues/1352
                                 let mut sg0 = new_sg(out);
                                 let sg = &mut sg0;
-                                let prefix_start = t.paren_token.span.start();
-                                let suffix_start = t.paren_token.span.end().prev();
+                                let prefix_start = t.paren_token.span.open().start();
+                                let suffix_start = t.paren_token.span.close().start();
                                 if out.whitespaces.contains_key(&HashLineColumn(suffix_start)) {
                                     sg.initial_split();
                                 }
@@ -132,12 +122,15 @@ impl Formattable for &Pat {
                     }
                 },
             ),
-            Pat::Lit(x) => new_sg_outer_attrs(
+            Pat::Lit(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
-                &x.attrs,
-                |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    x.expr.as_ref().make_segs(out, base_indent)
+                &e.attrs,
+                |out: &mut MakeSegsState, _base_indent: &Alignment| {
+                    let mut node = new_sg(out);
+                    append_whitespace(out, base_indent, &mut node, e.lit.span().start());
+                    node.seg(out, e.lit.to_token_stream());
+                    node.build(out)
                 },
             ),
             Pat::Macro(x) => new_sg_outer_attrs(
@@ -177,16 +170,40 @@ impl Formattable for &Pat {
                     build_extended_path(out, base_indent, &x.qself, &x.path)
                 },
             ),
-            Pat::Range(x) => new_sg_outer_attrs(
+            Pat::Range(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
-                &x.attrs,
+                &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let (tok_loc, tok) = match x.limits {
-                        syn::RangeLimits::HalfOpen(x) => (x.spans[0].start(), " .."),
-                        syn::RangeLimits::Closed(x) => (x.spans[0].start(), " ..="),
+                    let (tok, tok_loc) = match e.limits {
+                        syn::RangeLimits::HalfOpen(x) => (" ..", x.spans[0].start()),
+                        syn::RangeLimits::Closed(x) => (" ..=", x.spans[0].start()),
                     };
-                    new_sg_binary(out, base_indent, x.lo.as_ref(), tok_loc, tok, x.hi.as_ref())
+                    match (&e.start, &e.end) {
+                        (None, None) => new_sg_lit(out, Some((base_indent, tok_loc)), tok),
+                        (None, Some(r)) => {
+                            let mut sg = new_sg(out);
+                            append_whitespace(out, base_indent, &mut sg, tok_loc);
+                            sg.seg(out, tok);
+                            sg.child(r.as_ref().make_segs(out, base_indent));
+                            sg.build(out)
+                        },
+                        (Some(l), None) => {
+                            let mut sg = new_sg(out);
+                            append_whitespace(out, base_indent, &mut sg, tok_loc);
+                            sg.child(l.as_ref().make_segs(out, base_indent));
+                            sg.seg(out, tok);
+                            sg.build(out)
+                        },
+                        (Some(l), Some(r)) => new_sg_binary(
+                            out,
+                            base_indent,
+                            l.as_ref(),
+                            tok_loc,
+                            &format!(" {}", tok),
+                            r.as_ref(),
+                        ),
+                    }
                 },
             ),
             Pat::Reference(x) => new_sg_outer_attrs(
@@ -213,10 +230,10 @@ impl Formattable for &Pat {
                     new_sg_bracketed_list_common(
                         out,
                         base_indent,
-                        x.bracket_token.span.start(),
+                        x.bracket_token.span.open().start(),
                         "[",
                         &x.elems,
-                        x.bracket_token.span.end().prev(),
+                        x.bracket_token.span.close().start(),
                         "]",
                     )
                 },
@@ -238,14 +255,14 @@ impl Formattable for &Pat {
                         out,
                         base_indent,
                         &mut sg,
-                        x.brace_token.span.start(),
+                        x.brace_token.span.open().start(),
                         &x.fields,
-                        x.dot2_token.as_ref().map(|d| {
+                        x.rest.as_ref().map(|d| {
                             |out: &mut MakeSegsState, base_indent: &Alignment| {
-                                new_sg_lit(out, Some((base_indent, d.spans[0].start())), "..")
+                                new_sg_lit(out, Some((base_indent, d.dot2_token.spans[0].start())), "..")
                             }
                         }),
-                        x.brace_token.span.end().prev(),
+                        x.brace_token.span.close().start(),
                     );
                     sg.build(out)
                 },
@@ -258,13 +275,13 @@ impl Formattable for &Pat {
                     new_sg_bracketed_list(
                         out,
                         base_indent,
-                        x.paren_token.span.start(),
+                        x.paren_token.span.open().start(),
                         "(",
                         false,
                         ",",
                         &x.elems,
                         InlineListSuffix::UnitPunct::<Expr>,
-                        x.paren_token.span.end().prev(),
+                        x.paren_token.span.close().start(),
                         ")",
                     )
                 },
@@ -280,10 +297,10 @@ impl Formattable for &Pat {
                         out,
                         base_indent,
                         &mut sg,
-                        x.pat.paren_token.span.start(),
+                        x.paren_token.span.open().start(),
                         "(",
-                        &x.pat.elems,
-                        x.pat.paren_token.span.end().prev(),
+                        &x.elems,
+                        x.paren_token.span.close().start(),
                         ")",
                     );
                     sg.build(out)
@@ -306,13 +323,47 @@ impl Formattable for &Pat {
                     new_sg_lit(out, Some((base_indent, x.underscore_token.span.start())), "_")
                 },
             ),
+            Pat::Const(e) => new_sg_outer_attrs(
+                out,
+                base_indent,
+                &e.attrs,
+                |out: &mut MakeSegsState, base_indent: &Alignment| {
+                    let mut sg = new_sg(out);
+                    append_whitespace(out, base_indent, &mut sg, e.const_token.span.start());
+                    sg.seg(out, "const");
+                    append_bracketed_statement_list(
+                        out,
+                        base_indent,
+                        &mut sg,
+                        e.block.brace_token.span.open().start(),
+                        " {",
+                        Some(&e.attrs),
+                        &e.block.stmts,
+                        e.block.brace_token.span.close().start(),
+                    );
+                    sg.build(out)
+                },
+            ),
+            Pat::Paren(e) => new_sg_outer_attrs(
+                out,
+                base_indent,
+                &e.attrs,
+                |out: &mut MakeSegsState, base_indent: &Alignment| {
+                    let mut sg = new_sg(out);
+                    append_whitespace(out, base_indent, &mut sg, e.paren_token.span.open().start());
+                    sg.seg(out, "(");
+                    sg.child(e.pat.make_segs(out, base_indent));
+                    append_whitespace(out, base_indent, &mut sg, e.paren_token.span.close().start());
+                    sg.seg(out, ")");
+                    sg.build(out)
+                },
+            ),
             _ => unreachable!(),
         }
     }
 
     fn has_attrs(&self) -> bool {
         match self {
-            Pat::Box(x) => !x.attrs.is_empty(),
             Pat::Ident(x) => !x.attrs.is_empty(),
             Pat::Lit(x) => !x.attrs.is_empty(),
             Pat::Macro(x) => !x.attrs.is_empty(),
@@ -328,6 +379,8 @@ impl Formattable for &Pat {
             Pat::Type(x) => !x.attrs.is_empty(),
             Pat::Verbatim(_) => false,
             Pat::Wild(x) => !x.attrs.is_empty(),
+            Pat::Const(x) => !x.attrs.is_empty(),
+            Pat::Paren(x) => !x.attrs.is_empty(),
             _ => unreachable!(),
         }
     }

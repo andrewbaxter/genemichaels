@@ -1,54 +1,53 @@
-use std::{
-    fmt::Write,
-};
-use proc_macro2::{
-    LineColumn,
-    TokenStream,
-    TokenTree,
-    Punct,
-};
-use quote::{
-    quote,
-    ToTokens,
-};
-use syn::{
-    Attribute,
-    Block,
-    ExprCall,
-    Macro,
-    token::{
-        Comma,
-        Or,
-        Add,
-        Paren,
-        Brace,
-        Bracket,
+use {
+    crate::{
+        check_split_brace_threshold,
+        new_sg,
+        sg_general_lists::{
+            append_inline_list_raw,
+            InlineListSuffix,
+        },
+        sg_type::build_path,
+        whitespace::HashLineColumn,
+        Alignment,
+        Formattable,
+        FormattablePunct,
+        FormattableStmt,
+        MakeSegsState,
+        MarginGroup,
+        SplitGroupBuilder,
+        SplitGroupIdx,
+        Whitespace,
+        WhitespaceMode,
     },
-    MacroDelimiter,
-    Expr,
-    Item,
-    Stmt,
-};
-use crate::{
-    whitespace::HashLineColumn,
-    new_sg,
-    sg_type::build_path,
-    Alignment,
-    Formattable,
-    FormattableStmt,
-    MakeSegsState,
-    SplitGroupBuilder,
-    MarginGroup,
-    TrivialLineColMath,
-    check_split_brace_threshold,
-    SplitGroupIdx,
-    FormattablePunct,
-    sg_general_lists::{
-        append_inline_list_raw,
-        InlineListSuffix,
+    proc_macro2::{
+        LineColumn,
+        Punct,
+        TokenStream,
+        TokenTree,
     },
-    Whitespace,
-    WhitespaceMode,
+    quote::{
+        quote,
+        ToTokens,
+    },
+    std::fmt::Write,
+    syn::{
+        token::{
+            Brace,
+            Bracket,
+            Comma,
+            Or,
+            Paren,
+            Plus,
+        },
+        Attribute,
+        Block,
+        Expr,
+        ExprCall,
+        Item,
+        Macro,
+        MacroDelimiter,
+        Stmt,
+    },
 };
 
 pub(crate) fn build_rev_pair(
@@ -98,7 +97,6 @@ pub(crate) fn append_attr(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
     sg: &mut SplitGroupBuilder,
-    bang: bool,
     attr: &Attribute,
 ) {
     append_whitespace(out, base_indent, sg, attr.pound_token.span.start());
@@ -106,15 +104,33 @@ pub(crate) fn append_attr(
         let mut sg = new_sg(out);
         let indent = base_indent.indent();
         let mut prefix = String::new();
-        prefix.write_str(if bang {
-            "#!["
-        } else {
-            "#["
+        prefix.write_str(match &attr.style {
+            syn::AttrStyle::Outer => "#[",
+            syn::AttrStyle::Inner(_) => "#![",
         }).unwrap();
         sg.seg(out, prefix);
-        sg.child(build_path(out, &indent, &attr.path));
-        append_macro_body(out, &indent, &mut sg, attr.tokens.clone());
-        append_whitespace(out, &indent, &mut sg, attr.bracket_token.span.end().prev());
+        match &attr.meta {
+            syn::Meta::Path(m) => {
+                sg.child(build_path(out, &indent, m));
+            },
+            syn::Meta::List(m) => {
+                sg.child(build_path(out, &indent, &m.path));
+                append_macro_body(out, &indent, &mut sg, m.tokens.clone());
+            },
+            syn::Meta::NameValue(m) => {
+                sg.child(
+                    new_sg_binary(
+                        out,
+                        base_indent,
+                        &m.path,
+                        m.eq_token.span.start(),
+                        &format!(" {}", m.eq_token.to_token_stream()),
+                        &m.value,
+                    ),
+                );
+            },
+        }
+        append_whitespace(out, &indent, &mut sg, attr.bracket_token.span.close().start());
         sg.seg(out, "]");
         sg.build(out)
     });
@@ -144,7 +160,7 @@ pub(crate) fn append_statement_list_raw(
         if i > 0 {
             sg.split_if(out, base_indent.clone(), out.config.split_attributes, false);
         }
-        append_attr(out, base_indent, sg, true, attr);
+        append_attr(out, base_indent, sg, attr);
         if !out.config.split_attributes {
             sg.seg_unsplit(out, " ");
         }
@@ -220,7 +236,7 @@ pub(crate) fn new_sg_outer_attrs(
                 continue;
             },
         };
-        append_attr(out, base_indent, &mut sg, false, attr);
+        append_attr(out, base_indent, &mut sg, attr);
         if !out.config.split_attributes {
             sg.seg_unsplit(out, " ");
         }
@@ -267,10 +283,10 @@ pub(crate) fn append_macro_body_bracketed(
     match delim {
         syn::MacroDelimiter::Paren(x) => {
             sg.seg(out, "(");
-            if !tokens.is_empty() || out.whitespaces.contains_key(&HashLineColumn(x.span.end().prev())) {
+            if !tokens.is_empty() || out.whitespaces.contains_key(&HashLineColumn(x.span.close().start())) {
                 sg.split(out, indent.clone(), true);
                 append_macro_body(out, &indent, sg, tokens);
-                append_whitespace(out, base_indent, sg, x.span.end().prev());
+                append_whitespace(out, base_indent, sg, x.span.close().start());
             }
             sg.split(out, base_indent.clone(), false);
             sg.seg(out, ")");
@@ -278,20 +294,20 @@ pub(crate) fn append_macro_body_bracketed(
         syn::MacroDelimiter::Brace(x) => {
             sg.seg(out, "{");
             sg.initial_split();
-            if !tokens.is_empty() || out.whitespaces.contains_key(&HashLineColumn(x.span.end().prev())) {
+            if !tokens.is_empty() || out.whitespaces.contains_key(&HashLineColumn(x.span.close().start())) {
                 sg.split(out, indent.clone(), true);
                 append_macro_body(out, &indent, sg, tokens);
-                append_whitespace(out, base_indent, sg, x.span.end().prev());
+                append_whitespace(out, base_indent, sg, x.span.close().start());
             }
             sg.split(out, base_indent.clone(), false);
             sg.seg(out, "}");
         },
         syn::MacroDelimiter::Bracket(x) => {
             sg.seg(out, "[");
-            if !tokens.is_empty() || out.whitespaces.contains_key(&HashLineColumn(x.span.end().prev())) {
+            if !tokens.is_empty() || out.whitespaces.contains_key(&HashLineColumn(x.span.close().start())) {
                 sg.split(out, indent.clone(), true);
                 append_macro_body(out, &indent, sg, tokens);
-                append_whitespace(out, base_indent, sg, x.span.end().prev());
+                append_whitespace(out, base_indent, sg, x.span.close().start());
             }
             sg.split(out, base_indent.clone(), false);
             sg.seg(out, "]");
@@ -323,8 +339,7 @@ pub(crate) fn append_macro_body(
         if block.stmts.len() == 1 &&
             matches!(
                 block.stmts.first(),
-                Some(Stmt::Item(Item::Verbatim(_))) | Some(Stmt::Expr(Expr::Verbatim(_))) |
-                    Some(Stmt::Semi(Expr::Verbatim(_), _))
+                Some(Stmt::Item(Item::Verbatim(_))) | Some(Stmt::Expr(Expr::Verbatim(_), _))
             ) {
             // not really parsed, continue
         } else {
@@ -413,8 +428,7 @@ pub(crate) fn append_macro_body(
                 if block.stmts.len() == 1 &&
                     matches!(
                         block.stmts.first(),
-                        Some(Stmt::Item(Item::Verbatim(_))) | Some(Stmt::Expr(Expr::Verbatim(_))) |
-                            Some(Stmt::Semi(Expr::Verbatim(_), _))
+                        Some(Stmt::Item(Item::Verbatim(_))) | Some(Stmt::Expr(Expr::Verbatim(_), _))
                     ) {
                     // not really parsed, continue
                 } else {
@@ -435,7 +449,7 @@ pub(crate) fn append_macro_body(
                                     proc_macro2::Delimiter::Parenthesis => {
                                         append_macro_body_bracketed(out, &indent, &mut sg, &MacroDelimiter::Paren({
                                             let mut delim = Paren::default();
-                                            delim.span = g.span_close();
+                                            delim.span = g.delim_span();
                                             delim
                                         }), g.stream());
                                     },
@@ -448,14 +462,14 @@ pub(crate) fn append_macro_body(
                                         }
                                         append_macro_body_bracketed(out, &indent, &mut sg, &MacroDelimiter::Brace({
                                             let mut delim = Brace::default();
-                                            delim.span = g.span_close();
+                                            delim.span = g.delim_span();
                                             delim
                                         }), g.stream());
                                     },
                                     proc_macro2::Delimiter::Bracket => {
                                         append_macro_body_bracketed(out, &indent, &mut sg, &MacroDelimiter::Bracket({
                                             let mut delim = Bracket::default();
-                                            delim.span = g.span_close();
+                                            delim.span = g.delim_span();
                                             delim
                                         }), g.stream());
                                     },
@@ -602,7 +616,7 @@ impl FormattablePunct for Or {
     }
 }
 
-impl FormattablePunct for Add {
+impl FormattablePunct for Plus {
     fn span_start(&self) -> LineColumn {
         self.span.start()
     }

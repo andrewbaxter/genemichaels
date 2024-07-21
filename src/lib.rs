@@ -40,24 +40,6 @@ pub(crate) mod sg_root;
 pub(crate) mod sg_general_lists;
 pub mod utils;
 
-pub(crate) trait TrivialLineColMath {
-    // syn doesn't provide end token spans often, in which case the start span covers
-    // everything.  This is a dumb method to take the end of that and move back one
-    // char to hopefully get the start of the end token.
-    fn prev(&self) -> LineColumn;
-}
-
-impl TrivialLineColMath for LineColumn {
-    fn prev(&self) -> LineColumn {
-        let mut out = *self;
-        if out.column == 0 {
-            return out;
-        }
-        out.column -= 1;
-        out
-    }
-}
-
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub enum CommentMode {
     Normal,

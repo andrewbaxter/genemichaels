@@ -4,21 +4,22 @@ use std::{
 use proc_macro2::LineColumn;
 use quote::ToTokens;
 use syn::{
+    AngleBracketedGenericArguments,
     BareFnArg,
     Expr,
     FnArg,
     GenericArgument,
-    GenericMethodArgument,
     GenericParam,
     Generics,
-    LifetimeDef,
+    LifetimeParam,
     Path,
     QSelf,
     ReturnType,
+    Token,
     Type,
     TypeParamBound,
-    WherePredicate,
     WhereClause,
+    WherePredicate,
 };
 use crate::{
     new_sg,
@@ -34,7 +35,6 @@ use crate::{
     Formattable,
     MakeSegsState,
     SplitGroupBuilder,
-    TrivialLineColMath,
     SplitGroupIdx,
     sg_general_lists::{
         append_inline_list,
@@ -109,11 +109,10 @@ pub(crate) fn append_path<
     out: &mut MakeSegsState,
     node: &mut SplitGroupBuilder,
     base_indent: &Alignment,
-    prefix: Option<Option<LineColumn>>,
-    pairs: impl Iterator<Item = syn::punctuated::Pair<&'a syn::PathSegment, &'a syn::token::Colon2>>,
+    mut prefix: Option<Option<LineColumn>>,
+    pairs: impl Iterator<Item = syn::punctuated::Pair<&'a syn::PathSegment, &'a Token![::]>>,
 ) {
     let indent = base_indent.clone();
-    let mut prefix = prefix;
     for (i, seg) in pairs.enumerate() {
         if i > 0 {
             node.split(out, indent.clone(), true);
@@ -149,10 +148,10 @@ pub(crate) fn append_path<
                     new_sg_bracketed_list_common(
                         out,
                         &indent,
-                        a.paren_token.span.start(),
+                        a.paren_token.span.open().start(),
                         "(",
                         &a.inputs,
-                        a.paren_token.span.end().prev(),
+                        a.paren_token.span.close().start(),
                         ")",
                     ),
                 );
@@ -265,6 +264,28 @@ pub(crate) fn build_generics_part_b(
     sg.build(out)
 }
 
+pub(crate) fn append_angle_bracketed_generics(
+    out: &mut MakeSegsState,
+    base_indent: &Alignment,
+    sg: &mut SplitGroupBuilder,
+    generics: &AngleBracketedGenericArguments,
+) {
+    if generics.args.is_empty() {
+        return;
+    }
+    sg.child(new_sg_bracketed_list_common(
+        out,
+        base_indent,
+        // not really optional, just sometimes not parsed
+        generics.lt_token.span.start(),
+        &generics.lt_token.to_token_stream().to_string(),
+        &generics.args,
+        // not really optional, just sometimes not parsed
+        generics.gt_token.span.start(),
+        &generics.gt_token.to_token_stream().to_string(),
+    ));
+}
+
 impl Formattable for WherePredicate {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
         match self {
@@ -298,14 +319,7 @@ impl Formattable for WherePredicate {
                 append_inline_list(out, base_indent, &mut sg, " +", &l.bounds, InlineListSuffix::<Expr>::None);
                 sg.build(out)
             },
-            WherePredicate::Eq(e) => new_sg_binary(
-                out,
-                base_indent,
-                &e.lhs_ty,
-                e.eq_token.span.start(),
-                " =",
-                &e.rhs_ty,
-            ),
+            _ => unreachable!(),
         }
     }
 
@@ -417,6 +431,7 @@ impl Formattable for TypeParamBound {
             syn::TypeParamBound::Lifetime(l) => {
                 sg.seg(out, l.to_string());
             },
+            _ => unreachable!(),
         }
         sg.build(out)
     }
@@ -426,7 +441,7 @@ impl Formattable for TypeParamBound {
     }
 }
 
-impl Formattable for LifetimeDef {
+impl Formattable for LifetimeParam {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
         new_sg_outer_attrs(out, base_indent, &self.attrs, |out: &mut MakeSegsState, base_indent: &Alignment| {
             let mut node = new_sg(out);
@@ -470,7 +485,7 @@ impl Formattable for &Type {
             Type::Array(x) => build_array_type(
                 out,
                 base_indent,
-                x.bracket_token.span.start(),
+                x.bracket_token.span.open().start(),
                 x.elem.as_ref(),
                 &x.len,
             ),
@@ -508,7 +523,7 @@ impl Formattable for &Type {
                     new_sg_bracketed_list(
                         out,
                         base_indent,
-                        x.paren_token.span.start(),
+                        x.paren_token.span.open().start(),
                         "(",
                         false,
                         ",",
@@ -519,7 +534,7 @@ impl Formattable for &Type {
                             }),
                             None => InlineListSuffix::Punct,
                         },
-                        x.paren_token.span.end().prev(),
+                        x.paren_token.span.close().start(),
                         ")",
                     ),
                 );
@@ -599,13 +614,13 @@ impl Formattable for &Type {
             Type::Tuple(x) => new_sg_bracketed_list(
                 out,
                 base_indent,
-                x.paren_token.span.start(),
+                x.paren_token.span.open().start(),
                 "(",
                 false,
                 ",",
                 &x.elems,
                 InlineListSuffix::UnitPunct::<Expr>,
-                x.paren_token.span.end().prev(),
+                x.paren_token.span.close().start(),
                 ")",
             ),
             Type::Verbatim(x) => new_sg_lit(out, None, x),
@@ -709,13 +724,35 @@ impl Formattable for GenericArgument {
             GenericArgument::Lifetime(l) => l.make_segs(out, base_indent),
             GenericArgument::Type(t) => t.make_segs(out, base_indent),
             GenericArgument::Const(c) => c.make_segs(out, base_indent),
-            GenericArgument::Binding(b) => new_sg_binary(
+            GenericArgument::AssocType(b) => new_sg_binary(
                 out,
                 base_indent,
-                &b.ident,
+                |out: &mut MakeSegsState, base_indent: &Alignment| {
+                    let mut sg = new_sg(out);
+                    sg.child(b.ident.make_segs(out, base_indent));
+                    if let Some(g) = &b.generics {
+                        append_angle_bracketed_generics(out, base_indent, &mut sg, g);
+                    }
+                    sg.build(out)
+                },
                 b.eq_token.span.start(),
                 " =",
                 &b.ty,
+            ),
+            GenericArgument::AssocConst(b) => new_sg_binary(
+                out,
+                base_indent,
+                |out: &mut MakeSegsState, base_indent: &Alignment| {
+                    let mut sg = new_sg(out);
+                    sg.child(b.ident.make_segs(out, base_indent));
+                    if let Some(g) = &b.generics {
+                        append_angle_bracketed_generics(out, base_indent, &mut sg, g);
+                    }
+                    sg.build(out)
+                },
+                b.eq_token.span.start(),
+                " =",
+                &b.value,
             ),
             GenericArgument::Constraint(c) => {
                 let mut node = new_sg(out);
@@ -727,19 +764,7 @@ impl Formattable for GenericArgument {
                 });
                 node.build(out)
             },
-        }
-    }
-
-    fn has_attrs(&self) -> bool {
-        false
-    }
-}
-
-impl Formattable for GenericMethodArgument {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
-        match self {
-            GenericMethodArgument::Type(t) => t.make_segs(out, base_indent),
-            GenericMethodArgument::Const(c) => c.make_segs(out, base_indent),
+            _ => todo!(),
         }
     }
 
