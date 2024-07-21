@@ -745,9 +745,7 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-    use genemichaels::FormatConfig;
-    use proc_macro2::TokenStream;
+    use genemichaels_lib::FormatConfig;
     use quote::quote;
     use crate::gen_impl;
 
@@ -762,7 +760,7 @@ mod tests {
         }).unwrap()).unwrap();
         let cfg = FormatConfig::default();
         let mut s =
-            [&got].into_iter().map(|s| genemichaels::format_str(&s.to_string(), &cfg)).collect::<Vec<_>>();
+            [&got].into_iter().map(|s| genemichaels_lib::format_str(&s.to_string(), &cfg)).collect::<Vec<_>>();
         let got = s.remove(0).expect(&format!("Failed to format got code:\n{}", got.to_string())).rendered;
         panic!("{}", got);
     }
