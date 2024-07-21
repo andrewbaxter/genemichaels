@@ -1,4 +1,4 @@
-use genemichaels::{
+use genemichaels_lib::{
     FormatConfig,
     format_str,
 };

@@ -1,0 +1,20 @@
+[package]
+name = "genemichaels-lib"
+description = "Makes your code formatty, the library"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+
+[dependencies]
+markdown = { version = "1.0.0-alpha.12" }
+proc-macro2 = { version = "1", features = ["span-locations"] }
+quote = "1"
+structre = "0.0"
+syn = { workspace = true }
+cargo-manifest = "0.15"
+derive_more = "0.99"
+loga = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

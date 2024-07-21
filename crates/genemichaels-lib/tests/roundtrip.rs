@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use genemichaels::{
+use genemichaels_lib::{
     format_str,
     FormatConfig,
 };

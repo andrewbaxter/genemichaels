@@ -1,24 +1,16 @@
-[package]
-name = "genemichaels"
-version = "0.5.0-pre1"
+[workspace]
+workspace.resolver = "2"
+members = ["crates/genemichaels", "crates/genemichaels-lib"]
+
+[workspace.package]
+version = "0.5.0-pre2"
 edition = "2021"
 license = "ISC"
-description = "Makes your code formatty"
 repository = "https://github.com/andrewbaxter/genemichaels"
 readme = "readme.md"
 
-[dependencies]
-markdown = { version = "1.0.0-alpha.12" }
-proc-macro2 = { version = "1", features = ["span-locations"] }
-quote = "1"
-structre = "0.0"
+[workspace.dependencies]
 syn = { version = "2", features = ["full"] }
-walkdir = "2"
-threadpool = "1"
-cargo-manifest = "0.15"
-derive_more = "0.99"
-aargvark = { version = "0.2" }
+loga = "0.5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-console = "0.15"
-loga = "0.5"

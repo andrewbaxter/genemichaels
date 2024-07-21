@@ -1,9 +1,5 @@
 use {
-    aargvark::{
-        vark,
-        Aargvark,
-    },
-    genemichaels::{
+    genemichaels_lib::{
         es,
         format_str,
         FormatConfig,
@@ -52,7 +48,7 @@ enum Logging {
 
 /// A deterministic, simple, rule based Rust source code formatter. Even formats
 /// macros!
-#[derive(Aargvark)]
+//. #[derive(Aargvark)]
 struct Args {
     /// Formats each listed file, overwriting with the formatted version. If empty,
     /// formats the project specified by `Cargo.toml` in the current directory.  If

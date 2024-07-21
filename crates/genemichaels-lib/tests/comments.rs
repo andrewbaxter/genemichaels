@@ -1,4 +1,4 @@
-use genemichaels::{
+use genemichaels_lib::{
     Comment,
     extract_whitespaces,
     CommentMode,
@@ -17,10 +17,10 @@ fn eq_whitespace_text(w: &Vec<Whitespace>) -> String {
     let mut text = String::new();
     for w in w {
         match &w.mode {
-            genemichaels::WhitespaceMode::BlankLines(l) => {
+            genemichaels_lib::WhitespaceMode::BlankLines(l) => {
                 text.push_str(&format!("blank {}\n", l));
             },
-            genemichaels::WhitespaceMode::Comment(c) => {
+            genemichaels_lib::WhitespaceMode::Comment(c) => {
                 text.push_str(&format!("comment {:?} [{:?}]\n", c.mode, c.lines));
             },
         }
@@ -61,7 +61,7 @@ fn loc() -> LineColumn {
 fn comment(mode: CommentMode, lines: &str) -> Whitespace {
     return Whitespace {
         loc: loc(),
-        mode: genemichaels::WhitespaceMode::Comment(Comment {
+        mode: genemichaels_lib::WhitespaceMode::Comment(Comment {
             mode: mode,
             lines: lines.to_string(),
         }),
@@ -71,7 +71,7 @@ fn comment(mode: CommentMode, lines: &str) -> Whitespace {
 fn blanks(count: usize) -> Whitespace {
     return Whitespace {
         loc: loc(),
-        mode: genemichaels::WhitespaceMode::BlankLines(count),
+        mode: genemichaels_lib::WhitespaceMode::BlankLines(count),
     };
 }
 
