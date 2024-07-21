@@ -176,8 +176,8 @@ impl Formattable for &Pat {
                 &e.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let (tok, tok_loc) = match e.limits {
-                        syn::RangeLimits::HalfOpen(x) => (" ..", x.spans[0].start()),
-                        syn::RangeLimits::Closed(x) => (" ..=", x.spans[0].start()),
+                        syn::RangeLimits::HalfOpen(x) => ("..", x.spans[0].start()),
+                        syn::RangeLimits::Closed(x) => ("..=", x.spans[0].start()),
                     };
                     match (&e.start, &e.end) {
                         (None, None) => new_sg_lit(out, Some((base_indent, tok_loc)), tok),
