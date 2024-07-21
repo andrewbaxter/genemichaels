@@ -37,6 +37,8 @@ to use it with reckless abandon.
 
 ## Configuration
 
+The configuration file is optional with (I think) sane defaults if not provided. A default config file named `.genemichaels.json` in the same directory as `Cargo.toml` or the current directory if not in a project will be used.
+
 The config contains parameters that tweak the formatting output, suitable for establishing a convention for a project. Things that don't affect the output (thread count, verbosity, etc) are command line arguments instead.
 
 The configuration file is json, but it will strip lines starting with `//` first if you want to add comments.

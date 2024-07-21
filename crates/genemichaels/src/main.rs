@@ -1,4 +1,8 @@
 use {
+    aargvark::{
+        vark,
+        Aargvark,
+    },
     genemichaels_lib::{
         es,
         format_str,
@@ -48,7 +52,7 @@ enum Logging {
 
 /// A deterministic, simple, rule based Rust source code formatter. Even formats
 /// macros!
-//. #[derive(Aargvark)]
+#[derive(Aargvark)]
 struct Args {
     /// Formats each listed file, overwriting with the formatted version. If empty,
     /// formats the project specified by `Cargo.toml` in the current directory.  If
@@ -56,9 +60,9 @@ struct Args {
     files: Vec<PathBuf>,
     /// Format stdin, writing formatted data to stdout.
     stdin: Option<()>,
-    /// Explicitly specify a config file path. If not specified, will look for a config
-    /// file next to the `Config.toml` if formatting a project or in the current
-    /// directory otherwise. See the readme for options.
+    /// Explicitly specify a config file path. If not specified, will look for
+    /// `.genemichaels.json` next to the `Config.toml` if formatting a project or in
+    /// the current directory otherwise. See the readme for options.
     config: Option<PathBuf>,
     /// Change the log level.
     log: Option<Logging>,
