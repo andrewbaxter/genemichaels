@@ -2,7 +2,7 @@
     clippy::too_many_arguments,
     clippy::field_reassign_with_default,
     clippy::never_loop,
-    clippy::derive_hash_xor_eq,
+    clippy::derive_hash_xor_eq
 )]
 
 pub use whitespace::{

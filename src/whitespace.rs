@@ -245,12 +245,12 @@ pub fn extract_whitespaces(
                     let Some(previous_whitespace) = whitespaces.last_mut() else {
                         break;
                     };
-                    let WhitespaceMode:: Comment(previous_comment) =& mut previous_whitespace.mode else {
+                    let WhitespaceMode::Comment(previous_comment) = &mut previous_whitespace.mode else {
                         break;
                     };
                     let start = buffer.out.remove(0);
                     loop {
-                        let WhitespaceMode:: Comment(start_comment) =& start.mode else {
+                        let WhitespaceMode::Comment(start_comment) = &start.mode else {
                             break;
                         };
                         if previous_comment.mode != start_comment.mode {

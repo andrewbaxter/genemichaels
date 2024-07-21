@@ -115,7 +115,7 @@ pub(crate) fn append_attr(
             },
             syn::Meta::List(m) => {
                 sg.child(build_path(out, &indent, &m.path));
-                append_macro_body(out, &indent, &mut sg, m.tokens.clone());
+                append_macro_body_bracketed(out, &indent, &mut sg, &m.delimiter, m.tokens.clone());
             },
             syn::Meta::NameValue(m) => {
                 sg.child(

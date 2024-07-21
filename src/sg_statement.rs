@@ -166,7 +166,7 @@ impl Formattable for Stmt {
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     append_whitespace(out, base_indent, &mut sg, l.let_token.span.start());
-                    sg.seg(out, &l.let_token.to_token_stream());
+                    sg.seg(out, &format!("{} ", l.let_token.to_token_stream()));
                     sg.child(l.pat.make_segs(out, base_indent));
                     if let Some(init) = &l.init {
                         append_binary(
