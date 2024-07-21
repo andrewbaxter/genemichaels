@@ -64,7 +64,7 @@ To parse command line arguments
    ```
 
 2. Vark it
-   ```
+   ```rust
    let args = aargvark::vark::<MyArgs>();
    ```
 

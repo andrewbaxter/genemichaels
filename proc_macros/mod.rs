@@ -11,11 +11,15 @@ use quote::{
 use syn::{
     self,
     parse_macro_input,
+    punctuated::Punctuated,
+    spanned::Spanned,
     Attribute,
     DeriveInput,
+    Expr,
     Fields,
     Lit,
     Meta,
+    Token,
     Type,
 };
 
@@ -44,76 +48,81 @@ struct VarkAttr {
     id: Option<String>,
 }
 
-fn get_vark(attrs: &Vec<Attribute>) -> VarkAttr {
+fn get_vark(attrs: &Vec<Attribute>) -> Result<VarkAttr, syn::Error> {
     let mut help_break = false;
     let mut literal = None;
     let mut id = None;
     for a in attrs {
-        let Ok(m) = a.parse_meta() else {
-            continue;
-        };
-        let Meta:: List(m) = m else {
-            continue;
-        };
-        if &m.path.to_token_stream().to_string() != "vark" {
-            continue;
-        }
-        for m in m.nested {
-            let syn:: NestedMeta:: Meta(m) = m else {
-                continue;
-            };
-            match &m {
-                Meta::Path(k) => {
-                    match k.to_token_stream().to_string().as_str() {
-                        "break" => {
-                            help_break = true;
+        match &a.meta {
+            Meta::List(list) if list.path.is_ident("vark") => {
+                let nested = list.parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated).unwrap();
+                for m in nested {
+                    match &m {
+                        Meta::Path(k) => {
+                            match k.to_token_stream().to_string().as_str() {
+                                "break" => {
+                                    help_break = true;
+                                },
+                                i => {
+                                    panic!("Unexpected argument in `vark` attr: {:?}", i);
+                                },
+                            }
                         },
-                        i => {
-                            panic!("Unexpected argument in `vark` attr: {:?}", i);
+                        Meta::List(_) => {
+                            panic!("Unexpected tokens in `vark` attr arguments: {:?}", m.to_token_stream());
+                        },
+                        Meta::NameValue(kv) => {
+                            match kv.path.require_ident()?.to_string().as_str() {
+                                "literal" => {
+                                    literal = Some(match &kv.value {
+                                        Expr::Lit(syn::ExprLit { lit: Lit::Str(s), .. }) => s.value(),
+                                        l => panic!(
+                                            "`vark` `literal` argument must be a string, got {}",
+                                            l.to_token_stream()
+                                        ),
+                                    });
+                                },
+                                "id" => {
+                                    id = Some(match &kv.value {
+                                        Expr::Lit(syn::ExprLit { lit: Lit::Str(s), .. }) => s.value(),
+                                        l => panic!(
+                                            "`vark` `id` argument must be a string, got {}",
+                                            l.to_token_stream()
+                                        ),
+                                    });
+                                },
+                                other => {
+                                    panic!("Unexpected argument in `vark` attr: {:?}", other);
+                                },
+                            }
                         },
                     }
-                },
-                Meta::List(_) => {
-                    panic!("Unexpected tokens in `vark` attr arguments: {:?}", m.to_token_stream());
-                },
-                Meta::NameValue(kv) => {
-                    match kv.path.to_token_stream().to_string().as_str() {
-                        "literal" => {
-                            literal = Some(match &kv.lit {
-                                Lit::Str(s) => s.value(),
-                                l => panic!("`vark` `literal` argument must be a string, got {}", l.to_token_stream()),
-                            });
-                        },
-                        "id" => {
-                            id = Some(match &kv.lit {
-                                Lit::Str(s) => s.value(),
-                                l => panic!("`vark` `id` argument must be a string, got {}", l.to_token_stream()),
-                            });
-                        },
-                        i => {
-                            panic!("Unexpected argument in `vark` attr: {:?}", i);
-                        },
-                    }
-                },
-            }
+                }
+            },
+            other => {
+                return Err(syn::Error::new(other.span(), "Expected `#[vark(...)]`"));
+            },
         }
     }
-    return VarkAttr {
+    return Ok(VarkAttr {
         help_break: help_break,
         literal: literal,
         id: id,
-    };
+    });
 }
 
 fn get_docstr(attrs: &Vec<Attribute>) -> String {
     let mut out = String::new();
     for attr in attrs {
-        if !attr.path.is_ident("doc") {
-            continue;
-        }
-        match attr.parse_meta().unwrap() {
-            syn::Meta::NameValue(syn::MetaNameValue { lit: syn::Lit::Str(v), .. }) => {
-                out.push_str(&v.value());
+        match &attr.meta {
+            syn::Meta::NameValue(meta) => {
+                if !meta.path.is_ident("doc") {
+                    continue;
+                }
+                let Expr::Lit(syn::ExprLit { lit: Lit::Str(s), .. }) = &meta.value else {
+                    continue;
+                };
+                out.push_str(&s.value());
             },
             _ => continue,
         }
@@ -264,7 +273,7 @@ fn gen_impl_struct(
     help_docstr: &str,
     subtype_index: usize,
     d: &Fields,
-) -> GenRec {
+) -> Result<GenRec, syn::Error> {
     match d {
         Fields::Named(d) => {
             let mut help_fields = vec![];
@@ -276,7 +285,7 @@ fn gen_impl_struct(
             let mut vark_copy_fields = vec![];
             let mut required_i = 0usize;
             'next_field: for (i, f) in d.named.iter().enumerate() {
-                let field_vark_attr = get_vark(&f.attrs);
+                let field_vark_attr = get_vark(&f.attrs)?;
                 let field_help_docstr = get_docstr(&f.attrs);
                 let field_ident = f.ident.as_ref().expect("Named field missing name");
                 let f_local_ident = format_ident!("v{}", i);
@@ -286,7 +295,7 @@ fn gen_impl_struct(
                     'not_optional _;
                     let ty;
                     {
-                        let Type:: Path(t) =& f.ty else {
+                        let Type::Path(t) = &f.ty else {
                             break 'not_optional;
                         };
                         if t.qself.is_some() {
@@ -302,13 +311,13 @@ fn gen_impl_struct(
                         if &s.ident.to_string() != "Option" {
                             break 'not_optional;
                         }
-                        let syn:: PathArguments:: AngleBracketed(a) =& s.arguments else {
+                        let syn::PathArguments::AngleBracketed(a) = &s.arguments else {
                             break 'not_optional;
                         };
                         if a.args.len() != 1 {
                             break 'not_optional;
                         }
-                        let syn:: GenericArgument:: Type(t) =& a.args[0] else {
+                        let syn::GenericArgument::Type(t) = &a.args[0] else {
                             break 'not_optional;
                         };
                         ty = t;
@@ -466,7 +475,7 @@ fn gen_impl_struct(
                         };
                         fn parse_optional #decl_generics(
                             optional:& mut Optional #forward_generics,
-                            state: &mut aargvark::VarkState,
+                            state:& mut aargvark:: VarkState,
                             s: String
                         ) -> R < bool > {
                             match s.as_str() {
@@ -476,7 +485,7 @@ fn gen_impl_struct(
                             };
                         }
                         fn build_partial_help #decl_generics(
-                            state: &mut aargvark::HelpState,
+                            state:& mut aargvark:: HelpState,
                             required_i: usize,
                             optional:& Optional #forward_generics,
                         ) -> aargvark:: HelpPartialContent {
@@ -533,7 +542,7 @@ fn gen_impl_struct(
                     }
                 }
             };
-            return GenRec {
+            return Ok(GenRec {
                 vark: vark,
                 help_pattern: quote!{
                     {
@@ -552,38 +561,39 @@ fn gen_impl_struct(
                         aargvark:: HelpPattern(vec![aargvark::HelpPatternElement::Reference(key)])
                     }
                 },
-            };
+            });
         },
         Fields::Unnamed(d) => {
-            return gen_impl_unnamed(
-                &ident.to_string(),
-                parent_ident,
-                ident.to_token_stream(),
-                help_placeholder,
-                help_docstr,
-                subtype_index,
-                d
-                    .unnamed
-                    .iter()
-                    .map(|f| (get_vark(&f.attrs), get_docstr(&f.attrs), &f.ty))
-                    .collect::<Vec<_>>()
-                    .as_slice(),
+            let mut fields = vec![];
+            for f in &d.unnamed {
+                fields.push((get_vark(&f.attrs)?, get_docstr(&f.attrs), &f.ty));
+            }
+            return Ok(
+                gen_impl_unnamed(
+                    &ident.to_string(),
+                    parent_ident,
+                    ident.to_token_stream(),
+                    help_placeholder,
+                    help_docstr,
+                    subtype_index,
+                    &fields,
+                ),
             );
         },
         Fields::Unit => {
-            return GenRec {
+            return Ok(GenRec {
                 vark: quote!{
                     state.r_ok(#ident)
                 },
                 help_pattern: quote!{
                     aargvark::HelpPattern(vec![])
                 },
-            };
+            });
         },
     };
 }
 
-fn gen_impl(ast: syn::DeriveInput) -> TokenStream {
+fn gen_impl(ast: syn::DeriveInput) -> Result<TokenStream, syn::Error> {
     let ident = &ast.ident;
     let decl_generics = ast.generics.to_token_stream();
     let forward_generics;
@@ -602,7 +612,7 @@ fn gen_impl(ast: syn::DeriveInput) -> TokenStream {
             forward_generics = quote!(< #(#parts), *>);
         }
     }
-    let vark_attr = get_vark(&ast.attrs);
+    let vark_attr = get_vark(&ast.attrs)?;
     let help_docstr = get_docstr(&ast.attrs);
     let help_placeholder = vark_attr.id.clone().unwrap_or_else(|| ident.to_string().to_case(Case::UpperKebab));
     let vark;
@@ -620,7 +630,7 @@ fn gen_impl(ast: syn::DeriveInput) -> TokenStream {
                     &help_docstr,
                     0,
                     &d.fields,
-                );
+                )?;
             vark = gen.vark;
             help_build = gen.help_pattern;
         },
@@ -629,7 +639,7 @@ fn gen_impl(ast: syn::DeriveInput) -> TokenStream {
             let mut vark_cases = vec![];
             let mut help_variants = vec![];
             for (subtype_index, v) in d.variants.iter().enumerate() {
-                let variant_vark_attr = get_vark(&v.attrs);
+                let variant_vark_attr = get_vark(&v.attrs)?;
                 let variant_help_docstr = get_docstr(&v.attrs);
                 let variant_ident = &v.ident;
                 let name_str =
@@ -648,7 +658,7 @@ fn gen_impl(ast: syn::DeriveInput) -> TokenStream {
                         "",
                         subtype_index + 1,
                         &v.fields,
-                    );
+                    )?;
                 all_tags.push(name_str.clone());
                 let vark = gen.vark;
                 let partial_help_variant_pattern = gen.help_pattern;
@@ -683,7 +693,7 @@ fn gen_impl(ast: syn::DeriveInput) -> TokenStream {
                                 //. .
                                 return aargvark:: HelpPartialProduction {
                                     description: #help_docstr.to_string(),
-                                    content: aargvark::HelpPartialContent::enum_(variants),
+                                    content: aargvark:: HelpPartialContent:: enum_(variants),
                                 };
                             });
                         },
@@ -711,23 +721,26 @@ fn gen_impl(ast: syn::DeriveInput) -> TokenStream {
         },
         syn::Data::Union(_) => panic!("Union not supported"),
     };
-    return quote!{
+    return Ok(quote!{
         impl #decl_generics aargvark:: AargvarkTrait for #ident #forward_generics {
-            fn vark(state: &mut aargvark::VarkState) -> aargvark:: R < #ident #forward_generics > {
+            fn vark(state:& mut aargvark:: VarkState) -> aargvark:: R < #ident #forward_generics > {
                 use aargvark::R;
                 use aargvark::PeekR;
                 #vark
             }
-            fn build_help_pattern(state: &mut aargvark::HelpState) -> aargvark:: HelpPattern {
+            fn build_help_pattern(state:& mut aargvark:: HelpState) -> aargvark:: HelpPattern {
                 #help_build
             }
         }
-    };
+    });
 }
 
 #[proc_macro_derive(Aargvark, attributes(vark))]
 pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    return gen_impl(parse_macro_input!(input as DeriveInput)).into();
+    return match gen_impl(parse_macro_input!(input as DeriveInput)) {
+        Ok(x) => x,
+        Err(e) => e.to_compile_error(),
+    }.into();
 }
 
 #[cfg(test)]
@@ -738,6 +751,7 @@ mod tests {
     use quote::quote;
     use crate::gen_impl;
 
+    /// Used for debugging only, ignore
     #[test]
     fn dump() {
         let got = gen_impl(syn::parse2(quote!{
@@ -745,23 +759,11 @@ mod tests {
             struct Naya {
                 b: Option<()>,
             }
-        }).unwrap());
+        }).unwrap()).unwrap();
         let cfg = FormatConfig::default();
         let mut s =
             [&got].into_iter().map(|s| genemichaels::format_str(&s.to_string(), &cfg)).collect::<Vec<_>>();
         let got = s.remove(0).expect(&format!("Failed to format got code:\n{}", got.to_string())).rendered;
         panic!("{}", got);
-    }
-
-    #[test]
-    fn newtype_string() {
-        assert_eq!(
-            gen_impl(
-                syn::parse2(TokenStream::from_str("enum Yol {
-        ToqQuol,
-    }").unwrap()).unwrap(),
-            ).to_string(),
-            quote!().to_string()
-        );
     }
 }
