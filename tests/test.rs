@@ -132,3 +132,27 @@ fn t_map() {
         m
     });
 }
+
+#[test]
+fn t_docstring() {
+    #[derive(Aargvark, PartialEq, Debug)]
+    /// This is a naya
+    struct Naya {}
+
+    let v: Naya = vark_explicit(None, svec![]).unwrap();
+    assert_eq!(v, Naya {});
+}
+
+#[test]
+fn t_varkattr() {
+    #[derive(Aargvark, PartialEq, Debug)]
+    #[vark(stop)]
+    struct Naya {
+        #[vark(id = "G")]
+        #[vark(literal = "g")]
+        f: Option<i32>,
+    }
+
+    let v: Naya = vark_explicit(None, svec!["--g", "3"]).unwrap();
+    assert_eq!(v, Naya { f: Some(3) });
+}

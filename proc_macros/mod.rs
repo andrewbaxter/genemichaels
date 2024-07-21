@@ -1,26 +1,28 @@
-use convert_case::{
-    Case,
-    Casing,
-};
-use proc_macro2::TokenStream;
-use quote::{
-    format_ident,
-    quote,
-    ToTokens,
-};
-use syn::{
-    self,
-    parse_macro_input,
-    punctuated::Punctuated,
-    spanned::Spanned,
-    Attribute,
-    DeriveInput,
-    Expr,
-    Fields,
-    Lit,
-    Meta,
-    Token,
-    Type,
+use {
+    convert_case::{
+        Case,
+        Casing,
+    },
+    proc_macro2::TokenStream,
+    quote::{
+        format_ident,
+        quote,
+        ToTokens,
+    },
+    syn::{
+        self,
+        parse_macro_input,
+        punctuated::Punctuated,
+        spanned::Spanned,
+        Attribute,
+        DeriveInput,
+        Expr,
+        Fields,
+        Lit,
+        Meta,
+        Token,
+        Type,
+    },
 };
 
 /// Break boundary - remove the footgunishness of using loop for this directly
@@ -60,48 +62,71 @@ fn get_vark(attrs: &Vec<Attribute>) -> Result<VarkAttr, syn::Error> {
                     match &m {
                         Meta::Path(k) => {
                             match k.to_token_stream().to_string().as_str() {
-                                "break" => {
+                                "stop" => {
                                     help_break = true;
                                 },
                                 i => {
-                                    panic!("Unexpected argument in `vark` attr: {:?}", i);
+                                    return Err(
+                                        syn::Error::new(
+                                            k.span(),
+                                            format!("Unexpected argument in `vark` attr: {:?}", i),
+                                        ),
+                                    );
                                 },
                             }
                         },
                         Meta::List(_) => {
-                            panic!("Unexpected tokens in `vark` attr arguments: {:?}", m.to_token_stream());
+                            return Err(
+                                syn::Error::new(
+                                    m.span(),
+                                    format!("Unexpected tokens in `vark` attr arguments: {:?}", m.to_token_stream()),
+                                ),
+                            );
                         },
                         Meta::NameValue(kv) => {
                             match kv.path.require_ident()?.to_string().as_str() {
                                 "literal" => {
                                     literal = Some(match &kv.value {
                                         Expr::Lit(syn::ExprLit { lit: Lit::Str(s), .. }) => s.value(),
-                                        l => panic!(
-                                            "`vark` `literal` argument must be a string, got {}",
-                                            l.to_token_stream()
+                                        l => return Err(
+                                            syn::Error::new(
+                                                kv.value.span(),
+                                                format!(
+                                                    "`vark` `literal` argument must be a string, got {}",
+                                                    l.to_token_stream()
+                                                ),
+                                            ),
                                         ),
                                     });
                                 },
                                 "id" => {
                                     id = Some(match &kv.value {
                                         Expr::Lit(syn::ExprLit { lit: Lit::Str(s), .. }) => s.value(),
-                                        l => panic!(
-                                            "`vark` `id` argument must be a string, got {}",
-                                            l.to_token_stream()
+                                        l => return Err(
+                                            syn::Error::new(
+                                                kv.value.span(),
+                                                format!(
+                                                    "`vark` `id` argument must be a string, got {}",
+                                                    l.to_token_stream()
+                                                ),
+                                            ),
                                         ),
                                     });
                                 },
                                 other => {
-                                    panic!("Unexpected argument in `vark` attr: {:?}", other);
+                                    return Err(
+                                        syn::Error::new(
+                                            kv.value.span(),
+                                            format!("Unespected argument in `vark` attr: {:?}", other),
+                                        ),
+                                    );
                                 },
                             }
                         },
                     }
                 }
             },
-            other => {
-                return Err(syn::Error::new(other.span(), "Expected `#[vark(...)]`"));
-            },
+            _ => { },
         }
     }
     return Ok(VarkAttr {

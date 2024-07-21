@@ -1,4 +1,4 @@
-Self-similar derive-based command line argument parsing, in the same genre as Clap-derive. It supports
+Self-similar derive-based command line argument parsing, in the same genre as Clap-derive. It currently supports
 
 - Command line parsing
 - Help
@@ -8,7 +8,7 @@ This attempts to support parsing arbitrarily complex command line arguments. Lik
 ```
 $ # This is an example help output, sans light ansi styling
 $ spagh set -h
-Usage: spagh set > IDENTITY DATA
+Usage: spagh set IDENTITY DATA
 
     IDENTITY: BACKED-IDENTITY-ARG       Identity to publish as
     DATA: <PATH> | -                    Data to publish.  Must be json in the structure `{KEY: {"ttl": MINUTES, "value": DATA}, ...}`
@@ -70,7 +70,7 @@ To parse command line arguments
 
 Optional fields in structs become optional (`--long`) arguments. If you want a `bool` long option that's enabled if the flag is specified (i.e. doesn't take a value), use `Option<()>`.
 
-You can derive structs, enums, and tuples, and there are implementations for `Vec`, `HashSet`, most `Ip` and `SocketAddr` types, and `PathBuf` provided.
+You can derive structs, enums, and tuples, and there are implementations for `Vec`, `HashSet`, `Map` with `FromString` keys and values as `K=V` arguments, most `Ip` and `SocketAddr` types, and `PathBuf` provided.
 
 Some additional wrappers are provided for automatically loading (and parsing) files:
 
@@ -88,12 +88,14 @@ To parse your own types, implement `AargvarkTrait`, or if your type takes a sing
 
 - Prevent recursion in help
 
-  Add `#[vark(break)]` to a type, field, or variant to prevent recursing into any of the children. This is useful for subcommand enums - attach this to the enum and it will list the arguments but not the arguments' arguments (unless you do `-h` after specifying one on the command line).
+  Add `#[vark(stop)]` to a type, field, or variant to prevent recursing into any of the children. This is useful for subcommand enums - attach this to the enum and it will list the arguments but not the arguments' arguments (unless you do `-h` after specifying one on the command line).
 
-- Rename enum variants and option keys
+- Rename enum variants and option command line flags
 
-  Add `#[vark(name="x")]` to a field.
+  Ex: you have a field `xyz_id: i32` and you want the flag literal to be `--target-machine`.
 
-- Change placeholder (id) string
+  Add `#[vark(literal="--target-machine")]` to t field.
+
+- Change the documentation placeholder (id) string
 
   Add `#[vark(id="x")]` to a field.
