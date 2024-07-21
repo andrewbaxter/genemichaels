@@ -3,7 +3,7 @@ workspace.resolver = "2"
 members = ["crates/genemichaels", "crates/genemichaels-lib"]
 
 [workspace.package]
-version = "0.5.0-pre3"
+version = "0.5.0"
 edition = "2021"
 license = "ISC"
 repository = "https://github.com/andrewbaxter/genemichaels"
