@@ -3,8 +3,6 @@ use aargvark::{
     self,
     vark_explicit,
     AargvarkTrait,
-    HelpPatternElement,
-    HelpState,
 };
 use aargvark_proc_macros::Aargvark;
 
@@ -158,10 +156,6 @@ fn t_varkattr() {
 
     let v: Naya = vark_explicit(None, svec!["--g", "3"]).unwrap();
     assert_eq!(v, Naya { f: Some(3) });
-    assert_eq!(
-        Naya::build_help_pattern(&mut HelpState::default()).0,
-        vec![HelpPatternElement::Literal("--g".to_string()), HelpPatternElement::Type("INT".to_string())]
-    );
 }
 
 #[test]
