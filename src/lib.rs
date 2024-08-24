@@ -61,6 +61,17 @@ pub struct VarkState {
 }
 
 impl VarkState {
+    pub fn new(command: Option<String>, args: Vec<String>) -> Self {
+        return Self {
+            command: command,
+            args: args,
+            i: 0,
+            errors: vec![],
+        };
+    }
+}
+
+impl VarkState {
     pub fn peek<'a>(&'a self) -> PeekR<'a> {
         if self.i >= self.args.len() {
             return PeekR::None;
@@ -180,12 +191,7 @@ impl std::error::Error for Error { }
 /// Parse the explicitly passed in arguments - don't read application globals. The
 /// `command` is only used in help and error text.
 pub fn vark_explicit<T: AargvarkTrait>(command: Option<String>, args: Vec<String>) -> Result<T, Error> {
-    let mut state = VarkState {
-        command: command,
-        args: args,
-        i: 0,
-        errors: vec![],
-    };
+    let mut state = VarkState::new(command, args);
     match T::vark(&mut state) {
         R::EOF => {
             return Err(Error {
@@ -626,12 +632,14 @@ pub struct HelpProductionKey {
     variant: usize,
 }
 
-struct HelpProduction {
+#[doc(hidden)]
+pub struct HelpProduction {
     id: String,
     description: String,
     content: HelpProductionType,
 }
 
+#[doc(hidden)]
 pub enum HelpPartialContent {
     Pattern(HelpPattern),
     Production(HelpProductionType),
@@ -690,7 +698,7 @@ pub struct HelpVariant {
 pub struct HelpPattern(pub Vec<HelpPatternElement>);
 
 impl HelpPattern {
-    fn render(&self, stack: &mut Vec<(HelpProductionKey, Rc<HelpProduction>)>, state: &HelpState) -> String {
+    pub fn render(&self, stack: &mut Vec<(HelpProductionKey, Rc<HelpProduction>)>, state: &HelpState) -> String {
         let mut out = String::new();
         for (i, e) in self.0.iter().enumerate() {
             if i > 0 {
@@ -800,9 +808,7 @@ impl HelpState {
     }
 }
 
-pub fn show_help_and_exit<
-    F: FnOnce(&mut HelpState) -> HelpPartialProduction,
->(state: &VarkState, build_root: F) -> ! {
+pub fn render_help<F: FnOnce(&mut HelpState) -> HelpPartialProduction>(state: &VarkState, build_root: F) -> String {
     fn format_desc(out: &mut String, desc: &str) {
         if !desc.is_empty() {
             out.push_str(
@@ -826,8 +832,13 @@ pub fn show_help_and_exit<
                     out.push_str(&style_id(&f.id));
                 }
                 if !struct_.flag_fields.is_empty() {
+                    let all_opt = struct_.flag_fields.iter().all(|x| x.option);
                     out.push_str(" ");
-                    out.push_str(&style_logical("[ ...OPT]"));
+                    if all_opt {
+                        out.push_str(&style_logical("[ ...FLAGS]"));
+                    } else {
+                        out.push_str(&style_logical("...FLAGS"));
+                    }
                 }
             },
             HelpProductionType::Enum(fields) => {
@@ -959,6 +970,12 @@ pub fn show_help_and_exit<
         temp_stack.reverse();
         stack.extend(temp_stack);
     }
-    print!("{}", out);
+    return out;
+}
+
+pub fn show_help_and_exit<
+    F: FnOnce(&mut HelpState) -> HelpPartialProduction,
+>(state: &VarkState, build_root: F) -> ! {
+    print!("{}", render_help(state, build_root));
     exit(0);
 }

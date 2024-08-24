@@ -150,9 +150,9 @@ fn t_varkattr() {
     #[derive(Aargvark, PartialEq, Debug)]
     #[vark(break_help)]
     struct Naya {
-        // `id` unused here, must go on struct/enum (TODO - validate)
-        #[vark(id = "G")]
+        #[vark(placeholder = "G")]
         #[vark(flag = "--g")]
+        /// Do a thing
         f: Option<i32>,
     }
 

@@ -55,6 +55,7 @@ struct TypeAttr {
 }
 
 #[derive(Default, Clone, FromField)]
+#[darling(attributes(vark))]
 #[darling(default)]
 struct FieldAttr {
     help_stop: bool,
@@ -64,6 +65,7 @@ struct FieldAttr {
 }
 
 #[derive(Default, Clone, FromVariant)]
+#[darling(attributes(vark))]
 #[darling(default)]
 struct VariantAttr {
     break_help: bool,
@@ -307,7 +309,7 @@ fn gen_impl_struct(
                         copy = quote!(if let Some(f) = flag_fields.#field_ident {
                             f
                         } else {
-                            return Err(
+                            return state.r_err(
                                 format!("One flag of the following flag set {} must be specified.", #flags_string),
                             );
                         });
@@ -459,7 +461,7 @@ fn gen_impl_struct(
             let vark = quote!{
                 {
                     loop {
-                        #[derive(Default)] struct FlagFields #decl_generics {
+                        struct FlagFields #decl_generics {
                             #(#vark_flag_fields) *
                         }
                         let mut flag_fields = FlagFields {

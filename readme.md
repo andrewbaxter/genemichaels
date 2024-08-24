@@ -103,4 +103,4 @@ To parse your own types, implement `AargvarkTrait`, or if your type takes a sing
 
 - Change the help placeholder string
 
-  Add `#[vark(id="TARGET-MACHINE")]` to a _type_, _field_, or _variant_.
+  Add `#[vark(placeholder="TARGET-MACHINE")]` to a _type_, _field_, or _variant_.
