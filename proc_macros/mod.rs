@@ -3,24 +3,27 @@ use {
         Case,
         Casing,
     },
+    darling::{
+        FromDeriveInput,
+        FromField,
+        FromVariant,
+    },
     proc_macro2::TokenStream,
     quote::{
         format_ident,
         quote,
         ToTokens,
     },
+    std::collections::HashSet,
     syn::{
         self,
         parse_macro_input,
-        punctuated::Punctuated,
         spanned::Spanned,
         Attribute,
         DeriveInput,
         Expr,
         Fields,
         Lit,
-        Meta,
-        Token,
         Type,
     },
 };
@@ -43,97 +46,28 @@ macro_rules! bb{
     };
 }
 
-#[derive(Default, Clone)]
-struct VarkAttr {
-    help_break: bool,
-    literal: Option<String>,
-    id: Option<String>,
+#[derive(Default, Clone, FromDeriveInput)]
+#[darling(attributes(vark))]
+#[darling(default)]
+struct TypeAttr {
+    break_help: bool,
+    placeholder: Option<String>,
 }
 
-fn get_vark(attrs: &Vec<Attribute>) -> Result<VarkAttr, syn::Error> {
-    let mut help_break = false;
-    let mut literal = None;
-    let mut id = None;
-    for a in attrs {
-        match &a.meta {
-            Meta::List(list) if list.path.is_ident("vark") => {
-                let nested = list.parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated).unwrap();
-                for m in nested {
-                    match &m {
-                        Meta::Path(k) => {
-                            match k.to_token_stream().to_string().as_str() {
-                                "stop" => {
-                                    help_break = true;
-                                },
-                                i => {
-                                    return Err(
-                                        syn::Error::new(
-                                            k.span(),
-                                            format!("Unexpected argument in `vark` attr: {:?}", i),
-                                        ),
-                                    );
-                                },
-                            }
-                        },
-                        Meta::List(_) => {
-                            return Err(
-                                syn::Error::new(
-                                    m.span(),
-                                    format!("Unexpected tokens in `vark` attr arguments: {:?}", m.to_token_stream()),
-                                ),
-                            );
-                        },
-                        Meta::NameValue(kv) => {
-                            match kv.path.require_ident()?.to_string().as_str() {
-                                "literal" => {
-                                    literal = Some(match &kv.value {
-                                        Expr::Lit(syn::ExprLit { lit: Lit::Str(s), .. }) => s.value(),
-                                        l => return Err(
-                                            syn::Error::new(
-                                                kv.value.span(),
-                                                format!(
-                                                    "`vark` `literal` argument must be a string, got {}",
-                                                    l.to_token_stream()
-                                                ),
-                                            ),
-                                        ),
-                                    });
-                                },
-                                "id" => {
-                                    id = Some(match &kv.value {
-                                        Expr::Lit(syn::ExprLit { lit: Lit::Str(s), .. }) => s.value(),
-                                        l => return Err(
-                                            syn::Error::new(
-                                                kv.value.span(),
-                                                format!(
-                                                    "`vark` `id` argument must be a string, got {}",
-                                                    l.to_token_stream()
-                                                ),
-                                            ),
-                                        ),
-                                    });
-                                },
-                                other => {
-                                    return Err(
-                                        syn::Error::new(
-                                            kv.value.span(),
-                                            format!("Unespected argument in `vark` attr: {:?}", other),
-                                        ),
-                                    );
-                                },
-                            }
-                        },
-                    }
-                }
-            },
-            _ => { },
-        }
-    }
-    return Ok(VarkAttr {
-        help_break: help_break,
-        literal: literal,
-        id: id,
-    });
+#[derive(Default, Clone, FromField)]
+#[darling(default)]
+struct FieldAttr {
+    help_stop: bool,
+    #[darling(multiple)]
+    flag: Vec<String>,
+    placeholder: Option<String>,
+}
+
+#[derive(Default, Clone, FromVariant)]
+#[darling(default)]
+struct VariantAttr {
+    break_help: bool,
+    name: Option<String>,
 }
 
 fn get_docstr(attrs: &Vec<Attribute>) -> String {
@@ -180,7 +114,7 @@ fn gen_impl_type(ty: &Type, path: &str) -> GenRec {
                 "TUPLE",
                 "",
                 0,
-                t.elems.iter().map(|e| (VarkAttr::default(), String::new(), e)).collect::<Vec<_>>().as_slice(),
+                t.elems.iter().map(|e| (FieldAttr::default(), String::new(), e)).collect::<Vec<_>>().as_slice(),
             );
         },
         _ => panic!("Unsupported type {} in {}", ty.to_token_stream(), path),
@@ -194,14 +128,14 @@ fn gen_impl_unnamed(
     help_placeholder: &str,
     help_docstr: &str,
     subtype_index: usize,
-    d: &[(VarkAttr, String, &Type)],
+    fields: &[(FieldAttr, String, &Type)],
 ) -> GenRec {
     let mut parse_positional = vec![];
     let mut copy_fields = vec![];
     let mut help_fields = vec![];
     let mut help_field_patterns = vec![];
-    let help_unit_transparent = d.len() == 1 && d[0].1.is_empty();
-    for (i, (field_vark_attr, field_help_docstr, field_ty)) in d.iter().enumerate() {
+    let help_unit_transparent = fields.len() == 1 && fields[0].1.is_empty();
+    for (i, (field_vark_attr, field_help_docstr, field_ty)) in fields.iter().enumerate() {
         let eof_code = if i == 0 {
             quote!{
                 break R::EOF;
@@ -214,7 +148,7 @@ fn gen_impl_unnamed(
         let f_ident = format_ident!("v{}", i);
         let gen = gen_impl_type(field_ty, path);
         let vark = gen.vark;
-        let placeholder = field_vark_attr.id.clone().unwrap_or_else(|| {
+        let placeholder = field_vark_attr.placeholder.clone().unwrap_or_else(|| {
             let mut placeholder = vec![];
             let mut placeholder_i = i;
             loop {
@@ -260,7 +194,7 @@ fn gen_impl_unnamed(
                 #(#parse_positional) * break state.r_ok(#ident(#(#copy_fields), *));
             }
         },
-        help_pattern: if d.is_empty() {
+        help_pattern: if fields.is_empty() {
             quote!{
                 aargvark::HelpPattern(vec![])
             }
@@ -288,13 +222,42 @@ fn gen_impl_unnamed(
     };
 }
 
+fn get_optional_type(t: &Type) -> Option<&Type> {
+    let Type::Path(t) = &t else {
+        return None;
+    };
+    if t.qself.is_some() {
+        return None;
+    }
+    if t.path.leading_colon.is_some() {
+        return None;
+    }
+    if t.path.segments.len() != 1 {
+        return None;
+    }
+    let s = t.path.segments.first().unwrap();
+    if &s.ident.to_string() != "Option" {
+        return None;
+    }
+    let syn::PathArguments::AngleBracketed(a) = &s.arguments else {
+        return None;
+    };
+    if a.args.len() != 1 {
+        return None;
+    }
+    let syn::GenericArgument::Type(t) = &a.args[0] else {
+        return None;
+    };
+    return Some(t);
+}
+
 fn gen_impl_struct(
     parent_ident: TokenStream,
     ident: TokenStream,
     decl_generics: &TokenStream,
     forward_generics: &TokenStream,
     help_placeholder: &str,
-    vark_attr: &VarkAttr,
+    type_break_help: bool,
     help_docstr: &str,
     subtype_index: usize,
     d: &Fields,
@@ -303,117 +266,121 @@ fn gen_impl_struct(
         Fields::Named(d) => {
             let mut help_fields = vec![];
             let mut partial_help_fields = vec![];
-            let mut vark_optional_fields = vec![];
-            let mut vark_optional_fields_default = vec![];
-            let mut vark_parse_optional_cases = vec![];
+            let mut vark_flag_fields = vec![];
+            let mut vark_flag_fields_default = vec![];
+            let mut vark_parse_flag_cases = vec![];
             let mut vark_parse_positional = vec![];
-            let mut vark_copy_fields = vec![];
+            let mut vark_copy_flag_fields = vec![];
+            let mut seen_flags = HashSet::new();
             let mut required_i = 0usize;
             'next_field: for (i, f) in d.named.iter().enumerate() {
-                let field_vark_attr = get_vark(&f.attrs)?;
+                let field_vark_attr = FieldAttr::from_field(f)?;
                 let field_help_docstr = get_docstr(&f.attrs);
                 let field_ident = f.ident.as_ref().expect("Named field missing name");
                 let f_local_ident = format_ident!("v{}", i);
 
-                // If an optional field, generate opt parsers and skip positional parsing
+                // If a flag (non-positional) field, generate parsers and skip positional parsing
                 bb!{
-                    'not_optional _;
-                    let ty;
-                    {
-                        let Type::Path(t) = &f.ty else {
-                            break 'not_optional;
-                        };
-                        if t.qself.is_some() {
-                            break 'not_optional;
-                        }
-                        if t.path.leading_colon.is_some() {
-                            break 'not_optional;
-                        }
-                        if t.path.segments.len() != 1 {
-                            break 'not_optional;
-                        }
-                        let s = t.path.segments.first().unwrap();
-                        if &s.ident.to_string() != "Option" {
-                            break 'not_optional;
-                        }
-                        let syn::PathArguments::AngleBracketed(a) = &s.arguments else {
-                            break 'not_optional;
-                        };
-                        if a.args.len() != 1 {
-                            break 'not_optional;
-                        }
-                        let syn::GenericArgument::Type(t) = &a.args[0] else {
-                            break 'not_optional;
-                        };
-                        ty = t;
+                    'no_flags _;
+                    let mut flags = field_vark_attr.flag.clone();
+                    if flags.is_empty() {
+                        flags.push(format!("--{}", field_ident.to_string().to_case(Case::Kebab)));
                     }
-                    let flag =
-                        format!(
-                            "--{}",
-                            field_vark_attr
-                                .literal
-                                .clone()
-                                .unwrap_or_else(|| field_ident.to_string().to_case(Case::Kebab))
-                        );
-                    vark_optional_fields.push(quote!{
+                    for flag in &flags {
+                        if !seen_flags.insert(flag.clone()) {
+                            return Err(
+                                syn::Error::new(f.span(), format!("Duplicate flag [{}] in [{}]", flag, ident)),
+                            );
+                        }
+                    }
+                    let flags_string = format!("{:?}", flags);
+                    let ty;
+                    let copy;
+                    let optional;
+                    if let Some(ty1) = get_optional_type(&f.ty) {
+                        ty = ty1;
+                        copy = quote!(flag_fields.#field_ident);
+                        optional = true;
+                    }
+                    else if ! field_vark_attr.flag.is_empty() {
+                        ty = &f.ty;
+                        copy = quote!(if let Some(f) = flag_fields.#field_ident {
+                            f
+                        } else {
+                            return Err(
+                                format!("One flag of the following flag set {} must be specified.", #flags_string),
+                            );
+                        });
+                        optional = false;
+                    }
+                    else {
+                        break 'no_flags;
+                    }
+                    vark_flag_fields.push(quote!{
                         #field_ident: Option < #ty >,
                     });
-                    vark_optional_fields_default.push(quote!{
+                    vark_flag_fields_default.push(quote!{
                         #field_ident: None,
                     });
-                    vark_copy_fields.push(quote!{
-                        #field_ident: optional.#field_ident
+                    vark_copy_flag_fields.push(quote!{
+                        #field_ident: #copy
                     });
                     let gen = gen_impl_type(ty, &field_ident.to_string());
                     let vark = gen.vark;
-                    vark_parse_optional_cases.push(quote!{
-                        #flag => {
-                            if optional.#field_ident.is_some() {
-                                return state.r_err(format!("The argument {} was already specified", #flag));
-                            }
-                            state.consume();
-                            let #f_local_ident = match #vark {
-                                R:: Ok(v) => {
-                                    v
-                                },
-                                R:: Err => {
-                                    return R::Err;
-                                },
-                                R:: EOF => {
-                                    return state.r_err(format!("Missing argument for {}", #flag));
+                    for flag in &flags {
+                        vark_parse_flag_cases.push(quote!{
+                            #flag => {
+                                if flag_fields.#field_ident.is_some() {
+                                    return state.r_err(format!("The argument {} was already specified", #flag));
                                 }
-                            };
-                            optional.#field_ident = Some(#f_local_ident);
-                            return R::Ok(true);
-                        }
-                    });
+                                state.consume();
+                                let #f_local_ident = match #vark {
+                                    R:: Ok(v) => {
+                                        v
+                                    },
+                                    R:: Err => {
+                                        return R::Err;
+                                    },
+                                    R:: EOF => {
+                                        return state.r_err(format!("Missing argument for {}", #flag));
+                                    }
+                                };
+                                flag_fields.#field_ident = Some(#f_local_ident);
+                                return R::Ok(true);
+                            }
+                        });
+                    }
                     let field_help_pattern;
-                    if vark_attr.help_break || field_vark_attr.help_break {
+                    if type_break_help || field_vark_attr.help_stop {
                         field_help_pattern = quote!(aargvark::HelpPattern(vec![]));
                     }
                     else {
                         field_help_pattern = gen.help_pattern;
                     }
                     let help_field = quote!{
-                        aargvark:: HelpOptionalField {
-                            literal: #flag.to_string(),
+                        aargvark:: HelpFlagField {
+                            option: #optional,
+                            flags: vec ![#(#flags.to_string()), *],
                             pattern: #field_help_pattern,
                             description: #field_help_docstr.to_string(),
                         }
                     };
                     help_fields.push(quote!{
-                        struct_.optional_fields.push(#help_field);
+                        struct_.flag_fields.push(#help_field);
                     });
                     partial_help_fields.push(quote!{
-                        if optional.#field_ident.is_none() {
-                            optional_fields.push(#help_field);
+                        if flag_fields.#field_ident.is_none() {
+                            help_flag_fields.push(#help_field);
                         }
                     });
                     continue 'next_field;
                 };
 
                 // Positional/required parsing
-                let field_help_placeholder = field_vark_attr.id.unwrap_or_else(|| field_ident.to_string().to_case(Case::UpperKebab));
+                let field_help_placeholder =
+                    field_vark_attr
+                        .placeholder
+                        .unwrap_or_else(|| field_ident.to_string().to_case(Case::UpperKebab));
                 let eof_code = if required_i == 0 {
                     quote!{
                         break R::EOF;
@@ -434,11 +401,11 @@ fn gen_impl_struct(
                                 aargvark:: show_help_and_exit(state, | state | {
                                     return aargvark:: HelpPartialProduction {
                                         description: #help_docstr.to_string(),
-                                        content: build_partial_help(state, #required_i, &optional),
+                                        content: build_partial_help(state, #required_i, &flag_fields),
                                     };
                                 });
                             },
-                            PeekR:: Ok(s) => match parse_optional(&mut optional, state, s.to_string()) {
+                            PeekR:: Ok(s) => match parse_flags(&mut flag_fields, state, s.to_string()) {
                                 R:: Ok(v) => {
                                     v
                                 },
@@ -467,7 +434,7 @@ fn gen_impl_struct(
                         }
                     };
                 });
-                vark_copy_fields.push(quote!{
+                vark_copy_flag_fields.push(quote!{
                     #field_ident: #f_local_ident
                 });
                 let help_field = quote!{
@@ -482,7 +449,7 @@ fn gen_impl_struct(
                 });
                 partial_help_fields.push(quote!{
                     if required_i <= #required_i {
-                        fields.push(#help_field);
+                        help_fields.push(#help_field);
                     }
                 });
                 required_i += 1;
@@ -492,19 +459,19 @@ fn gen_impl_struct(
             let vark = quote!{
                 {
                     loop {
-                        struct Optional #decl_generics {
-                            #(#vark_optional_fields) *
+                        #[derive(Default)] struct FlagFields #decl_generics {
+                            #(#vark_flag_fields) *
                         }
-                        let mut optional = Optional {
-                            #(#vark_optional_fields_default) *
+                        let mut flag_fields = FlagFields {
+                            #(#vark_flag_fields_default) *
                         };
-                        fn parse_optional #decl_generics(
-                            optional:& mut Optional #forward_generics,
+                        fn parse_flags #decl_generics(
+                            flag_fields:& mut FlagFields #forward_generics,
                             state:& mut aargvark:: VarkState,
                             s: String
                         ) -> R < bool > {
                             match s.as_str() {
-                                #(#vark_parse_optional_cases) * 
+                                #(#vark_parse_flag_cases) * 
                                 //. .
                                 _ => return R:: Ok(false),
                             };
@@ -512,17 +479,17 @@ fn gen_impl_struct(
                         fn build_partial_help #decl_generics(
                             state:& mut aargvark:: HelpState,
                             required_i: usize,
-                            optional:& Optional #forward_generics,
+                            flag_fields:& FlagFields #forward_generics,
                         ) -> aargvark:: HelpPartialContent {
-                            let mut fields = vec![];
-                            let mut optional_fields = vec![];
+                            let mut help_fields = vec![];
+                            let mut help_flag_fields = vec![];
                             #(#partial_help_fields) * 
                             //. .
-                            return aargvark:: HelpPartialContent:: struct_(fields, optional_fields);
+                            return aargvark:: HelpPartialContent:: struct_(help_fields, help_flag_fields);
                         }
                         #(#vark_parse_positional) * 
                         // Parse any remaining optional args
-                        let opt_search_res = loop {
+                        let flag_search_res = loop {
                             match state.peek() {
                                 PeekR:: None => {
                                     break state.r_ok(());
@@ -531,11 +498,11 @@ fn gen_impl_struct(
                                     aargvark:: show_help_and_exit(state, | state | {
                                         return aargvark:: HelpPartialProduction {
                                             description: #help_docstr.to_string(),
-                                            content: build_partial_help(state, #required_i, &optional),
+                                            content: build_partial_help(state, #required_i, &flag_fields),
                                         };
                                     });
                                 },
-                                PeekR:: Ok(s) => match parse_optional(&mut optional, state, s.to_string()) {
+                                PeekR:: Ok(s) => match parse_flags(&mut flag_fields, state, s.to_string()) {
                                     R:: Ok(v) => {
                                         if !v {
                                             break state.r_ok(());
@@ -550,7 +517,7 @@ fn gen_impl_struct(
                                 },
                             };
                         };
-                        match opt_search_res {
+                        match flag_search_res {
                             R::Ok(()) => { },
                             R::Err => {
                                 break R::Err;
@@ -561,7 +528,7 @@ fn gen_impl_struct(
                         };
                         // Build obj + return
                         break state.r_ok(#ident {
-                            #(#vark_copy_fields),
+                            #(#vark_copy_flag_fields),
                             *
                         });
                     }
@@ -591,7 +558,7 @@ fn gen_impl_struct(
         Fields::Unnamed(d) => {
             let mut fields = vec![];
             for f in &d.unnamed {
-                fields.push((get_vark(&f.attrs)?, get_docstr(&f.attrs), &f.ty));
+                fields.push((FieldAttr::from_field(f)?, get_docstr(&f.attrs), &f.ty));
             }
             return Ok(
                 gen_impl_unnamed(
@@ -620,6 +587,8 @@ fn gen_impl_struct(
 
 fn gen_impl(ast: syn::DeriveInput) -> Result<TokenStream, syn::Error> {
     let ident = &ast.ident;
+    let type_attr = TypeAttr::from_derive_input(&ast)?;
+    let help_docstr = get_docstr(&ast.attrs);
     let decl_generics = ast.generics.to_token_stream();
     let forward_generics;
     {
@@ -637,9 +606,8 @@ fn gen_impl(ast: syn::DeriveInput) -> Result<TokenStream, syn::Error> {
             forward_generics = quote!(< #(#parts), *>);
         }
     }
-    let vark_attr = get_vark(&ast.attrs)?;
-    let help_docstr = get_docstr(&ast.attrs);
-    let help_placeholder = vark_attr.id.clone().unwrap_or_else(|| ident.to_string().to_case(Case::UpperKebab));
+    let help_placeholder =
+        type_attr.placeholder.clone().unwrap_or_else(|| ident.to_string().to_case(Case::UpperKebab));
     let vark;
     let help_build;
     match &ast.data {
@@ -651,7 +619,7 @@ fn gen_impl(ast: syn::DeriveInput) -> Result<TokenStream, syn::Error> {
                     &decl_generics,
                     &forward_generics,
                     &help_placeholder,
-                    &vark_attr,
+                    type_attr.break_help,
                     &help_docstr,
                     0,
                     &d.fields,
@@ -664,12 +632,12 @@ fn gen_impl(ast: syn::DeriveInput) -> Result<TokenStream, syn::Error> {
             let mut vark_cases = vec![];
             let mut help_variants = vec![];
             for (subtype_index, v) in d.variants.iter().enumerate() {
-                let variant_vark_attr = get_vark(&v.attrs)?;
+                let variant_vark_attr = VariantAttr::from_variant(v)?;
                 let variant_help_docstr = get_docstr(&v.attrs);
                 let variant_ident = &v.ident;
                 let name_str =
                     variant_vark_attr
-                        .literal
+                        .name
                         .clone()
                         .unwrap_or_else(|| variant_ident.to_string().to_case(Case::Kebab));
                 let gen =
@@ -679,7 +647,7 @@ fn gen_impl(ast: syn::DeriveInput) -> Result<TokenStream, syn::Error> {
                         &decl_generics,
                         &forward_generics,
                         &name_str,
-                        &variant_vark_attr,
+                        variant_vark_attr.break_help,
                         "",
                         subtype_index + 1,
                         &v.fields,
@@ -694,7 +662,7 @@ fn gen_impl(ast: syn::DeriveInput) -> Result<TokenStream, syn::Error> {
                     }
                 });
                 let help_variant_pattern;
-                if vark_attr.help_break || variant_vark_attr.help_break {
+                if type_attr.break_help || variant_vark_attr.break_help {
                     help_variant_pattern = quote!(aargvark::HelpPattern(vec![]));
                 } else {
                     help_variant_pattern = partial_help_variant_pattern;

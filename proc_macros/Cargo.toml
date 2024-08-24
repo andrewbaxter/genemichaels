@@ -1,6 +1,6 @@
 [package]
 name = "aargvark_proc_macros"
-version = "0.1.2"
+version = "0.4.0"
 edition = "2021"
 license = "ISC"
 description = "Helper crate for aargvark"
@@ -14,6 +14,7 @@ path = "mod.rs"
 
 [dependencies]
 convert_case = "0.6"
+darling = "0.20.10"
 genemichaels-lib = "0.5.0-pre2"
 proc-macro2 = "1"
 quote = "1"

@@ -1,7 +1,9 @@
-Self-similar derive-based command line argument parsing, in the same genre as Clap-derive. It currently supports
+A simple and consistent derive-based command line argument parsing, in the same genre as Clap-derive. It currently supports
 
 - Command line parsing
 - Help
+
+Generally speaking this is intended to provide flexible, clear and consistent command line parsing, rather than poweruser-optimized minimal-length parsing.
 
 This attempts to support parsing arbitrarily complex command line arguments. Like with Serde, you can combine structs, vecs, enums in any way you want. Just because you can doesn't mean you should.
 
@@ -32,15 +34,14 @@ $
 
 Why this and not Clap?
 
+- It has a super-simple interface (just `#[derive(Aargvark)]` on any enum/structure)
 - This parses more complex data types, like vectors of sub-structures, or enums
 - It's more consistent
-- It has a super-simple interface (just `#[derive(Aargvark)]`)
 
 Why not this?
 
 - Some command line parsing conventions were discarded in order to simplify and maintain self-similarity. A lot of command line conventions are inconsistent or break down as you nest things, after all.
 - Quirky CLI parsing generally isn't supported: Some tricks (like `-v` `-vv` `-vvv`) break patterns and probably won't ever be implemented. (Other things just haven't been implemented yet due to lack of time)
-- Alpha
 
 # Conventions and usage
 
@@ -68,9 +69,9 @@ To parse command line arguments
    let args = aargvark::vark::<MyArgs>();
    ```
 
-Optional fields in structs become optional (`--long`) arguments. If you want a `bool` long option that's enabled if the flag is specified (i.e. doesn't take a value), use `Option<()>`.
+Optional fields in structs become optional (`--long`) arguments. If you want a `bool` flag that's enabled if the flag is specified (i.e. doesn't take a value), use `Option<()>`.
 
-You can derive structs, enums, and tuples, and there are implementations for `Vec`, `HashSet`, `Map` with `FromString` keys and values as `K=V` arguments, most `Ip` and `SocketAddr` types, and `PathBuf` provided.
+You can derive structs, enums, and tuples, and there are implementations for `Vec`, `HashSet`, `Map` with `FromString` keys and values as `K=V` arguments, most `Ip` and `SocketAddr` types, and `PathBuf` built in.
 
 Some additional wrappers are provided for automatically loading (and parsing) files:
 
@@ -78,7 +79,7 @@ Some additional wrappers are provided for automatically loading (and parsing) fi
 - `AargvarkJson<T>` requires feature `serde_json`
 - `AargvarkYaml<T>` requires feature `serde_yaml`
 
-To parse your own types, implement `AargvarkTrait`, or if your type takes a single string argument you can implement `AargvarkFromStr`.
+To parse your own types, implement `AargvarkTrait`, or if your type takes a single string argument you can implement `AargvarkFromStr` which is slightly simpler.
 
 # Advanced usage
 
@@ -88,14 +89,18 @@ To parse your own types, implement `AargvarkTrait`, or if your type takes a sing
 
 - Prevent recursion in help
 
-  Add `#[vark(stop)]` to a type, field, or variant to prevent recursing into any of the children. This is useful for subcommand enums - attach this to the enum and it will list the arguments but not the arguments' arguments (unless you do `-h` after specifying one on the command line).
+  Add `#[vark(break_help)]` to a _type_, _field_, or _variant_ to prevent recursing into any of the children when displaying help. This is useful for subcommand enums - attach this to the enum and it will list the variants but not the variants' arguments (unless you do `-h` after specifying one on the command line).
 
-- Rename enum variants and option command line flags
+- Use flags, replace flags, and add additional flags
 
-  Ex: you have a field `xyz_id: i32` and you want the flag literal to be `--target-machine`.
+  Add ex: `#[vark(flag="--target-machine", flag="-tm")]` to a _field_.
 
-  Add `#[vark(literal="--target-machine")]` to t field.
+  If the field was optional, this will replace the default flag. If the field was non-optional, this will make it require a flag instead of being positional.
 
-- Change the documentation placeholder (id) string
+- Rename enum variants
 
-  Add `#[vark(id="x")]` to a field.
+  Add ex: `#[vark(name="my-variant")]` to a _variant_.
+
+- Change the help placeholder string
+
+  Add `#[vark(id="TARGET-MACHINE")]` to a _type_, _field_, or _variant_.

@@ -1,4 +1,4 @@
-#![doc= include_str !("../readme.md")]
+#![doc = include_str!("../readme.md")]
 
 use std::{
     any::TypeId,
@@ -620,7 +620,7 @@ fn style_literal(s: impl AsRef<str>) -> String {
     return console::Style::new().bold().apply_to(s.as_ref()).to_string();
 }
 
-#[derive(Hash, PartialEq, Eq, Clone, Copy)]
+#[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
 pub struct HelpProductionKey {
     type_id: TypeId,
     variant: usize,
@@ -638,11 +638,11 @@ pub enum HelpPartialContent {
 }
 
 impl HelpPartialContent {
-    pub fn struct_(fields: Vec<HelpField>, optional_fields: Vec<HelpOptionalField>) -> Self {
+    pub fn struct_(fields: Vec<HelpField>, optional_fields: Vec<HelpFlagField>) -> Self {
         return HelpPartialContent::Production(
             HelpProductionType::Struct(Rc::new(RefCell::new(HelpProductionTypeStruct {
                 fields: fields,
-                optional_fields: optional_fields,
+                flag_fields: optional_fields,
             }))),
         );
     }
@@ -664,7 +664,7 @@ pub enum HelpProductionType {
 
 pub struct HelpProductionTypeStruct {
     pub fields: Vec<HelpField>,
-    pub optional_fields: Vec<HelpOptionalField>,
+    pub flag_fields: Vec<HelpFlagField>,
 }
 
 pub struct HelpField {
@@ -673,8 +673,9 @@ pub struct HelpField {
     pub description: String,
 }
 
-pub struct HelpOptionalField {
-    pub literal: String,
+pub struct HelpFlagField {
+    pub option: bool,
+    pub flags: Vec<String>,
     pub pattern: HelpPattern,
     pub description: String,
 }
@@ -685,7 +686,7 @@ pub struct HelpVariant {
     pub description: String,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct HelpPattern(pub Vec<HelpPatternElement>);
 
 impl HelpPattern {
@@ -701,7 +702,7 @@ impl HelpPattern {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum HelpPatternElement {
     Literal(String),
     Type(String),
@@ -737,6 +738,7 @@ impl HelpPatternElement {
     }
 }
 
+#[derive(Default)]
 pub struct HelpState {
     // Write during building
     name_counter: HashMap<String, usize>,
@@ -779,7 +781,7 @@ impl HelpState {
     ) -> (HelpProductionKey, Rc<RefCell<HelpProductionTypeStruct>>) {
         let out = Rc::new(RefCell::new(HelpProductionTypeStruct {
             fields: vec![],
-            optional_fields: vec![],
+            flag_fields: vec![],
         }));
         let key = self.add(type_id, type_id_variant, id, description, HelpProductionType::Struct(out.clone()));
         return (key, out);
@@ -823,7 +825,7 @@ pub fn show_help_and_exit<
                     out.push_str(" ");
                     out.push_str(&style_id(&f.id));
                 }
-                if !struct_.optional_fields.is_empty() {
+                if !struct_.flag_fields.is_empty() {
                     out.push_str(" ");
                     out.push_str(&style_logical("[ ...OPT]"));
                 }
@@ -862,17 +864,20 @@ pub fn show_help_and_exit<
                         ],
                     );
                 }
-                for f in &struct_.optional_fields {
-                    let mut elems = vec![HelpPatternElement::Literal(f.literal.clone())];
-                    elems.extend(f.pattern.0.clone());
+                for f in &struct_.flag_fields {
+                    let mut left_col = vec![];
+                    for flag in &f.flags {
+                        let mut elems = vec![HelpPatternElement::Literal(flag.clone())];
+                        elems.extend(f.pattern.0.clone());
+                        left_col.push(format!("   {}", if f.option {
+                            HelpPattern(vec![HelpPatternElement::Option(HelpPattern(elems))])
+                        } else {
+                            HelpPattern(elems)
+                        }.render(stack, help_state)));
+                    }
                     table.add_row(
                         vec![
-                            comfy_table::Cell::new(
-                                format!(
-                                    "   {}",
-                                    HelpPatternElement::Option(HelpPattern(elems)).render(stack, help_state)
-                                ),
-                            ),
+                            comfy_table::Cell::new(left_col.join("\n")),
                             Cell::new(style_description(&f.description))
                         ],
                     );
@@ -899,10 +904,7 @@ pub fn show_help_and_exit<
         out.push_str("\n\n");
     }
 
-    let mut help_state = HelpState {
-        name_counter: HashMap::new(),
-        productions: HashMap::new(),
-    };
+    let mut help_state = HelpState::default();
     let mut stack = Vec::<(HelpProductionKey, Rc<HelpProduction>)>::new();
     let mut seen_productions = HashSet::<HelpProductionKey>::new();
     let partial = build_root(&mut help_state);

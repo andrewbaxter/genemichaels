@@ -3,6 +3,8 @@ use aargvark::{
     self,
     vark_explicit,
     AargvarkTrait,
+    HelpPatternElement,
+    HelpState,
 };
 use aargvark_proc_macros::Aargvark;
 
@@ -146,13 +148,34 @@ fn t_docstring() {
 #[test]
 fn t_varkattr() {
     #[derive(Aargvark, PartialEq, Debug)]
-    #[vark(stop)]
+    #[vark(break_help)]
     struct Naya {
+        // `id` unused here, must go on struct/enum (TODO - validate)
         #[vark(id = "G")]
-        #[vark(literal = "g")]
+        #[vark(flag = "--g")]
         f: Option<i32>,
     }
 
     let v: Naya = vark_explicit(None, svec!["--g", "3"]).unwrap();
     assert_eq!(v, Naya { f: Some(3) });
+    assert_eq!(
+        Naya::build_help_pattern(&mut HelpState::default()).0,
+        vec![HelpPatternElement::Literal("--g".to_string()), HelpPatternElement::Type("INT".to_string())]
+    );
+}
+
+#[test]
+fn t_flag_nonopt() {
+    #[derive(Aargvark, PartialEq, Debug)]
+    struct Naya {
+        b: String,
+        #[vark(flag = "--a")]
+        a: String,
+    }
+
+    let v: Naya = vark_explicit(None, svec!["--a", "wowo", "noh"]).unwrap();
+    assert_eq!(v, Naya {
+        b: "noh".into(),
+        a: "wowo".into(),
+    });
 }
