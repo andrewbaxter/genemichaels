@@ -173,3 +173,37 @@ fn t_flag_nonopt() {
         a: "wowo".into(),
     });
 }
+
+#[test]
+fn t_flag_2_nonopt_ord1() {
+    #[derive(Aargvark, PartialEq, Debug)]
+    struct Naya {
+        #[vark(flag = "--a")]
+        a: String,
+        #[vark(flag = "--b")]
+        b: String,
+    }
+
+    let v: Naya = vark_explicit(None, svec!["--a", "wowo", "--b", "noh"]).unwrap();
+    assert_eq!(v, Naya {
+        a: "wowo".into(),
+        b: "noh".into(),
+    });
+}
+
+#[test]
+fn t_flag_2_nonopt_ord2() {
+    #[derive(Aargvark, PartialEq, Debug)]
+    struct Naya {
+        #[vark(flag = "--a")]
+        a: String,
+        #[vark(flag = "--b")]
+        b: String,
+    }
+
+    let v: Naya = vark_explicit(None, svec!["--b", "noh", "--a", "wowo"]).unwrap();
+    assert_eq!(v, Naya {
+        a: "wowo".into(),
+        b: "noh".into(),
+    });
+}

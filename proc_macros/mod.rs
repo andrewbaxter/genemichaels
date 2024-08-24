@@ -70,6 +70,7 @@ struct FieldAttr {
 struct VariantAttr {
     break_help: bool,
     name: Option<String>,
+    placeholder: Option<String>,
 }
 
 fn get_docstr(attrs: &Vec<Attribute>) -> String {
@@ -642,13 +643,17 @@ fn gen_impl(ast: syn::DeriveInput) -> Result<TokenStream, syn::Error> {
                         .name
                         .clone()
                         .unwrap_or_else(|| variant_ident.to_string().to_case(Case::Kebab));
+                let help_placeholder =
+                    variant_vark_attr
+                        .placeholder
+                        .unwrap_or_else(|| variant_ident.to_string().to_case(Case::UpperKebab));
                 let gen =
                     gen_impl_struct(
                         ident.to_token_stream(),
                         quote!(#ident:: #variant_ident),
                         &decl_generics,
                         &forward_generics,
-                        &name_str,
+                        &help_placeholder,
                         variant_vark_attr.break_help,
                         "",
                         subtype_index + 1,
