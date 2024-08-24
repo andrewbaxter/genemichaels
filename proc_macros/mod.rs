@@ -58,7 +58,7 @@ struct TypeAttr {
 #[darling(attributes(vark))]
 #[darling(default)]
 struct FieldAttr {
-    help_stop: bool,
+    break_help: bool,
     #[darling(multiple)]
     flag: Vec<String>,
     placeholder: Option<String>,
@@ -354,7 +354,7 @@ fn gen_impl_struct(
                         });
                     }
                     let field_help_pattern;
-                    if type_break_help || field_vark_attr.help_stop {
+                    if type_break_help || field_vark_attr.break_help {
                         field_help_pattern = quote!(aargvark::HelpPattern(vec![]));
                     }
                     else {
