@@ -1,10 +1,13 @@
-use std::collections::HashMap;
-use aargvark::{
-    self,
-    vark_explicit,
-    AargvarkTrait,
+extern crate aargvark;
+
+use {
+    std::collections::HashMap,
+    aargvark::{
+        vark_explicit,
+        AargvarkTrait,
+        Aargvark,
+    },
 };
-use aargvark_proc_macros::Aargvark;
 
 macro_rules! svec{
     ($($l: literal), *) => {
