@@ -1,25 +1,27 @@
-use loga::ea;
-use markdown::mdast::Node;
-use crate::{
-    Comment,
-    CommentMode,
-    es,
-    Whitespace,
-    WhitespaceMode,
+use {
+    crate::{
+        es,
+        Comment,
+        CommentMode,
+        Whitespace,
+        WhitespaceMode,
+    },
+    loga::ea,
+    markdown::mdast::Node,
+    proc_macro2::{
+        Group,
+        LineColumn,
+        TokenStream,
+    },
+    regex::Regex,
+    std::{
+        cell::RefCell,
+        collections::HashMap,
+        hash::Hash,
+        rc::Rc,
+        str::FromStr,
+    },
 };
-use proc_macro2::{
-    LineColumn,
-    TokenStream,
-    Group,
-};
-use std::cell::RefCell;
-use std::collections::{
-    HashMap,
-};
-use std::hash::Hash;
-use std::rc::Rc;
-use std::str::FromStr;
-use structre::UnicodeRegex;
 
 #[derive(PartialEq, Eq, Debug)]
 pub struct HashLineColumn(pub LineColumn);
@@ -65,8 +67,8 @@ pub fn extract_whitespaces(
         // transposed comments
         line_start: Option<LineColumn>,
         last_offset: usize,
-        start_re: Option<UnicodeRegex>,
-        block_event_re: Option<UnicodeRegex>,
+        start_re: Option<Regex>,
+        block_event_re: Option<Regex>,
     }
 
     impl<'a> State<'a> {
@@ -83,11 +85,9 @@ pub fn extract_whitespaces(
             let start_re =
                 &self
                     .start_re
-                    .get_or_insert_with(
-                        || UnicodeRegex::new(r#"(?:(//)(/|!|\.)?)|(/\*\*/)|(?:(/\*)(\*|!)?)"#).unwrap(),
-                    );
+                    .get_or_insert_with(|| Regex::new(r#"(?:(//)(/|!|\.)?)|(/\*\*/)|(?:(/\*)(\*|!)?)"#).unwrap());
             let block_event_re =
-                &self.block_event_re.get_or_insert_with(|| UnicodeRegex::new(r#"((?:/\*)|(?:\*/))"#).unwrap());
+                &self.block_event_re.get_or_insert_with(|| Regex::new(r#"((?:/\*)|(?:\*/))"#).unwrap());
 
             struct CommentBuffer {
                 keep_max_blank_lines: usize,
@@ -654,7 +654,7 @@ impl LineState {
 
 fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &Node, inline: bool) {
     fn join_lines(text: &str) -> String {
-        let lines = UnicodeRegex::new("\r?\n").unwrap().split(text).collect::<Vec<&str>>();
+        let lines = Regex::new("\r?\n").unwrap().split(text).collect::<Vec<&str>>();
         let mut joined = String::new();
         for (i, line) in lines.iter().enumerate() {
             let mut line = *line;

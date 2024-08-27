@@ -1,9 +1,9 @@
 [workspace]
-workspace.resolver = "2"
+resolver = "2"
 members = ["crates/genemichaels", "crates/genemichaels-lib"]
 
 [workspace.package]
-version = "0.5.0"
+version = "0.5.1"
 edition = "2021"
 license = "ISC"
 repository = "https://github.com/andrewbaxter/genemichaels"

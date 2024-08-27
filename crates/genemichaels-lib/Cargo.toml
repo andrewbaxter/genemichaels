@@ -11,10 +11,10 @@ readme.workspace = true
 markdown = { version = "1.0.0-alpha.12" }
 proc-macro2 = { version = "1", features = ["span-locations"] }
 quote = "1"
-structre = "0.0"
 syn = { workspace = true }
 cargo-manifest = "0.15"
 derive_more = "0.99"
 loga = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+regex = "1"
