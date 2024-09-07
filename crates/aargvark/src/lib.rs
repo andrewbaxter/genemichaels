@@ -712,11 +712,20 @@ impl HelpPattern {
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum HelpPatternElement {
+    // xyz - denotes literal text user must type
     Literal(String),
+    // `<XYZ>` - denotes type of data for user
     Type(String),
+    // XYZ - refers to another section of help output
     Reference(HelpProductionKey),
+    // Like reference, but the other section might not exist.  Used for `...` when
+    // using `help_break` to limit output.
+    PseudoReference(String),
+    // `[XYZ]` - indicates a pattern is optional
     Option(HelpPattern),
+    // `XYZ[ ...]` - indicates a pattern can be repeated, space separated
     Array(HelpPattern),
+    // `xyz | abc` - indicates one of multiple patterns can be selected
     Variant(Vec<HelpPattern>),
 }
 
@@ -729,6 +738,9 @@ impl HelpPatternElement {
                 let production = state.productions.get(i).unwrap();
                 stack.push((*i, production.clone()));
                 return style_id(production.id.as_str())
+            },
+            HelpPatternElement::PseudoReference(key) => {
+                return style_id(key.as_str())
             },
             HelpPatternElement::Option(i) => return format!(
                 "{}{}{}",

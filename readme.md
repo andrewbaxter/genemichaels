@@ -3,7 +3,7 @@ A simple and consistent derive-based command line argument parsing, in the same 
 - Command line parsing
 - Help
 
-Generally speaking this is intended to provide flexible, clear and consistent command line parsing, rather than poweruser-optimized minimal-length parsing.
+Generally speaking this is intended to make CLI parsing simple by virtue of being simple and consistent, rather than poweruser-optimized keypress-minimizing parsing.
 
 This attempts to support parsing arbitrarily complex command line arguments. Like with Serde, you can combine structs, vecs, enums in any way you want. Just because you can doesn't mean you should.
 
@@ -40,6 +40,7 @@ Why this and not Clap?
 
 Why not this?
 
+- It's newer, with fewer features and limited community ecosystem, extensions
 - Some command line parsing conventions were discarded in order to simplify and maintain self-similarity. A lot of command line conventions are inconsistent or break down as you nest things, after all.
 - Quirky CLI parsing generally isn't supported: Some tricks (like `-v` `-vv` `-vvv`) break patterns and probably won't ever be implemented. (Other things just haven't been implemented yet due to lack of time)
 
@@ -56,10 +57,13 @@ To parse command line arguments
 1. Define the data type you want to parse them into, like
 
    ```rust
+   /// General description for the command.
    #[derive(Aargvark)]
    struct MyArgs {
+     /// Field documentation.
      velociraptor: String,
      deadly: bool,
+     #[vark(flag = "-c", flag = "--color-pattern")]
      color_pattern: Option<ColorPattern>,
    }
    ```
@@ -83,13 +87,9 @@ To parse your own types, implement `AargvarkTrait`, or if your type takes a sing
 
 # Advanced usage
 
-- Vecs
+- Sequences, plural fields, Vecs
 
-  Vec elements are space separated. The way vec parsing works is it attempts to parse as many elements as possible. When parsing one element fails, it rewinds to after it parsed the last successful element and proceeds from the next field after the vec.
-
-- Prevent recursion in help
-
-  Add `#[vark(break_help)]` to a _type_, _field_, or _variant_ to prevent recursing into any of the children when displaying help. This is useful for subcommand enums - attach this to the enum and it will list the variants but not the variants' arguments (unless you do `-h` after specifying one on the command line).
+  Sequence elements are space separated. The way sequence parsing works is it attempts to parse as many elements as possible. When parsing one element fails, it rewinds to after it parsed the last successful element and proceeds from the next field after the sequence.
 
 - Use flags, replace flags, and add additional flags
 
@@ -97,10 +97,18 @@ To parse your own types, implement `AargvarkTrait`, or if your type takes a sing
 
   If the field was optional, this will replace the default flag. If the field was non-optional, this will make it require a flag instead of being positional.
 
-- Rename enum variants
+- Rename enum variant keys
 
   Add ex: `#[vark(name="my-variant")]` to a _variant_.
+
+  This changes the command line key used to select a variant.
+
+- Prevent recursion in help
+
+  Add `#[vark(break_help)]` to a _type_, _field_, or _variant_ to prevent recursing into any of the children when displaying help. This is useful for subcommand enums - attach this to the enum and it will list the variants but not the variants' arguments (unless you do `-h` after specifying one on the command line).
 
 - Change the help placeholder string
 
   Add `#[vark(placeholder="TARGET-MACHINE")]` to a _type_, _field_, or _variant_.
+
+  This is the capitalized text (like XYZ) after an option that basically means "see XYZ section for more details"

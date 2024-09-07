@@ -670,7 +670,12 @@ fn gen_impl(ast: syn::DeriveInput) -> Result<TokenStream, syn::Error> {
                 });
                 let help_variant_pattern;
                 if type_attr.break_help || variant_vark_attr.break_help {
-                    help_variant_pattern = quote!(aargvark::HelpPattern(vec![]));
+                    help_variant_pattern =
+                        quote!(
+                            aargvark::HelpPattern(
+                                vec![aargvark::HelpPatternElement::PseudoReference("...".to_string())],
+                            )
+                        );
                 } else {
                     help_variant_pattern = partial_help_variant_pattern;
                 }

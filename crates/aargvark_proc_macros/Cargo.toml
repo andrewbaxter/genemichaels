@@ -10,7 +10,6 @@ readme.workspace = true
 
 [lib]
 proc-macro = true
-path = "mod.rs"
 
 [dependencies]
 convert_case = "0.6"
