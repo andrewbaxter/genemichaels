@@ -312,22 +312,31 @@ impl VarkRetHelp {
                         );
                     }
                     for f in &struct_.flag_fields {
-                        let mut left_col = vec![];
-                        for flag in &f.flags {
+                        let first_flag = f.flags.first().unwrap();
+                        for (i, flag) in f.flags.iter().enumerate() {
                             let mut elems = vec![HelpPatternElement::Literal(flag.clone())];
                             elems.extend(f.pattern.0.clone());
-                            left_col.push(format!("   {}", if f.option {
+                            let left_col = format!("   {}", if f.option {
                                 HelpPattern(vec![HelpPatternElement::Option(HelpPattern(elems))])
                             } else {
                                 HelpPattern(elems)
-                            }.render(stack, help_state)));
+                            }.render(stack, help_state));
+                            if i == 0 {
+                                table.add_row(
+                                    vec![
+                                        comfy_table::Cell::new(left_col),
+                                        Cell::new(style_description(&f.description))
+                                    ],
+                                );
+                            } else {
+                                table.add_row(
+                                    vec![
+                                        comfy_table::Cell::new(left_col),
+                                        Cell::new(style_description(&format!("(synonym for `{}`)", first_flag)))
+                                    ],
+                                );
+                            }
                         }
-                        table.add_row(
-                            vec![
-                                comfy_table::Cell::new(left_col.join("\n")),
-                                Cell::new(style_description(&f.description))
-                            ],
-                        );
                     }
                 },
                 HelpProductionType::Enum(fields) => {
