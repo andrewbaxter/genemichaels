@@ -1,7 +1,7 @@
 [package]
 name = "aargvark"
 description = "Self-similar argument parsing"
-version = "0.4.6"
+version = "0.5.0"
 edition.workspace = true
 license.workspace = true
 homepage.workspace = true
@@ -18,7 +18,7 @@ serde_yaml = ["dep:serde_yaml", "dep:serde"]
 http_types = ["dep:http"]
 
 [dependencies]
-aargvark_proc_macros = { path = "../aargvark_proc_macros", version = "=3.0.2" }
+aargvark_proc_macros = { path = "../aargvark_proc_macros", version = "=3.1.0" }
 serde_json = { version = "1", optional = true }
 serde_yaml = { version = "0", optional = true }
 convert_case = "0.6"
