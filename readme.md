@@ -13,26 +13,45 @@ Generally speaking this is intended to make CLI parsing simple by virtue of bein
 This attempts to support parsing arbitrarily complex command line arguments. Like with Serde, you can combine structs, vecs, enums in any way you want. Just because you can doesn't mean you should.
 
 ```
-$ # This is an example help output, sans light ansi styling
-$ spagh set -h
-Usage: spagh set IDENTITY DATA
+$ ; This is an example help output, sans light ansi styling
+$ spagh -h
+Usage: spagh COMMAND [ ...FLAGS]
 
-    IDENTITY: BACKED-IDENTITY-ARG       Identity to publish as
-    DATA: <PATH> | -                    Data to publish.  Must be json in the structure `{KEY: {"ttl": MINUTES, "value": DATA}, ...}`
+    A small CLI for querying, publishing, and administrating spaghettinuum.
 
-BACKED-IDENTITY-ARG: local | card
+    COMMAND: COMMAND
+    [--debug]
+
+COMMAND: ping | get | http | ssh | identity | publish | admin
+
+    ping ...      Simple liveness check
+    get ...       Request values associated with provided identity and keys
+                  from a resolver
+    http ...
+    ssh ...
+    identity ...  Commands for managing identities
+    publish ...   Commands for publishing data
+    admin ...     Commands for node administration
+
+```
+
+```
+$ spagh publish set -h
+Usage: spagh publish set IDENTITY DATA
+
+    IDENTITY: IDENTITY-SECRET-ARG  Identity to publish as
+    DATA: <PATH> | -               Data to publish.  Must be json in the
+                                   structure `{KEY: {"ttl": MINUTES, "value":
+                                   DATA}, ...}`. `KEY` is a string that's a
+                                   dotted list of key segments, with `/` to
+                                   escape dots and escape characters.
+
+IDENTITY-SECRET-ARG: local
 
     An identity with its associated secret.
 
-    local <PATH>                        A file containing a generated key
-    card card                           PC/SC card with ED25519 key
+    local <PATH>  A file containing a generated key
 
-card: PCSC-ID PIN
-
-    PCSC-ID: <STRING>                   Card to register, using id per pcscd (not identity id)
-    PIN: <STRING>                       Card pin
-
-$
 ```
 
 # Why or why not
