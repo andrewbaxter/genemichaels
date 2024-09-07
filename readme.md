@@ -62,8 +62,8 @@ To parse command line arguments
    struct MyArgs {
      /// Field documentation.
      velociraptor: String,
+     #[vark(flag = "-d", flag = "--deadly")]
      deadly: bool,
-     #[vark(flag = "-c", flag = "--color-pattern")]
      color_pattern: Option<ColorPattern>,
    }
    ```
@@ -73,7 +73,7 @@ To parse command line arguments
    let args = aargvark::vark::<MyArgs>();
    ```
 
-Optional fields in structs become optional (`--long`) arguments. If you want a `bool` flag that's enabled if the flag is specified (i.e. doesn't take a value), use `Option<()>`.
+Non-optional fields become positional arguments unless you give them a flag with `#[vark(flag = "--flag")]`. Optional fields become optional (`--long`) arguments. If you want a `bool` flag that's enabled if the flag is specified (i.e. doesn't take a value), use `Option<()>`.
 
 You can derive structs, enums, and tuples, and there are implementations for `Vec`, `HashSet`, `Map` with `FromString` keys and values as `K=V` arguments, most `Ip` and `SocketAddr` types, and `PathBuf` built in.
 
