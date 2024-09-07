@@ -94,7 +94,7 @@ To parse command line arguments
 
 2. Vark it
    ```rust
-   let args = aargvark::vark::<MyArgs>();
+   let args = vark::<MyArgs>();
    ```
 
 Non-optional fields become positional arguments unless you give them a flag with `#[vark(flag = "--flag")]`. Optional fields become optional (`--long`) arguments. If you want a `bool` flag that's enabled if the flag is specified (i.e. doesn't take a value), use `Option<()>`.

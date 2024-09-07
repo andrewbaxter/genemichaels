@@ -105,7 +105,7 @@ fn gen_impl_type(ty: &Type, path: &str) -> GenRec {
                     < #t >:: vark(state)
                 },
                 help_pattern: quote!{
-                    < #t as aargvark:: AargvarkTrait >:: build_help_pattern(state)
+                    < #t as a:: AargvarkTrait >:: build_help_pattern(state)
                 },
             };
         },
@@ -141,7 +141,7 @@ fn gen_impl_unnamed(
     for (i, (field_vark_attr, field_help_docstr, field_ty)) in fields.iter().enumerate() {
         let eof_code = if i == 0 {
             quote!{
-                break R::EOF;
+                break a::R::EOF;
             }
         } else {
             quote!{
@@ -169,10 +169,10 @@ fn gen_impl_unnamed(
             let r = #vark;
             //. .
             let #f_ident = match r {
-                R:: Ok(v) => v,
-                R:: Help(b) => break R:: Help(b),
-                R:: Err => break R:: Err,
-                R:: EOF => {
+                a:: R:: Ok(v) => v,
+                a:: R:: Help(b) => break a:: R:: Help(b),
+                a:: R:: Err => break a:: R:: Err,
+                a:: R:: EOF => {
                     #eof_code
                 }
             };
@@ -180,7 +180,7 @@ fn gen_impl_unnamed(
         copy_fields.push(f_ident.to_token_stream());
         let field_help_pattern = gen.help_pattern;
         help_fields.push(quote!{
-            struct_.fields.push(aargvark:: HelpField {
+            struct_.fields.push(a:: HelpField {
                 id: #placeholder.to_string(),
                 pattern: #field_help_pattern,
                 description: #field_help_docstr.to_string(),
@@ -196,7 +196,7 @@ fn gen_impl_unnamed(
         },
         help_pattern: if fields.is_empty() {
             quote!{
-                aargvark::HelpPattern(vec![])
+                a::HelpPattern(vec![])
             }
         } else if help_unit_transparent {
             help_field_patterns.pop().unwrap()
@@ -215,7 +215,7 @@ fn gen_impl_unnamed(
                     let mut struct_ = struct_.borrow_mut();
                     #(#help_fields) * 
                     //. .
-                    aargvark:: HelpPattern(vec![aargvark::HelpPatternElement::Reference(key)])
+                    a:: HelpPattern(vec![a::HelpPatternElement::Reference(key)])
                 }
             }
         },
@@ -335,27 +335,27 @@ fn gen_impl_struct(
                                 }
                                 state.consume();
                                 let #f_local_ident = match #vark {
-                                    R:: Ok(v) => v,
-                                    R:: Help(b) => return R:: Help(b),
-                                    R:: Err => return R:: Err,
-                                    R:: EOF => {
+                                    a:: R:: Ok(v) => v,
+                                    a:: R:: Help(b) => return a:: R:: Help(b),
+                                    a:: R:: Err => return a:: R:: Err,
+                                    a:: R:: EOF => {
                                         return state.r_err(format!("Missing argument for {}", #flag));
                                     }
                                 };
                                 flag_fields.#field_ident = Some(#f_local_ident);
-                                return R::Ok(true);
+                                return a::R::Ok(true);
                             }
                         });
                     }
                     let field_help_pattern;
                     if type_break_help || field_vark_attr.break_help {
-                        field_help_pattern = quote!(aargvark::HelpPattern(vec![]));
+                        field_help_pattern = quote!(a::HelpPattern(vec![]));
                     }
                     else {
                         field_help_pattern = gen.help_pattern;
                     }
                     let help_field = quote!{
-                        aargvark:: HelpFlagField {
+                        a:: HelpFlagField {
                             option: #optional,
                             flags: vec ![#(#flags.to_string()), *],
                             pattern: #field_help_pattern,
@@ -380,7 +380,7 @@ fn gen_impl_struct(
                         .unwrap_or_else(|| field_ident.to_string().to_case(Case::UpperKebab));
                 let eof_code = if required_i == 0 {
                     quote!{
-                        break R::EOF;
+                        break a::R::EOF;
                     }
                 } else {
                     quote!{
@@ -393,18 +393,18 @@ fn gen_impl_struct(
                 vark_parse_positional.push(quote!{
                     let #f_local_ident = loop {
                         if match state.peek() {
-                            PeekR:: None => false,
-                            PeekR:: Help => return R:: Help(Box:: new(move | state | {
-                                return aargvark:: HelpPartialProduction {
+                            a:: PeekR:: None => false,
+                            a:: PeekR:: Help => return a:: R:: Help(Box:: new(move | state | {
+                                return a:: HelpPartialProduction {
                                     description: #help_docstr.to_string(),
                                     content: build_partial_help(state, #required_i, &flag_fields),
                                 };
                             })),
-                            PeekR:: Ok(s) => match parse_flags(&mut flag_fields, state, s.to_string()) {
-                                R:: Ok(v) => v,
-                                R:: Help(b) => break R:: Help(b),
-                                R:: Err => break R:: Err,
-                                R:: EOF => {
+                            a:: PeekR:: Ok(s) => match parse_flags(&mut flag_fields, state, s.to_string()) {
+                                a:: R:: Ok(v) => v,
+                                a:: R:: Help(b) => break a:: R:: Help(b),
+                                a:: R:: Err => break a:: R:: Err,
+                                a:: R:: EOF => {
                                     unreachable!();
                                 }
                             },
@@ -415,10 +415,10 @@ fn gen_impl_struct(
                         break #vark;
                     };
                     let #f_local_ident = match #f_local_ident {
-                        R:: Ok(v) => v,
-                        R:: Help(b) => break R:: Help(b),
-                        R:: Err => break R:: Err,
-                        R:: EOF => {
+                        a:: R:: Ok(v) => v,
+                        a:: R:: Help(b) => break a:: R:: Help(b),
+                        a:: R:: Err => break a:: R:: Err,
+                        a:: R:: EOF => {
                             #eof_code
                         }
                     };
@@ -427,7 +427,7 @@ fn gen_impl_struct(
                     #field_ident: #f_local_ident
                 });
                 let help_field = quote!{
-                    aargvark:: HelpField {
+                    a:: HelpField {
                         id: #field_help_placeholder.to_string(),
                         pattern: #field_help_pattern,
                         description: #field_help_docstr.to_string(),
@@ -456,56 +456,56 @@ fn gen_impl_struct(
                         };
                         fn parse_flags #decl_generics(
                             flag_fields:& mut FlagFields #forward_generics,
-                            state:& mut aargvark:: VarkState,
+                            state:& mut a:: VarkState,
                             s: String
-                        ) -> R < bool > {
+                        ) -> a:: R < bool > {
                             match s.as_str() {
                                 #(#vark_parse_flag_cases) * 
                                 //. .
-                                _ => return R:: Ok(false),
+                                _ => return a:: R:: Ok(false),
                             };
                         }
                         fn build_partial_help #decl_generics(
-                            state:& mut aargvark:: HelpState,
+                            state:& mut a:: HelpState,
                             required_i: usize,
                             flag_fields:& FlagFields #forward_generics,
-                        ) -> aargvark:: HelpPartialContent {
+                        ) -> a:: HelpPartialContent {
                             let mut help_fields = vec![];
                             let mut help_flag_fields = vec![];
                             #(#partial_help_fields) * 
                             //. .
-                            return aargvark:: HelpPartialContent:: struct_(help_fields, help_flag_fields);
+                            return a:: HelpPartialContent:: struct_(help_fields, help_flag_fields);
                         }
                         #(#vark_parse_positional) * 
                         // Parse any remaining optional args
                         let flag_search_res = loop {
                             match state.peek() {
-                                PeekR:: None => {
+                                a:: PeekR:: None => {
                                     break state.r_ok(());
                                 },
-                                PeekR:: Help => return R:: Help(Box:: new(move | state | {
-                                    return aargvark:: HelpPartialProduction {
+                                a:: PeekR:: Help => return a:: R:: Help(Box:: new(move | state | {
+                                    return a:: HelpPartialProduction {
                                         description: #help_docstr.to_string(),
                                         content: build_partial_help(state, #required_i, &flag_fields),
                                     };
                                 })),
-                                PeekR:: Ok(s) => match parse_flags(&mut flag_fields, state, s.to_string()) {
-                                    R:: Ok(v) => {
+                                a:: PeekR:: Ok(s) => match parse_flags(&mut flag_fields, state, s.to_string()) {
+                                    a:: R:: Ok(v) => {
                                         if !v {
                                             break state.r_ok(());
                                         }
                                     },
-                                    R:: Help(b) => break R:: Help(b),
-                                    R:: Err => break R:: Err,
-                                    R:: EOF => unreachable !(),
+                                    a:: R:: Help(b) => break a:: R:: Help(b),
+                                    a:: R:: Err => break a:: R:: Err,
+                                    a:: R:: EOF => unreachable !(),
                                 },
                             };
                         };
                         match flag_search_res {
-                            R::Ok(()) => { },
-                            R::Help(b) => break R::Help(b),
-                            R::Err => break R::Err,
-                            R::EOF => unreachable!(),
+                            a::R::Ok(()) => { },
+                            a::R::Help(b) => break a::R::Help(b),
+                            a::R::Err => break a::R::Err,
+                            a::R::EOF => unreachable!(),
                         };
                         // Build obj + return
                         break state.r_ok(#ident {
@@ -531,7 +531,7 @@ fn gen_impl_struct(
                         let mut struct_ = struct_.borrow_mut();
                         #(#help_fields) * 
                         //. .
-                        aargvark:: HelpPattern(vec![aargvark::HelpPatternElement::Reference(key)])
+                        a:: HelpPattern(vec![a::HelpPatternElement::Reference(key)])
                     }
                 },
             });
@@ -559,7 +559,7 @@ fn gen_impl_struct(
                     state.r_ok(#ident)
                 },
                 help_pattern: quote!{
-                    aargvark::HelpPattern(vec![])
+                    a::HelpPattern(vec![])
                 },
             });
         },
@@ -649,16 +649,12 @@ fn gen_impl(ast: syn::DeriveInput) -> Result<TokenStream, syn::Error> {
                 let help_variant_pattern;
                 if type_attr.break_help || variant_vark_attr.break_help {
                     help_variant_pattern =
-                        quote!(
-                            aargvark::HelpPattern(
-                                vec![aargvark::HelpPatternElement::PseudoReference("...".to_string())],
-                            )
-                        );
+                        quote!(a::HelpPattern(vec![a::HelpPatternElement::PseudoReference("...".to_string())]));
                 } else {
                     help_variant_pattern = partial_help_variant_pattern;
                 }
                 help_variants.push(quote!{
-                    variants.push(aargvark:: HelpVariant {
+                    variants.push(a:: HelpVariant {
                         literal: #name_str.to_string(),
                         pattern: #help_variant_pattern,
                         description: #variant_help_docstr.to_string(),
@@ -668,17 +664,17 @@ fn gen_impl(ast: syn::DeriveInput) -> Result<TokenStream, syn::Error> {
             vark = quote!{
                 {
                     let tag = match state.peek() {
-                        PeekR:: None => return R:: EOF,
-                        PeekR:: Help => return R:: Help(Box:: new(move | state | {
+                        a:: PeekR:: None => return a:: R:: EOF,
+                        a:: PeekR:: Help => return a:: R:: Help(Box:: new(move | state | {
                             let mut variants = vec![];
                             #(#help_variants) * 
                             //. .
-                            return aargvark:: HelpPartialProduction {
+                            return a:: HelpPartialProduction {
                                 description: #help_docstr.to_string(),
-                                content: aargvark:: HelpPartialContent:: enum_(variants),
+                                content: a:: HelpPartialContent:: enum_(variants),
                             };
                         })),
-                        PeekR:: Ok(s) => s,
+                        a:: PeekR:: Ok(s) => s,
                     };
                     match tag {
                         #(#vark_cases) * _ => {
@@ -697,19 +693,26 @@ fn gen_impl(ast: syn::DeriveInput) -> Result<TokenStream, syn::Error> {
                 let mut variants = variants.borrow_mut();
                 #(#help_variants) * 
                 //. .
-                return aargvark:: HelpPattern(vec![aargvark::HelpPatternElement::Reference(key)]);
+                return a:: HelpPattern(vec![a::HelpPatternElement::Reference(key)]);
             };
         },
         syn::Data::Union(_) => panic!("Union not supported"),
     };
     return Ok(quote!{
-        impl #decl_generics aargvark:: AargvarkTrait for #ident #forward_generics {
-            fn vark(state:& mut aargvark:: VarkState) -> aargvark:: R < #ident #forward_generics > {
-                use aargvark::R;
-                use aargvark::PeekR;
+        impl #decl_generics aargvark:: traits_impls:: AargvarkTrait for #ident #forward_generics {
+            fn vark(state:& mut aargvark:: base:: VarkState) -> aargvark:: base:: R < #ident #forward_generics > {
+                mod a {
+                    pub use aargvark::help::*;
+                    pub use aargvark::base::*;
+                    pub use aargvark::traits_impls::*;
+                }
                 #vark
             }
-            fn build_help_pattern(state:& mut aargvark:: HelpState) -> aargvark:: HelpPattern {
+            fn build_help_pattern(state:& mut aargvark:: help:: HelpState) -> aargvark:: help:: HelpPattern {
+                mod a {
+                    pub use aargvark::help::*;
+                    pub use aargvark::traits_impls::*;
+                }
                 #help_build
             }
         }

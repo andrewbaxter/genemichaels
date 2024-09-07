@@ -2,9 +2,9 @@ extern crate aargvark;
 
 use {
     aargvark::{
+        traits_impls::AargvarkTrait,
         vark_explicit,
         Aargvark,
-        AargvarkTrait,
         VarkRet,
     },
     std::collections::HashMap,
