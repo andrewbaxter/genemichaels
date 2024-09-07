@@ -169,12 +169,9 @@ fn gen_impl_unnamed(
             let r = #vark;
             //. .
             let #f_ident = match r {
-                R:: Ok(v) => {
-                    v
-                },
-                R:: Err => {
-                    break R::Err;
-                },
+                R:: Ok(v) => v,
+                R:: Help(b) => break R:: Help(b),
+                R:: Err => break R:: Err,
                 R:: EOF => {
                     #eof_code
                 }
@@ -338,12 +335,9 @@ fn gen_impl_struct(
                                 }
                                 state.consume();
                                 let #f_local_ident = match #vark {
-                                    R:: Ok(v) => {
-                                        v
-                                    },
-                                    R:: Err => {
-                                        return R::Err;
-                                    },
+                                    R:: Ok(v) => v,
+                                    R:: Help(b) => return R:: Help(b),
+                                    R:: Err => return R:: Err,
                                     R:: EOF => {
                                         return state.r_err(format!("Missing argument for {}", #flag));
                                     }
@@ -400,21 +394,16 @@ fn gen_impl_struct(
                     let #f_local_ident = loop {
                         if match state.peek() {
                             PeekR:: None => false,
-                            PeekR:: Help => {
-                                aargvark:: show_help_and_exit(state, | state | {
-                                    return aargvark:: HelpPartialProduction {
-                                        description: #help_docstr.to_string(),
-                                        content: build_partial_help(state, #required_i, &flag_fields),
-                                    };
-                                });
-                            },
+                            PeekR:: Help => return R:: Help(Box:: new(move | state | {
+                                return aargvark:: HelpPartialProduction {
+                                    description: #help_docstr.to_string(),
+                                    content: build_partial_help(state, #required_i, &flag_fields),
+                                };
+                            })),
                             PeekR:: Ok(s) => match parse_flags(&mut flag_fields, state, s.to_string()) {
-                                R:: Ok(v) => {
-                                    v
-                                },
-                                R:: Err => {
-                                    break R::Err;
-                                },
+                                R:: Ok(v) => v,
+                                R:: Help(b) => break R:: Help(b),
+                                R:: Err => break R:: Err,
                                 R:: EOF => {
                                     unreachable!();
                                 }
@@ -426,12 +415,9 @@ fn gen_impl_struct(
                         break #vark;
                     };
                     let #f_local_ident = match #f_local_ident {
-                        R:: Ok(v) => {
-                            v
-                        },
-                        R:: Err => {
-                            break R::Err;
-                        },
+                        R:: Ok(v) => v,
+                        R:: Help(b) => break R:: Help(b),
+                        R:: Err => break R:: Err,
                         R:: EOF => {
                             #eof_code
                         }
@@ -497,37 +483,29 @@ fn gen_impl_struct(
                                 PeekR:: None => {
                                     break state.r_ok(());
                                 },
-                                PeekR:: Help => {
-                                    aargvark:: show_help_and_exit(state, | state | {
-                                        return aargvark:: HelpPartialProduction {
-                                            description: #help_docstr.to_string(),
-                                            content: build_partial_help(state, #required_i, &flag_fields),
-                                        };
-                                    });
-                                },
+                                PeekR:: Help => return R:: Help(Box:: new(move | state | {
+                                    return aargvark:: HelpPartialProduction {
+                                        description: #help_docstr.to_string(),
+                                        content: build_partial_help(state, #required_i, &flag_fields),
+                                    };
+                                })),
                                 PeekR:: Ok(s) => match parse_flags(&mut flag_fields, state, s.to_string()) {
                                     R:: Ok(v) => {
                                         if !v {
                                             break state.r_ok(());
                                         }
                                     },
-                                    R:: Err => {
-                                        break R::Err;
-                                    },
-                                    R:: EOF => {
-                                        unreachable!();
-                                    },
+                                    R:: Help(b) => break R:: Help(b),
+                                    R:: Err => break R:: Err,
+                                    R:: EOF => unreachable !(),
                                 },
                             };
                         };
                         match flag_search_res {
                             R::Ok(()) => { },
-                            R::Err => {
-                                break R::Err;
-                            },
-                            R::EOF => {
-                                unreachable!();
-                            },
+                            R::Help(b) => break R::Help(b),
+                            R::Err => break R::Err,
+                            R::EOF => unreachable!(),
                         };
                         // Build obj + return
                         break state.r_ok(#ident {
@@ -691,17 +669,15 @@ fn gen_impl(ast: syn::DeriveInput) -> Result<TokenStream, syn::Error> {
                 {
                     let tag = match state.peek() {
                         PeekR:: None => return R:: EOF,
-                        PeekR:: Help => {
-                            aargvark:: show_help_and_exit(state, | state | {
-                                let mut variants = vec![];
-                                #(#help_variants) * 
-                                //. .
-                                return aargvark:: HelpPartialProduction {
-                                    description: #help_docstr.to_string(),
-                                    content: aargvark:: HelpPartialContent:: enum_(variants),
-                                };
-                            });
-                        },
+                        PeekR:: Help => return R:: Help(Box:: new(move | state | {
+                            let mut variants = vec![];
+                            #(#help_variants) * 
+                            //. .
+                            return aargvark:: HelpPartialProduction {
+                                description: #help_docstr.to_string(),
+                                content: aargvark:: HelpPartialContent:: enum_(variants),
+                            };
+                        })),
                         PeekR:: Ok(s) => s,
                     };
                     match tag {

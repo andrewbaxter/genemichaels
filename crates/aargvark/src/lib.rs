@@ -38,17 +38,25 @@ pub struct VarkFailure {
     pub error: String,
 }
 
-#[doc(hidden)]
+/// Return type enum (like `Result`) during parsing.
 pub enum R<T> {
+    /// Ran out of arguments before parsing successfully completed.
     EOF,
+    /// Parsing failed due to incorrect arguments.
     Err,
+    /// Encountered `-h` or `--help` and aborted.
+    Help(Box<dyn FnOnce(&mut HelpState) -> HelpPartialProduction>),
+    /// Successfully parsed value.
     Ok(T),
 }
 
-#[doc(hidden)]
+/// Possible results of peeking the output.
 pub enum PeekR<'a> {
+    /// There's another argument
     Ok(&'a str),
+    /// No more arguments remain
     None,
+    /// The next argument is `-h` or `--help` - caller should return `R::Help`.
     Help,
 }
 
@@ -72,6 +80,7 @@ impl VarkState {
 }
 
 impl VarkState {
+    /// Return the next argument without consuming it.
     pub fn peek<'a>(&'a self) -> PeekR<'a> {
         if self.i >= self.args.len() {
             return PeekR::None;
@@ -83,22 +92,30 @@ impl VarkState {
         return PeekR::Ok(v);
     }
 
+    /// The argument the current argument pointer is pointing to.
     pub fn position(&self) -> usize {
         return self.i;
     }
 
+    /// Reset the agument pointer to an earlier argument (i.e. after consuming N
+    /// arguments but finding the required final argument missing).
     pub fn rewind(&mut self, i: usize) {
         self.i = i;
     }
 
+    /// Move the argument pointer to the next argument (ex: after inspecting it using
+    /// `peek`).
     pub fn consume(&mut self) {
         self.i += 1;
     }
 
+    /// Produce a "parse successful" return value.
     pub fn r_ok<T>(&self, v: T) -> R<T> {
         return R::Ok(v);
     }
 
+    /// Produce a "parse failed" return value (includes which argument was being
+    /// inspected when the failure occured).
     pub fn r_err<T>(&mut self, text: String) -> R<T> {
         self.errors.push(VarkFailure {
             arg_offset: self.i,
@@ -109,8 +126,8 @@ impl VarkState {
 }
 
 pub enum ErrorDetail {
-    /// The command was empty
-    Empty,
+    /// The parser needed more command line arguments.
+    TooLittle,
     /// Fully parsed command but additional unconsumed arguments follow (offset of
     /// first unrecognized argument)
     TooMuch(usize),
@@ -131,7 +148,7 @@ pub struct Error {
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.detail {
-            ErrorDetail::Empty => {
+            ErrorDetail::TooLittle => {
                 return "Missing arguments, use --help for more info".fmt(f);
             },
             ErrorDetail::TooMuch(first) => {
@@ -188,16 +205,201 @@ impl std::fmt::Debug for Error {
 
 impl std::error::Error for Error { }
 
+/// State required for building a help string.
+pub struct VarkRetHelp {
+    state: VarkState,
+    builder: Box<dyn FnOnce(&mut HelpState) -> HelpPartialProduction>,
+}
+
+impl VarkRetHelp {
+    /// Build a help string using current operating environment line widths.
+    pub fn render(self) -> String {
+        fn format_desc(out: &mut String, desc: &str) {
+            if !desc.is_empty() {
+                out.push_str(
+                    &style_description(
+                        textwrap::wrap(
+                            desc,
+                            &textwrap::Options::with_termwidth().initial_indent("    ").subsequent_indent("    "),
+                        ).join("\n"),
+                    ),
+                );
+                out.push_str("\n\n");
+            }
+        }
+
+        fn format_pattern(out: &mut String, content: &HelpProductionType) {
+            match content {
+                HelpProductionType::Struct(struct_) => {
+                    let struct_ = struct_.borrow();
+                    for f in &struct_.fields {
+                        out.push_str(" ");
+                        out.push_str(&style_id(&f.id));
+                    }
+                    if !struct_.flag_fields.is_empty() {
+                        let all_opt = struct_.flag_fields.iter().all(|x| x.option);
+                        out.push_str(" ");
+                        if all_opt {
+                            out.push_str(&style_logical("[ ...FLAGS]"));
+                        } else {
+                            out.push_str(&style_logical("...FLAGS"));
+                        }
+                    }
+                },
+                HelpProductionType::Enum(fields) => {
+                    for (i, f) in fields.borrow().iter().enumerate() {
+                        if i > 0 {
+                            out.push_str(" |");
+                        }
+                        out.push_str(" ");
+                        out.push_str(&style_literal(&f.literal));
+                    }
+                },
+            }
+        }
+
+        fn format_content(
+            out: &mut String,
+            stack: &mut Vec<(HelpProductionKey, Rc<HelpProduction>)>,
+            help_state: &HelpState,
+            content: &HelpProductionType,
+        ) {
+            let mut table = comfy_table::Table::new();
+            table.load_preset(comfy_table::presets::NOTHING);
+            table.set_content_arrangement(comfy_table::ContentArrangement::Dynamic);
+            match content {
+                HelpProductionType::Struct(struct_) => {
+                    let struct_ = struct_.borrow();
+                    for f in &struct_.fields {
+                        table.add_row(
+                            vec![
+                                comfy_table::Cell::new(
+                                    format!("   {}: {}", style_id(&f.id), f.pattern.render(stack, help_state)),
+                                ),
+                                Cell::new(style_description(&f.description))
+                            ],
+                        );
+                    }
+                    for f in &struct_.flag_fields {
+                        let mut left_col = vec![];
+                        for flag in &f.flags {
+                            let mut elems = vec![HelpPatternElement::Literal(flag.clone())];
+                            elems.extend(f.pattern.0.clone());
+                            left_col.push(format!("   {}", if f.option {
+                                HelpPattern(vec![HelpPatternElement::Option(HelpPattern(elems))])
+                            } else {
+                                HelpPattern(elems)
+                            }.render(stack, help_state)));
+                        }
+                        table.add_row(
+                            vec![
+                                comfy_table::Cell::new(left_col.join("\n")),
+                                Cell::new(style_description(&f.description))
+                            ],
+                        );
+                    }
+                },
+                HelpProductionType::Enum(fields) => {
+                    for f in &*fields.borrow() {
+                        table.add_row(
+                            vec![
+                                comfy_table::Cell::new(
+                                    format!(
+                                        "   {} {}",
+                                        style_literal(&f.literal),
+                                        f.pattern.render(stack, help_state)
+                                    ),
+                                ),
+                                Cell::new(style_description(&f.description))
+                            ],
+                        );
+                    }
+                },
+            }
+            table.set_constraints(vec![comfy_table::ColumnConstraint::Boundaries {
+                lower: comfy_table::Width::Percentage(20),
+                upper: comfy_table::Width::Percentage(60),
+            }]);
+            out.push_str(&table.to_string());
+            out.push_str("\n\n");
+        }
+
+        let mut help_state = HelpState::default();
+        let mut stack = Vec::<(HelpProductionKey, Rc<HelpProduction>)>::new();
+        let mut seen_productions = HashSet::<HelpProductionKey>::new();
+        let partial = (self.builder)(&mut help_state);
+
+        // Write initial partial production
+        let mut out = style_usage("Usage:");
+        if let Some(s) = &self.state.command {
+            out.push_str(" ");
+            out.push_str(&style_usage(s));
+        }
+        for s in self.state.args.iter().take(self.state.i) {
+            out.push_str(" ");
+            out.push_str(&style_usage(s));
+        }
+        let mut temp_stack = vec![];
+        match &partial.content {
+            HelpPartialContent::Pattern(p) => {
+                if !p.0.is_empty() {
+                    out.push_str(" ");
+                    out.push_str(&p.render(&mut temp_stack, &help_state));
+                }
+            },
+            HelpPartialContent::Production(content) => {
+                format_pattern(&mut out, &content);
+            },
+        }
+        out.push_str("\n\n");
+        format_desc(&mut out, &partial.description);
+        match &partial.content {
+            HelpPartialContent::Pattern(_) => {
+                out.push_str("\n\n");
+            },
+            HelpPartialContent::Production(content) => {
+                format_content(&mut out, &mut temp_stack, &mut help_state, content);
+            },
+        }
+        temp_stack.reverse();
+        stack.extend(temp_stack);
+
+        // Recurse productions
+        while let Some((key, top)) = stack.pop() {
+            if !seen_productions.insert(key) {
+                continue;
+            }
+            out.push_str(&style_id(&top.id));
+            out.push_str(":");
+            format_pattern(&mut out, &top.content);
+            out.push_str("\n\n");
+            format_desc(&mut out, &top.description);
+            let mut temp_stack = vec![];
+            format_content(&mut out, &mut temp_stack, &mut help_state, &top.content);
+            temp_stack.reverse();
+            stack.extend(temp_stack);
+        }
+        return out;
+    }
+}
+
+/// Result of varking when no errors occurred. Either results in parsed value or
+/// the parsing was interrupted because help was requested.
+pub enum VarkRet<T> {
+    Ok(T),
+    Help(VarkRetHelp),
+}
+
 /// Parse the explicitly passed in arguments - don't read application globals. The
 /// `command` is only used in help and error text.
-pub fn vark_explicit<T: AargvarkTrait>(command: Option<String>, args: Vec<String>) -> Result<T, Error> {
+pub fn vark_explicit<T: AargvarkTrait>(command: Option<String>, args: Vec<String>) -> Result<VarkRet<T>, Error> {
     let mut state = VarkState::new(command, args);
     match T::vark(&mut state) {
         R::EOF => {
             return Err(Error {
                 command: state.command,
                 args: state.args,
-                detail: ErrorDetail::Empty,
+                detail: ErrorDetail::TooLittle,
             });
         },
         R::Err => {
@@ -207,6 +409,12 @@ pub fn vark_explicit<T: AargvarkTrait>(command: Option<String>, args: Vec<String
                 detail: ErrorDetail::Incorrect(state.errors),
             });
         },
+        R::Help(builder) => {
+            return Ok(VarkRet::Help(VarkRetHelp {
+                state: state,
+                builder: builder,
+            }));
+        },
         R::Ok(v) => {
             if state.i != state.args.len() {
                 return Err(Error {
@@ -215,17 +423,25 @@ pub fn vark_explicit<T: AargvarkTrait>(command: Option<String>, args: Vec<String
                     detail: ErrorDetail::TooMuch(state.i),
                 });
             }
-            return Ok(v);
+            return Ok(VarkRet::Ok(v));
         },
     }
 }
 
-/// Parse the command line arguments into the specified type.
+/// Parse the command line arguments into the specified type. If parsing fails,
+/// prints an error to stderr and exits with code 1. See `vark_explicit` if you'd
+/// like more control (input, error handling, etc.)
 pub fn vark<T: AargvarkTrait>() -> T {
     let mut args = args();
     let command = args.next();
     match vark_explicit(command, args.collect::<Vec<String>>()) {
-        Ok(v) => return v,
+        Ok(v) => match v {
+            VarkRet::Ok(v) => return v,
+            VarkRet::Help(h) => {
+                println!("{}", h.render());
+                exit(0);
+            },
+        },
         Err(e) => {
             eprintln!("{:?}", e);
             exit(1);
@@ -236,7 +452,11 @@ pub fn vark<T: AargvarkTrait>() -> T {
 /// Anything that implements this trait can be parsed and used as a field in other
 /// parsable enums/structs.
 pub trait AargvarkTrait: Sized {
+    /// Called when this argument is reached. Should parse data until no more data can
+    /// be parsed.
     fn vark(state: &mut VarkState) -> R<Self>;
+
+    /// Called when `-h` is specified.
     fn build_help_pattern(state: &mut HelpState) -> HelpPattern;
 }
 
@@ -251,14 +471,12 @@ impl<T: AargvarkFromStr> AargvarkTrait for T {
     fn vark(state: &mut VarkState) -> R<Self> {
         let s = match state.peek() {
             PeekR::None => return R::EOF,
-            PeekR::Help => {
-                show_help_and_exit(state, |state| {
-                    return HelpPartialProduction {
-                        description: "".to_string(),
-                        content: HelpPartialContent::Pattern(<Self as AargvarkTrait>::build_help_pattern(state)),
-                    };
-                });
-            },
+            PeekR::Help => return R::Help(Box::new(|state| {
+                return HelpPartialProduction {
+                    description: "".to_string(),
+                    content: HelpPartialContent::Pattern(<Self as AargvarkTrait>::build_help_pattern(state)),
+                };
+            })),
             PeekR::Ok(s) => s,
         };
         match T::from_str(s) {
@@ -500,6 +718,7 @@ pub fn vark_from_iter<T: AargvarkTrait, C: FromIterator<T>>(state: &mut VarkStat
                 out.push(v);
                 rewind_to = state.position();
             },
+            R::Help(b) => return R::Help(b),
             R::Err | R::EOF => {
                 state.rewind(rewind_to);
                 return state.r_ok(C::from_iter(out.into_iter()));
@@ -534,7 +753,7 @@ impl<T: AargvarkTrait + Eq + Hash> AargvarkTrait for HashSet<T> {
 ///
 /// This is used for the `HashMap` implementation which takes a series of arguments
 /// like `a=a b=b c=123`.
-struct AargvarkKV<K, V> {
+pub struct AargvarkKV<K, V> {
     pub key: K,
     pub value: V,
 }
@@ -545,6 +764,7 @@ impl<K: AargvarkFromStr, V: AargvarkFromStr> AargvarkTrait for AargvarkKV<K, V> 
         let res = match res {
             R::EOF => return R::EOF,
             R::Err => return R::Err,
+            R::Help(b) => return R::Help(b),
             R::Ok(r) => r,
         };
         let mut res = res.into_bytes().into_iter();
@@ -592,6 +812,7 @@ impl<K: AargvarkFromStr + Eq + Hash, V: AargvarkFromStr> AargvarkTrait for HashM
         let res = match <Vec<AargvarkKV<K, V>>>::vark(state) {
             R::EOF => return R::EOF,
             R::Err => return R::Err,
+            R::Help(b) => return R::Help(b),
             R::Ok(r) => r,
         };
         return state.r_ok(res.into_iter().map(|kv| (kv.key, kv.value)).collect());
@@ -626,6 +847,7 @@ fn style_literal(s: impl AsRef<str>) -> String {
     return console::Style::new().bold().apply_to(s.as_ref()).to_string();
 }
 
+#[doc(hidden)]
 #[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
 pub struct HelpProductionKey {
     type_id: TypeId,
@@ -660,27 +882,32 @@ impl HelpPartialContent {
     }
 }
 
+/// State for a partially-parsed field for rendering help.
 pub struct HelpPartialProduction {
     pub description: String,
     pub content: HelpPartialContent,
 }
 
+#[doc(hidden)]
 pub enum HelpProductionType {
     Struct(Rc<RefCell<HelpProductionTypeStruct>>),
     Enum(Rc<RefCell<Vec<HelpVariant>>>),
 }
 
+#[doc(hidden)]
 pub struct HelpProductionTypeStruct {
     pub fields: Vec<HelpField>,
     pub flag_fields: Vec<HelpFlagField>,
 }
 
+#[doc(hidden)]
 pub struct HelpField {
     pub id: String,
     pub pattern: HelpPattern,
     pub description: String,
 }
 
+#[doc(hidden)]
 pub struct HelpFlagField {
     pub option: bool,
     pub flags: Vec<String>,
@@ -688,12 +915,15 @@ pub struct HelpFlagField {
     pub description: String,
 }
 
+#[doc(hidden)]
 pub struct HelpVariant {
     pub literal: String,
     pub pattern: HelpPattern,
     pub description: String,
 }
 
+/// Structured help information - this list of pattern elements that is styled and
+/// joined with spaces on output.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct HelpPattern(pub Vec<HelpPatternElement>);
 
@@ -758,6 +988,7 @@ impl HelpPatternElement {
     }
 }
 
+#[doc(hidden)]
 #[derive(Default)]
 pub struct HelpState {
     // Write during building
@@ -818,176 +1049,4 @@ impl HelpState {
         let key = self.add(type_id, type_id_variant, id, description, HelpProductionType::Enum(out.clone()));
         return (key, out);
     }
-}
-
-pub fn render_help<F: FnOnce(&mut HelpState) -> HelpPartialProduction>(state: &VarkState, build_root: F) -> String {
-    fn format_desc(out: &mut String, desc: &str) {
-        if !desc.is_empty() {
-            out.push_str(
-                &style_description(
-                    textwrap::wrap(
-                        desc,
-                        &textwrap::Options::with_termwidth().initial_indent("    ").subsequent_indent("    "),
-                    ).join("\n"),
-                ),
-            );
-            out.push_str("\n\n");
-        }
-    }
-
-    fn format_pattern(out: &mut String, content: &HelpProductionType) {
-        match content {
-            HelpProductionType::Struct(struct_) => {
-                let struct_ = struct_.borrow();
-                for f in &struct_.fields {
-                    out.push_str(" ");
-                    out.push_str(&style_id(&f.id));
-                }
-                if !struct_.flag_fields.is_empty() {
-                    let all_opt = struct_.flag_fields.iter().all(|x| x.option);
-                    out.push_str(" ");
-                    if all_opt {
-                        out.push_str(&style_logical("[ ...FLAGS]"));
-                    } else {
-                        out.push_str(&style_logical("...FLAGS"));
-                    }
-                }
-            },
-            HelpProductionType::Enum(fields) => {
-                for (i, f) in fields.borrow().iter().enumerate() {
-                    if i > 0 {
-                        out.push_str(" |");
-                    }
-                    out.push_str(" ");
-                    out.push_str(&style_literal(&f.literal));
-                }
-            },
-        }
-    }
-
-    fn format_content(
-        out: &mut String,
-        stack: &mut Vec<(HelpProductionKey, Rc<HelpProduction>)>,
-        help_state: &HelpState,
-        content: &HelpProductionType,
-    ) {
-        let mut table = comfy_table::Table::new();
-        table.load_preset(comfy_table::presets::NOTHING);
-        table.set_content_arrangement(comfy_table::ContentArrangement::Dynamic);
-        match content {
-            HelpProductionType::Struct(struct_) => {
-                let struct_ = struct_.borrow();
-                for f in &struct_.fields {
-                    table.add_row(
-                        vec![
-                            comfy_table::Cell::new(
-                                format!("   {}: {}", style_id(&f.id), f.pattern.render(stack, help_state)),
-                            ),
-                            Cell::new(style_description(&f.description))
-                        ],
-                    );
-                }
-                for f in &struct_.flag_fields {
-                    let mut left_col = vec![];
-                    for flag in &f.flags {
-                        let mut elems = vec![HelpPatternElement::Literal(flag.clone())];
-                        elems.extend(f.pattern.0.clone());
-                        left_col.push(format!("   {}", if f.option {
-                            HelpPattern(vec![HelpPatternElement::Option(HelpPattern(elems))])
-                        } else {
-                            HelpPattern(elems)
-                        }.render(stack, help_state)));
-                    }
-                    table.add_row(
-                        vec![
-                            comfy_table::Cell::new(left_col.join("\n")),
-                            Cell::new(style_description(&f.description))
-                        ],
-                    );
-                }
-            },
-            HelpProductionType::Enum(fields) => {
-                for f in &*fields.borrow() {
-                    table.add_row(
-                        vec![
-                            comfy_table::Cell::new(
-                                format!("   {} {}", style_literal(&f.literal), f.pattern.render(stack, help_state)),
-                            ),
-                            Cell::new(style_description(&f.description))
-                        ],
-                    );
-                }
-            },
-        }
-        table.set_constraints(vec![comfy_table::ColumnConstraint::Boundaries {
-            lower: comfy_table::Width::Percentage(20),
-            upper: comfy_table::Width::Percentage(60),
-        }]);
-        out.push_str(&table.to_string());
-        out.push_str("\n\n");
-    }
-
-    let mut help_state = HelpState::default();
-    let mut stack = Vec::<(HelpProductionKey, Rc<HelpProduction>)>::new();
-    let mut seen_productions = HashSet::<HelpProductionKey>::new();
-    let partial = build_root(&mut help_state);
-
-    // Write initial partial production
-    let mut out = style_usage("Usage:");
-    if let Some(s) = &state.command {
-        out.push_str(" ");
-        out.push_str(&style_literal(s));
-    }
-    for s in state.args.iter().take(state.i) {
-        out.push_str(" ");
-        out.push_str(&style_literal(s));
-    }
-    let mut temp_stack = vec![];
-    match &partial.content {
-        HelpPartialContent::Pattern(p) => {
-            if !p.0.is_empty() {
-                out.push_str(" ");
-                out.push_str(&p.render(&mut temp_stack, &help_state));
-            }
-        },
-        HelpPartialContent::Production(content) => {
-            format_pattern(&mut out, content);
-        },
-    }
-    out.push_str("\n\n");
-    format_desc(&mut out, &partial.description);
-    match &partial.content {
-        HelpPartialContent::Pattern(_) => {
-            out.push_str("\n\n");
-        },
-        HelpPartialContent::Production(content) => {
-            format_content(&mut out, &mut temp_stack, &mut help_state, content);
-        },
-    }
-    temp_stack.reverse();
-    stack.extend(temp_stack);
-
-    // Recurse productions
-    while let Some((key, top)) = stack.pop() {
-        if !seen_productions.insert(key) {
-            continue;
-        }
-        out.push_str(&style_id(&top.id));
-        out.push_str(":");
-        format_pattern(&mut out, &top.content);
-        out.push_str("\n\n");
-        format_desc(&mut out, &top.description);
-        let mut temp_stack = vec![];
-        format_content(&mut out, &mut temp_stack, &mut help_state, &top.content);
-        temp_stack.reverse();
-        stack.extend(temp_stack);
-    }
-    return out;
-}
-
-pub fn show_help_and_exit<
-    F: FnOnce(&mut HelpState) -> HelpPartialProduction,
->(state: &VarkState, build_root: F) -> ! {
-    print!("{}", render_help(state, build_root));
-    exit(0);
 }

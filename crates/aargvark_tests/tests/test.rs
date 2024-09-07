@@ -1,12 +1,13 @@
 extern crate aargvark;
 
 use {
-    std::collections::HashMap,
     aargvark::{
         vark_explicit,
-        AargvarkTrait,
         Aargvark,
+        AargvarkTrait,
+        VarkRet,
     },
+    std::collections::HashMap,
 };
 
 macro_rules! svec{
@@ -17,13 +18,17 @@ macro_rules! svec{
 
 #[test]
 fn t_str() {
-    let v: String = vark_explicit(None, svec!["a"]).unwrap();
+    let VarkRet::Ok(v) = vark_explicit::<String>(None, svec!["a"]).unwrap() else {
+        panic!();
+    };
     assert_eq!(v, "a");
 }
 
 #[test]
 fn t_vec() {
-    let v: Vec<String> = vark_explicit(None, svec!["a", "b"]).unwrap();
+    let VarkRet::Ok(v) = vark_explicit::<Vec<String>>(None, svec!["a", "b"]).unwrap() else {
+        panic!();
+    };
     assert_eq!(v, svec!["a", "b"]);
 }
 
@@ -34,7 +39,9 @@ fn t_enum_unit() {
         ToqQuol,
     }
 
-    let v: Yol = vark_explicit(None, svec!["toq-quol"]).unwrap();
+    let VarkRet::Ok(v) = vark_explicit::<Yol>(None, svec!["toq-quol"]).unwrap() else {
+        panic!();
+    };
     assert_eq!(v, Yol::ToqQuol);
 }
 
@@ -45,7 +52,9 @@ fn t_enum_tuple() {
         ToqQuol(String, String),
     }
 
-    let v: Yol = vark_explicit(None, svec!["toq-quol", "yon", "nor"]).unwrap();
+    let VarkRet::Ok(v) = vark_explicit::<Yol>(None, svec!["toq-quol", "yon", "nor"]).unwrap() else {
+        panic!();
+    };
     assert_eq!(v, Yol::ToqQuol("yon".into(), "nor".into()));
 }
 
@@ -58,7 +67,9 @@ fn t_enum_struct() {
         },
     }
 
-    let v: Yol = vark_explicit(None, svec!["toq-quol", "pahla"]).unwrap();
+    let VarkRet::Ok(v) = vark_explicit::<Yol>(None, svec!["toq-quol", "pahla"]).unwrap() else {
+        panic!();
+    };
     assert_eq!(v, Yol::ToqQuol { a: "pahla".into() });
 }
 
@@ -69,7 +80,9 @@ fn t_struct() {
         a: String,
     }
 
-    let v: Naya = vark_explicit(None, svec!["wowo"]).unwrap();
+    let VarkRet::Ok(v) = vark_explicit::<Naya>(None, svec!["wowo"]).unwrap() else {
+        panic!();
+    };
     assert_eq!(v, Naya { a: "wowo".into() });
 }
 
@@ -80,7 +93,9 @@ fn t_struct_opt_only() {
         a: Option<String>,
     }
 
-    let v: Naya = vark_explicit(None, svec!["--a", "wowo"]).unwrap();
+    let VarkRet::Ok(v) = vark_explicit::<Naya>(None, svec!["--a", "wowo"]).unwrap() else {
+        panic!();
+    };
     assert_eq!(v, Naya { a: Some("wowo".into()) });
 }
 
@@ -92,7 +107,9 @@ fn t_struct_opt_first() {
         a: Option<String>,
     }
 
-    let v: Naya = vark_explicit(None, svec!["--a", "wowo", "noh"]).unwrap();
+    let VarkRet::Ok(v) = vark_explicit::<Naya>(None, svec!["--a", "wowo", "noh"]).unwrap() else {
+        panic!();
+    };
     assert_eq!(v, Naya {
         b: "noh".into(),
         a: Some("wowo".into()),
@@ -107,7 +124,9 @@ fn t_struct_opt_last() {
         a: Option<String>,
     }
 
-    let v: Naya = vark_explicit(None, svec!["noh", "--a", "wowo"]).unwrap();
+    let VarkRet::Ok(v) = vark_explicit::<Naya>(None, svec!["noh", "--a", "wowo"]).unwrap() else {
+        panic!();
+    };
     assert_eq!(v, Naya {
         b: "noh".into(),
         a: Some("wowo".into()),
@@ -121,13 +140,17 @@ fn t_generic() {
         b: Option<T>,
     }
 
-    let v: Naya<String> = vark_explicit(None, svec!["--b", "hi"]).unwrap();
+    let VarkRet::Ok(v) = vark_explicit::<Naya<String>>(None, svec!["--b", "hi"]).unwrap() else {
+        panic!();
+    };
     assert_eq!(v, Naya { b: Some("hi".to_string()) });
 }
 
 #[test]
 fn t_map() {
-    let v = vark_explicit::<HashMap<String, i32>>(None, svec!["a=2", "b=3"]).unwrap();
+    let VarkRet::Ok(v) = vark_explicit::<HashMap<String, i32>>(None, svec!["a=2", "b=3"]).unwrap() else {
+        panic!();
+    };
     assert_eq!(v, {
         let mut m = HashMap::new();
         m.insert("a".to_string(), 2);
@@ -142,7 +165,9 @@ fn t_docstring() {
     /// This is a naya
     struct Naya {}
 
-    let v: Naya = vark_explicit(None, svec![]).unwrap();
+    let VarkRet::Ok(v) = vark_explicit::<Naya>(None, svec![]).unwrap() else {
+        panic!();
+    };
     assert_eq!(v, Naya {});
 }
 
@@ -157,7 +182,9 @@ fn t_varkattr() {
         f: Option<i32>,
     }
 
-    let v: Naya = vark_explicit(None, svec!["--g", "3"]).unwrap();
+    let VarkRet::Ok(v) = vark_explicit::<Naya>(None, svec!["--g", "3"]).unwrap() else {
+        panic!();
+    };
     assert_eq!(v, Naya { f: Some(3) });
 }
 
@@ -170,7 +197,9 @@ fn t_flag_nonopt() {
         a: String,
     }
 
-    let v: Naya = vark_explicit(None, svec!["--a", "wowo", "noh"]).unwrap();
+    let VarkRet::Ok(v) = vark_explicit::<Naya>(None, svec!["--a", "wowo", "noh"]).unwrap() else {
+        panic!();
+    };
     assert_eq!(v, Naya {
         b: "noh".into(),
         a: "wowo".into(),
@@ -187,7 +216,9 @@ fn t_flag_2_nonopt_ord1() {
         b: String,
     }
 
-    let v: Naya = vark_explicit(None, svec!["--a", "wowo", "--b", "noh"]).unwrap();
+    let VarkRet::Ok(v) = vark_explicit::<Naya>(None, svec!["--a", "wowo", "--b", "noh"]).unwrap() else {
+        panic!();
+    };
     assert_eq!(v, Naya {
         a: "wowo".into(),
         b: "noh".into(),
@@ -204,7 +235,9 @@ fn t_flag_2_nonopt_ord2() {
         b: String,
     }
 
-    let v: Naya = vark_explicit(None, svec!["--b", "noh", "--a", "wowo"]).unwrap();
+    let VarkRet::Ok(v) = vark_explicit::<Naya>(None, svec!["--b", "noh", "--a", "wowo"]).unwrap() else {
+        panic!();
+    };
     assert_eq!(v, Naya {
         a: "wowo".into(),
         b: "noh".into(),
