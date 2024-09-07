@@ -1,7 +1,7 @@
 [package]
 name = "aargvark_proc_macros"
 description = "Helper crate for aargvark"
-version = "3.0.1"
+version = "3.0.2"
 edition.workspace = true
 license.workspace = true
 homepage.workspace = true
