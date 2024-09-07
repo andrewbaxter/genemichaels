@@ -1,3 +1,13 @@
+<table align="right"><tr><td>
+
+![Crates.io Version](https://img.shields.io/crates/v/aargvark)
+
+</td><td>
+
+![docs.rs](https://img.shields.io/docsrs/aargvark)
+
+</td></tr></table>
+
 A simple and consistent derive-based command line argument parsing, in the same genre as Clap-derive. It currently supports
 
 - Command line parsing
