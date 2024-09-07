@@ -28,6 +28,7 @@ use {
             SocketAddrV4,
             SocketAddrV6,
         },
+        ops::Deref,
         path::PathBuf,
     },
 };
@@ -410,6 +411,7 @@ impl<K: AargvarkFromStr + Eq + std::hash::Hash, V: AargvarkFromStr> AargvarkTrai
 /// with `-`. Having an argument of `Vec<String>` will cause it to consume all
 /// remaining arguments (since all of them are valid strings), while `Vec<NotFlag>`
 /// will only consume until the next flag (or the end of the arguments).
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct NotFlag(pub String);
 
 impl AargvarkFromStr for NotFlag {
@@ -428,6 +430,14 @@ impl AargvarkFromStr for NotFlag {
 impl ToString for NotFlag {
     fn to_string(&self) -> String {
         return self.0.clone();
+    }
+}
+
+impl Deref for NotFlag {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        return &self.0;
     }
 }
 
