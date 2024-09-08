@@ -351,7 +351,7 @@ impl<K: AargvarkFromStr, V: AargvarkFromStr> AargvarkTrait for AargvarkKV<K, V> 
             R::Help(b) => return R::Help(b),
             R::Ok(r) => r,
         };
-        let mut res = res.into_bytes().into_iter();
+        let mut res = res.chars().into_iter();
         let mut k = vec![];
         let mut escape = false;
         for c in &mut res {
@@ -359,24 +359,20 @@ impl<K: AargvarkFromStr, V: AargvarkFromStr> AargvarkTrait for AargvarkKV<K, V> 
                 k.push(c);
                 escape = false;
             } else {
-                if c == b'\\' {
+                if c == '\\' {
                     escape = true;
-                } else if c == b'=' {
+                } else if c == '=' {
                     break;
                 } else {
                     k.push(c);
                 }
             }
         }
-        let key = match K::from_str(&unsafe {
-            String::from_utf8_unchecked(k)
-        }) {
+        let key = match K::from_str(&k.into_iter().collect::<String>()) {
             Ok(r) => r,
             Err(e) => return state.r_err(format!("Error parsing map key: {}", e)),
         };
-        let value = match V::from_str(&unsafe {
-            String::from_utf8_unchecked(res.collect())
-        }) {
+        let value = match V::from_str(&res.collect::<String>()) {
             Ok(r) => r,
             Err(e) => return state.r_err(format!("Error parsing map value: {}", e)),
         };
