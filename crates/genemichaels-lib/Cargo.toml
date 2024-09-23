@@ -8,7 +8,7 @@ repository.workspace = true
 readme.workspace = true
 
 [dependencies]
-markdown = { version = "1.0.0-alpha.12" }
+markdown = { version = "1.0.0-alpha.21" }
 proc-macro2 = { version = "1", features = ["span-locations"] }
 quote = "1"
 structre = "0.0"
