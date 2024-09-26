@@ -680,7 +680,7 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
                 recurse_write(state, out, line.clone_zero_indent(), child, false);
             }
         },
-        Node::BlockQuote(x) => {
+        Node::Blockquote(x) => {
             let line = line.clone_indent(None, "> ".into(), false);
             for (i, child) in x.children.iter().enumerate() {
                 if i > 0 {

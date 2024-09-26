@@ -1,14 +1,14 @@
 [package]
 name = "genemichaels-lib"
 description = "Makes your code formatty, the library"
-version.workspace = true
+version = "0.5.2"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 readme.workspace = true
 
 [dependencies]
-markdown = { version = "1.0.0-alpha.12" }
+markdown = { version = "=1.0.0-alpha.21" }
 proc-macro2 = { version = "1", features = ["span-locations"] }
 quote = "1"
 syn = { workspace = true }
