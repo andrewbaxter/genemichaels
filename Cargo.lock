@@ -4,9 +4,9 @@ version = 3
 
 [[package]]
 name = "aargvark"
-version = "0.4.6"
+version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d15674d1e6099248639df9d6ba7e505bf77616d5e1eef67e02c465402d4a3ef8"
+checksum = "648957b1bf8a8552588a78a957e2401f3ff5897dc506ef7b2a3c50613e290af9"
 dependencies = [
  "aargvark_proc_macros",
  "comfy-table",
@@ -18,9 +18,9 @@ dependencies = [
 
 [[package]]
 name = "aargvark_proc_macros"
-version = "3.0.2"
+version = "3.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2cfd51e41cab8e42fecdd78dca77469b72e7038f7c10040cf09af8f50a86a8f9"
+checksum = "93dd5d8e65ff88af0ae1a5f5e450e2c24d4c9a560604815ce9d302c82d307f03"
 dependencies = [
  "convert_case 0.6.0",
  "darling",
