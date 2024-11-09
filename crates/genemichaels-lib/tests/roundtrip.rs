@@ -401,3 +401,11 @@ fn rt_labeled_block() {
 }
 "#);
 }
+
+#[test]
+fn rt_self_type() {
+    rt(r#"impl Something {
+    fn something(self: i32) { }
+}
+"#);
+}

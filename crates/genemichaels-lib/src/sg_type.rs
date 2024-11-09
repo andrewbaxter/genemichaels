@@ -670,33 +670,40 @@ impl Formattable for FnArg {
                 base_indent,
                 &x.attrs,
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut sg = new_sg(out);
-                    let mut need_space = false;
-                    if let Some(y) = &x.reference {
-                        append_whitespace(out, base_indent, &mut sg, y.0.span.start());
-                        sg.seg(out, "&");
-                        if let Some(lt) = &y.1 {
-                            append_whitespace(out, base_indent, &mut sg, lt.apostrophe.start());
-                            sg.seg(out, lt.to_string());
+                    let build_self = |out: &mut MakeSegsState, base_indent: &Alignment| {
+                        let mut sg = new_sg(out);
+                        let mut need_space = false;
+                        if let Some(y) = &x.reference {
+                            append_whitespace(out, base_indent, &mut sg, y.0.span.start());
+                            sg.seg(out, "&");
+                            if let Some(lt) = &y.1 {
+                                append_whitespace(out, base_indent, &mut sg, lt.apostrophe.start());
+                                sg.seg(out, lt.to_string());
+                                need_space = true;
+                            }
+                        }
+                        if let Some(y) = &x.mutability {
+                            append_whitespace(out, base_indent, &mut sg, y.span.start());
+                            sg.seg(out, format!("{}mut", if need_space {
+                                " "
+                            } else {
+                                ""
+                            }));
                             need_space = true;
                         }
-                    }
-                    if let Some(y) = &x.mutability {
-                        append_whitespace(out, base_indent, &mut sg, y.span.start());
-                        sg.seg(out, format!("{}mut", if need_space {
+                        append_whitespace(out, base_indent, &mut sg, x.self_token.span.start());
+                        sg.seg(out, format!("{}self", if need_space {
                             " "
                         } else {
                             ""
                         }));
-                        need_space = true;
-                    }
-                    append_whitespace(out, base_indent, &mut sg, x.self_token.span.start());
-                    sg.seg(out, format!("{}self", if need_space {
-                        " "
+                        sg.build(out)
+                    };
+                    if let Some(colon) = &x.colon_token {
+                        return new_sg_binary(out, base_indent, build_self, colon.span.start(), ":", x.ty.as_ref());
                     } else {
-                        ""
-                    }));
-                    sg.build(out)
+                        return build_self(out, base_indent);
+                    }
                 },
             ),
             FnArg::Typed(x) => new_sg_outer_attrs(
