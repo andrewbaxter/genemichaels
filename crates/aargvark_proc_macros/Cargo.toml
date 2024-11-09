@@ -13,8 +13,8 @@ proc-macro = true
 
 [dependencies]
 convert_case = "0.6"
-darling = "0.20.10"
-genemichaels-lib = "0.5.2"
+darling = "0.20"
+genemichaels-lib = "0.5"
 proc-macro2 = "1"
 quote = "1"
 syn = "2"
