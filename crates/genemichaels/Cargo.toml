@@ -1,7 +1,7 @@
 [package]
 name = "genemichaels"
 description = "Makes your code formatty"
-version = "0.5.3"
+version = "0.5.4"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
