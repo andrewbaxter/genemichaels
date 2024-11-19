@@ -24,7 +24,7 @@ checksum = "93dd5d8e65ff88af0ae1a5f5e450e2c24d4c9a560604815ce9d302c82d307f03"
 dependencies = [
  "convert_case 0.6.0",
  "darling",
- "genemichaels-lib 0.5.3",
+ "genemichaels-lib 0.5.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "proc-macro2",
  "quote",
  "syn",
@@ -313,14 +313,13 @@ dependencies = [
 
 [[package]]
 name = "genemichaels-lib"
-version = "0.5.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d4ad56828df6478049a9a5120724d1fde6ec227da8d675bc3aa7a7b09b40052"
+version = "0.5.4"
 dependencies = [
  "cargo-manifest",
  "derive_more",
  "loga",
  "markdown",
+ "pretty_assertions",
  "proc-macro2",
  "quote",
  "regex",
@@ -332,12 +331,13 @@ dependencies = [
 [[package]]
 name = "genemichaels-lib"
 version = "0.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bfcce635b55fbb80276977fd06a6610600705951d7a2fcd88bf4edb990621269"
 dependencies = [
  "cargo-manifest",
  "derive_more",
  "loga",
  "markdown",
- "pretty_assertions",
  "proc-macro2",
  "quote",
  "regex",
