@@ -18,3 +18,6 @@ loga = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 regex = "1"
+
+[dev-dependencies]
+pretty_assertions = "1"

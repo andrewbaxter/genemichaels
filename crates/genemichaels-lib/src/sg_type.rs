@@ -117,7 +117,7 @@ pub(crate) fn append_path<
         if i > 0 {
             node.split(out, indent.clone(), true);
         }
-        if let Some(d) = prefix {
+        if let Some(d) = prefix.take() {
             if let Some(t) = d {
                 append_whitespace(out, base_indent, node, t);
             };
@@ -514,7 +514,7 @@ impl Formattable for &Type {
                     sg.seg(out, "extern ");
                     if let Some(name) = &abi.name {
                         append_whitespace(out, base_indent, &mut sg, name.span().start());
-                        sg.seg(out, name.to_token_stream().to_string());
+                        sg.seg(out, format!("{} ", name.to_token_stream()));
                     }
                 }
                 append_whitespace(out, base_indent, &mut sg, x.fn_token.span.start());
@@ -585,11 +585,14 @@ impl Formattable for &Type {
             },
             Type::Reference(x) => {
                 let mut node = new_sg(out);
+                append_whitespace(out, base_indent, &mut node, x.and_token.span.start());
                 node.seg(out, "&");
                 if let Some(l) = &x.lifetime {
+                    append_whitespace(out, base_indent, &mut node, l.span().start());
                     node.seg(out, format!("{} ", l));
                 }
-                if x.mutability.is_some() {
+                if let Some(m) = &x.mutability {
+                    append_whitespace(out, base_indent, &mut node, m.span.start());
                     node.seg(out, "mut ");
                 }
                 node.child(x.elem.make_segs(out, base_indent));

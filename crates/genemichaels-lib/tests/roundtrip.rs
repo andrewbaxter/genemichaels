@@ -12,23 +12,7 @@ fn rt(text: &str) {
         ..Default::default()
     }).unwrap();
     assert!(res.lost_comments.is_empty(), "Comments remain: {:?}", res.lost_comments);
-    assert!(
-        text == res.rendered,
-        "Formatted text changed:\n\nBefore:\n{}\n\nAfter:\n{}\n",
-        text
-            .lines()
-            .enumerate()
-            .map(|(line, text)| format!("{:>03} {}", line, text))
-            .collect::<Vec<String>>()
-            .join("\n"),
-        res
-            .rendered
-            .lines()
-            .enumerate()
-            .map(|(line, text)| format!("{:>03} {}", line, text))
-            .collect::<Vec<String>>()
-            .join("\n")
-    );
+    pretty_assertions::assert_str_eq!(text, res.rendered);
 }
 
 #[test]
@@ -299,6 +283,22 @@ fn rt_comment_before_label1() {
 }
 
 #[test]
+fn rt_comment_x() {
+    // https://github.com/andrewbaxter/genemichaels/issues/89
+    rt(
+        r#"fn get_valid_selection(get_actual_edit_transaction: impl Fn(
+    // current
+    &Selection,
+    // next
+    &Selection,
+) -> anyhow::Result<EditTransaction>) -> anyhow::Result<Either<Selection, EditTransaction>> {
+    todo!()
+}
+"#,
+    );
+}
+
+#[test]
 fn rt_trait1() {
     rt(
         r#"pub trait MyTrait<T, D>: Sized
@@ -384,6 +384,14 @@ fn rt_match_attr_indent1() {
 fn rt_extern_c_static1() {
     rt(r#"extern "C" {
     static X: Y;
+}
+"#);
+}
+
+#[test]
+fn rt_extern_c_type1() {
+    rt(r#"fn main() {
+    let language_fn: Symbol<unsafe extern "C" fn() -> Language> = x;
 }
 "#);
 }
