@@ -4,7 +4,7 @@ description = "Self-similar argument parsing"
 version = "0.6.5"
 edition.workspace = true
 license.workspace = true
-repository = "https://github.com/andrewbaxter/aargvark"
+repository = "https://github.com/andrewbaxter/genemichaels"
 readme = "../../readme_aargvark.md"
 
 [package.metadata.docs.rs]
