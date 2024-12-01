@@ -4,8 +4,8 @@ description = "Makes your code formatty, the library"
 version = "0.5.4"
 edition.workspace = true
 license.workspace = true
-repository.workspace = true
-readme.workspace = true
+repository = "https://github.com/andrewbaxter/genemichaels"
+readme = "../../readme_genemichaels.md"
 
 [dependencies]
 markdown = { version = "=1.0.0-alpha.21" }

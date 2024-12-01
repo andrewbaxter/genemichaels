@@ -138,7 +138,7 @@ pub(crate) fn line_length(out: &MakeSegsState, lines: &Lines, line_i: LineIdx) -
             SegmentContent::Text(t) => len += t.chars().count(),
             SegmentContent::Break(b, _) => {
                 if out.nodes.get(seg.node.0).unwrap().split {
-                    len += b.get();
+                    len += b.get(&out.config);
                 }
             },
             SegmentContent::Whitespace(_) => { },
@@ -186,11 +186,11 @@ pub(crate) fn split_line_at(
         match &seg.content {
             SegmentContent::Break(a, activate) => {
                 if *activate {
-                    a.activate();
+                    a.activate(&out.config);
                 }
             },
             SegmentContent::Whitespace((a, _)) => {
-                a.activate();
+                a.activate(&out.config);
             },
             _ => { },
         };
@@ -261,20 +261,20 @@ impl Alignment {
         })))
     }
 
-    pub(crate) fn activate(&self) -> usize {
+    pub(crate) fn activate(&self, config: &FormatConfig) -> usize {
         self.0.borrow_mut().active = true;
-        self.get()
+        self.get(config)
     }
 
-    pub(crate) fn get(&self) -> usize {
+    pub(crate) fn get(&self, config: &FormatConfig) -> usize {
         let parent = match &self.0.as_ref().borrow().parent {
-            Some(p) => p.get(),
+            Some(p) => p.get(config),
             None => {
                 return 0usize;
             },
         };
         if self.0.as_ref().borrow_mut().active {
-            4usize + parent
+            config.indent_spaces + parent
         } else {
             parent
         }
@@ -472,6 +472,7 @@ pub struct FormatConfig {
     pub comment_width: Option<usize>,
     pub comment_errors_fatal: bool,
     pub keep_max_blank_lines: usize,
+    pub indent_spaces: usize,
 }
 
 impl Default for FormatConfig {
@@ -485,6 +486,7 @@ impl Default for FormatConfig {
             comment_width: Some(80usize),
             comment_errors_fatal: false,
             keep_max_blank_lines: 0,
+            indent_spaces: 4,
         }
     }
 }
@@ -738,11 +740,11 @@ pub fn format_ast(
                             break 'continue_lineloop;
                         }
                         if *activate {
-                            b.activate();
+                            b.activate(&config);
                         }
                         if segs.len() > 1 {
                             // if empty line (=just break), don't write indent
-                            push!(&" ".repeat(b.get()));
+                            push!(&" ".repeat(b.get(&config)));
                         }
                     },
                     SegmentContent::Whitespace((b, whitespaces)) => {
@@ -760,7 +762,7 @@ pub fn format_ast(
                                     if comment_i > 0 {
                                         push!("\n");
                                     }
-                                    let prefix = format!("{}//{} ", " ".repeat(b.get()), match comment.mode {
+                                    let prefix = format!("{}//{} ", " ".repeat(b.get(&config)), match comment.mode {
                                         CommentMode::Normal => "",
                                         CommentMode::DocInner => "!",
                                         CommentMode::DocOuter => "/",

@@ -1,12 +1,10 @@
 [workspace]
 resolver = "2"
-members = ["crates/genemichaels", "crates/genemichaels-lib"]
+members = ["crates/*"]
 
 [workspace.package]
 edition = "2021"
 license = "ISC"
-repository = "https://github.com/andrewbaxter/genemichaels"
-readme = "readme.md"
 
 [workspace.dependencies]
 syn = { version = "2", features = ["full"] }
