@@ -1,0 +1,11 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+edition = "2021"
+license = "ISC"
+description = "Self-similar argument parsing"
+homepage = "https://github.com/andrewbaxter/aargvark"
+repository = "https://github.com/andrewbaxter/aargvark"
+readme = "readme.md"

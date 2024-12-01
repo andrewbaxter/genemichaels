@@ -1,0 +1,6 @@
+[package]
+name = "aargvark_tests"
+publish = false
+
+[dependencies]
+aargvark = { path = "../aargvark" }
