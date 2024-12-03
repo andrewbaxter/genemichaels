@@ -417,3 +417,10 @@ fn rt_self_type() {
 }
 "#);
 }
+
+#[test]
+fn rt_skip_shebang() {
+    rt(r#"#!#[cfg(test)]
+fn main() { }
+"#);
+}

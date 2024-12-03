@@ -500,19 +500,46 @@ pub struct FormatRes {
 pub use whitespace::extract_whitespaces;
 
 pub fn format_str(source: &str, config: &FormatConfig) -> Result<FormatRes, loga::Error> {
+    let shebang;
+    let shebang_line_off;
+    let source1;
+    if source.starts_with("#!") {
+        let shebang_end = match source.find("\n") {
+            Some(o) => o + 1,
+            None => source.len(),
+        };
+        shebang = Some(&source[..shebang_end]);
+        source1 = &source[shebang_end..];
+        shebang_line_off = 1;
+    } else {
+        shebang = None;
+        source1 = source;
+        shebang_line_off = 0;
+    }
+    let source = source1;
     let (whitespaces, tokens) = extract_whitespaces(config.keep_max_blank_lines, source)?;
-    format_ast(
-        syn::parse2::<File>(
-            tokens,
-        ).map_err(
-            |e| loga::err_with(
-                "Syn error parsing Rust code",
-                ea!(line = e.span().start().line, column = e.span().start().column, err = e),
-            ),
-        )?,
-        config,
-        whitespaces,
-    )
+    let out =
+        format_ast(
+            syn::parse2::<File>(
+                tokens,
+            ).map_err(
+                |e| loga::err_with(
+                    "Syn error parsing Rust code",
+                    ea!(line = e.span().start().line + shebang_line_off, column = e.span().start().column, err = e),
+                ),
+            )?,
+            config,
+            whitespaces,
+        )?;
+    if let Some(shebang) = shebang {
+        return Ok(FormatRes {
+            rendered: format!("{}{}", shebang, out.rendered),
+            lost_comments: out.lost_comments,
+            warnings: out.warnings,
+        });
+    } else {
+        return Ok(out);
+    }
 }
 
 pub fn format_ast(
