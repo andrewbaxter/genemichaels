@@ -12,45 +12,69 @@ Generally speaking this is intended to make CLI parsing simple by virtue of bein
 
 This attempts to support parsing arbitrarily complex command line arguments. Like with Serde, you can combine structs, vecs, enums in any way you want. Just because you can doesn't mean you should.
 
+A definition like:
+
+```rust
+#[derive(Aargvark)]
+struct RestartArgs {
+    message: String,
+}
+
+#[derive(Aargvark)]
+struct StopArgs {
+    message: String,
+    force: bool,
+}
+
+#[derive(Aargvark)]
+#[vark(break_help)]
+enum Command {
+    Start,
+    Restart(RestartArgs),
+    Stop(StopArgs),
+}
+
+#[derive(Aargvark)]
+struct Args {
+    debug: Option<()>,
+    config: Option<PathBuf>,
+    server_name: String,
+    command: Command,
+}
+
+let args = aargvark::vark::<Args>();
 ```
-$ ; This is an example help output, sans light ansi styling
-$ spagh -h
-Usage: spagh COMMAND [ ...FLAGS]
 
-    A small CLI for querying, publishing, and administrating spaghettinuum.
+Produces this output:
 
+```
+$ ; (The real thing is colored too)
+$ ultrathon -h
+Usage: ultrathon SERVER-NAME COMMAND [ ...FLAGS]
+
+    This is an example of a command, with explanations taken from docstrings.
+
+    SERVER-NAME: <STRING>               Name of server in config to run command on
     COMMAND: COMMAND
-    [--debug]
+    [--debug]                           Enable verbose log output
+    [--config <PATH>]                   Path to servers config JSON
 
-COMMAND: ping | get | http | ssh | identity | publish | admin
+COMMAND: start | restart | stop
 
-    ping ...      Simple liveness check
-    get ...       Request values associated with provided identity and keys
-                  from a resolver
-    http ...
-    ssh ...
-    identity ...  Commands for managing identities
-    publish ...   Commands for publishing data
-    admin ...     Commands for node administration
+    start ...
+    restart ...
+    stop ...
 
 ```
 
 ```
-$ spagh publish set -h
-Usage: spagh publish set IDENTITY DATA
+$ ultrathon bootleg-server stop -h
+Usage: ultrathon bootleg-server stop MESSAGE FORCE
 
-    IDENTITY: IDENTITY-SECRET-ARG  Identity to publish as
-    DATA: <PATH> | -               Data to publish.  Must be json in the
-                                   structure `{KEY: {"ttl": MINUTES, "value":
-                                   DATA}, ...}`. `KEY` is a string that's a
-                                   dotted list of key segments, with `/` to
-                                   escape dots and escape characters.
+    Stop all tasks, then stop the server.
 
-IDENTITY-SECRET-ARG: local
-
-    An identity with its associated secret.
-
-    local <PATH>  A file containing a generated key
+    MESSAGE: <STRING>                   Message to send users before stopping.
+    [--force]                           Force the server to stop even if there are pending tasks.
 
 ```
 
@@ -66,7 +90,7 @@ Why not this?
 
 - It's newer, with fewer features and limited community ecosystem, extensions
 - Some command line parsing conventions were discarded in order to simplify and maintain self-similarity. A lot of command line conventions are inconsistent or break down as you nest things, after all.
-- Quirky CLI parsing generally isn't supported: Some tricks (like `-v` `-vv` `-vvv`) break patterns and probably won't ever be implemented. (Other things just haven't been implemented yet due to lack of time)
+- Quirky CLI parsing generally isn't supported.
 
 # Conventions and usage
 
