@@ -212,7 +212,7 @@ fn gen_impl_unnamed(
                         #help_placeholder,
                         #help_docstr
                     );
-                    let mut struct_ = struct_.borrow_mut();
+                    let mut struct_ = struct_.as_ref().borrow_mut();
                     #(#help_fields) * 
                     //. .
                     a:: HelpPattern(vec![a::HelpPatternElement::Reference(key)])
@@ -528,7 +528,7 @@ fn gen_impl_struct(
                             #help_placeholder,
                             #help_docstr
                         );
-                        let mut struct_ = struct_.borrow_mut();
+                        let mut struct_ = struct_.as_ref().borrow_mut();
                         #(#help_fields) * 
                         //. .
                         a:: HelpPattern(vec![a::HelpPatternElement::Reference(key)])
@@ -690,7 +690,7 @@ fn gen_impl(ast: syn::DeriveInput) -> Result<TokenStream, syn::Error> {
                     key,
                     variants
                 ) = state.add_enum(std::any::TypeId::of::<Self>(), 0, #help_placeholder, #help_docstr);
-                let mut variants = variants.borrow_mut();
+                let mut variants = variants.as_ref().borrow_mut();
                 #(#help_variants) * 
                 //. .
                 return a:: HelpPattern(vec![a::HelpPatternElement::Reference(key)]);
