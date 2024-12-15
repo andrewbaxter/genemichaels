@@ -726,26 +726,3 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         Err(e) => e.to_compile_error(),
     }.into();
 }
-
-#[cfg(test)]
-mod tests {
-    use genemichaels_lib::FormatConfig;
-    use quote::quote;
-    use crate::gen_impl;
-
-    /// Used for debugging only, ignore
-    #[test]
-    fn dump() {
-        let got = gen_impl(syn::parse2(quote!{
-            #[derive(Aargvark, PartialEq, Debug)]
-            struct Naya {
-                b: Option<()>,
-            }
-        }).unwrap()).unwrap();
-        let cfg = FormatConfig::default();
-        let mut s =
-            [&got].into_iter().map(|s| genemichaels_lib::format_str(&s.to_string(), &cfg)).collect::<Vec<_>>();
-        let got = s.remove(0).expect(&format!("Failed to format got code:\n{}", got.to_string())).rendered;
-        panic!("{}", got);
-    }
-}
