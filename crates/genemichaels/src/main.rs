@@ -337,7 +337,7 @@ impl FormatPool {
 
     fn process_file(&mut self, file: PathBuf) {
         let log = self.log.fork(ea!(file = file.to_string_lossy()));
-        log.log_with(loga::INFO, "Formatting file", ea!());
+        log.log_with(loga::INFO, "Processing file", ea!());
         let config = self.config.clone();
         let errors = self.errors.clone();
         self.pool.execute(move || {
@@ -348,10 +348,11 @@ impl FormatPool {
                     log.log_with(loga::INFO, "Skipping due to skip comment", ea!());
                     return Ok(());
                 }
-                fs::write(
-                    &file,
-                    process_file_contents(log, &config, &source).context("Error doing formatting")?.as_bytes(),
-                ).context("Error writing formatted code back")?;
+                let processed = process_file_contents(log, &config, &source).context("Error doing formatting")?;
+                if source != processed {
+                    log.log_with(loga::INFO, "Writing newly formatted file", ea!());
+                    fs::write(&file, processed.as_bytes()).context("Error writing formatted code back")?;
+                }
                 return Ok(());
             }).stack_context(log, "Error formatting file");
             match res {
