@@ -213,7 +213,7 @@ pub struct AargvarkJson<T> {
 impl<T: for<'a> serde::Deserialize<'a>> AargvarkFromStr for AargvarkJson<T> {
     fn from_str(s: &str) -> Result<Self, String> {
         let b = AargvarkFile::from_str(s)?;
-        match serde_json::from_slice(&b.value) {
+        match serde_path_to_error::deserialize(&mut serde_json::Deserializer::from_slice(&b.value)) {
             Ok(v) => return Ok(Self {
                 value: v,
                 source: b.source,
@@ -258,7 +258,7 @@ pub struct AargvarkYaml<T> {
 impl<T: for<'a> serde::Deserialize<'a>> AargvarkFromStr for AargvarkYaml<T> {
     fn from_str(s: &str) -> Result<Self, String> {
         let b = AargvarkFile::from_str(s)?;
-        match serde_yaml::from_slice(&b.value) {
+        match serde_path_to_error::deserialize(serde_yaml::Deserializer::from_slice(&b.value)) {
             Ok(v) => return Ok(Self {
                 value: v,
                 source: b.source,
