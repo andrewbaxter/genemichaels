@@ -515,7 +515,6 @@ pub(crate) fn append_macro_body(
                                     TokenTree::Ident(_) |
                                     TokenTree::Literal(_) => match p.as_char() {
                                         ':' => false,
-                                        '*' => false,
                                         _ => true,
                                     },
                                     TokenTree::Punct(prev_p) => prev_p.span().end() != p.span().start(),

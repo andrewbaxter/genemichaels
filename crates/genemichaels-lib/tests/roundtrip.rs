@@ -104,8 +104,8 @@ fn rt_pat_field1() {
 
 #[test]
 fn rt_macro1() {
-    rt(r#"macro_rules! err(($l: expr, $($args: tt)*) => {
-    log!($l, slog::Level::Error, "", $($args)*)
+    rt(r#"macro_rules! err(($l: expr, $($args: tt) *) => {
+    log!($l, slog::Level::Error, "", $($args) *)
 });
 "#);
 }
@@ -138,7 +138,7 @@ fn rt_macro_star_equal() {
 
 #[test]
 fn rt_macro_star_equal_gt() {
-    rt(r#"x!(a* => b);
+    rt(r#"x!(a * => b);
 "#);
 }
 
