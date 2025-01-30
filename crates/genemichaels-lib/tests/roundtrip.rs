@@ -1,5 +1,4 @@
 #![cfg(test)]
-
 use genemichaels_lib::{
     format_str,
     FormatConfig,
@@ -105,8 +104,8 @@ fn rt_pat_field1() {
 
 #[test]
 fn rt_macro1() {
-    rt(r#"macro_rules! err(($l: expr, $($args: tt) *) => {
-    log!($l, slog::Level::Error, "", $($args) *)
+    rt(r#"macro_rules! err(($l: expr, $($args: tt)*) => {
+    log!($l, slog::Level::Error, "", $($args)*)
 });
 "#);
 }
@@ -134,6 +133,12 @@ fn rt_macro_blockcomma() {
 #[test]
 fn rt_macro_star_equal() {
     rt(r#"x!(a *= b);
+"#);
+}
+
+#[test]
+fn rt_macro_star_equal_gt() {
+    rt(r#"x!(a* => b);
 "#);
 }
 

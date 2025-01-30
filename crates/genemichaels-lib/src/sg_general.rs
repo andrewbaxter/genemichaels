@@ -321,6 +321,7 @@ pub(crate) fn append_macro_body(
     sg: &mut SplitGroupBuilder,
     tokens: TokenStream,
 ) {
+    // Try to parse entire macro like a function call
     if let Ok(exprs) = syn::parse2::<ExprCall>(quote!{
         f(#tokens)
     }) {
@@ -331,6 +332,8 @@ pub(crate) fn append_macro_body(
             return;
         }
     }
+
+    // Try to parse entire macro like a block
     if let Ok(block) = syn::parse2::<Block>(quote!{
         {
             #tokens
@@ -348,27 +351,17 @@ pub(crate) fn append_macro_body(
         }
     }
 
-    #[derive(PartialEq)]
-    enum ConsecMode {
-        // Start, joining punct (.)
-        ConnectForward,
-        // Idents, literals
-        NoConnect,
-        // Other punctuation
-        Punct,
-    }
-
-    // Split token stream into "expressions" using `;` and `,` and then try to
-    // re-evaluate each expression to use normal formatting.
+    // Split token stream into "expressions" (/substream) using `;` and `,` and then
+    // try to format each expression.
     let mut substreams: Vec<(Vec<TokenTree>, Option<Punct>)> = vec![];
     {
         let mut top = vec![];
         for t in tokens {
             let (push, break_) = match &t {
-                proc_macro2::TokenTree::Punct(p) if matches!(p.as_char(), ';' | ',') => {
+                TokenTree::Punct(p) if matches!(p.as_char(), ';' | ',') => {
                     (false, Some(Some(p.clone())))
                 },
-                proc_macro2::TokenTree::Group(g) if matches!(g.delimiter(), proc_macro2::Delimiter::Brace) => {
+                TokenTree::Group(g) if matches!(g.delimiter(), proc_macro2::Delimiter::Brace) => {
                     (true, Some(None))
                 },
                 _ => {
@@ -403,6 +396,8 @@ pub(crate) fn append_macro_body(
             }
             let tokens = TokenStream::from_iter(sub.0);
             let punct = sub.1;
+
+            // Try to parse current expression/substream as a function call
             if let Ok(exprs) = syn::parse2::<ExprCall>(quote!{
                 f(#tokens #punct)
             }) {
@@ -420,6 +415,8 @@ pub(crate) fn append_macro_body(
                     break 'nextsub;
                 }
             }
+
+            // Try to parse current expression/substream as a block
             if let Ok(block) = syn::parse2::<Block>(quote!{
                 {
                     #tokens #punct
@@ -436,11 +433,37 @@ pub(crate) fn append_macro_body(
                     break 'nextsub;
                 }
             }
+
+            // Freeform formatting
             {
-                let mut mode = ConsecMode::ConnectForward;
+                /// Identify punctuation that connects things tightly
+                fn is_pull_next_punct(p: &Punct) -> bool {
+                    return match p.as_char() {
+                        '.' => true,
+                        '$' => true,
+                        '`' => true,
+                        '#' => true,
+                        _ => false,
+                    };
+                }
+
+                // With exceptions, the default heterogenous adjacent token tree behavior is to
+                // push. For punctuation-adjacent, it depends on the punctuation type.
+                fn is_hetero_push(prev: &Option<TokenTree>) -> bool {
+                    return match &prev {
+                        Some(prev) => match prev {
+                            TokenTree::Group(_) => false,
+                            TokenTree::Ident(_) | TokenTree::Literal(_) => true,
+                            TokenTree::Punct(punct) => !is_pull_next_punct(&punct),
+                        },
+                        None => false,
+                    };
+                }
+
+                let mut previous: Option<TokenTree> = None;
                 for t in tokens {
-                    match t {
-                        proc_macro2::TokenTree::Group(g) => {
+                    match &t {
+                        TokenTree::Group(g) => {
                             append_whitespace(out, base_indent, sg, g.span_open().start());
                             sg.child({
                                 let mut sg = new_sg(out);
@@ -454,11 +477,8 @@ pub(crate) fn append_macro_body(
                                         }), g.stream());
                                     },
                                     proc_macro2::Delimiter::Brace => {
-                                        match mode {
-                                            ConsecMode::ConnectForward => { },
-                                            _ => {
-                                                sg.seg(out, " ");
-                                            },
+                                        if is_hetero_push(&previous) {
+                                            sg.seg(out, " ");
                                         }
                                         append_macro_body_bracketed(out, &indent, &mut sg, &MacroDelimiter::Brace({
                                             let mut delim = Brace::default();
@@ -480,66 +500,42 @@ pub(crate) fn append_macro_body(
                                 }
                                 sg.build(out)
                             });
-                            mode = ConsecMode::NoConnect;
                         },
-                        proc_macro2::TokenTree::Ident(i) => {
-                            match mode {
-                                ConsecMode::ConnectForward => { },
-                                ConsecMode::NoConnect | ConsecMode::Punct => {
-                                    sg.seg(out, " ");
-                                },
+                        TokenTree::Ident(i) => {
+                            if is_hetero_push(&previous) {
+                                sg.seg(out, " ");
                             }
                             append_whitespace(out, base_indent, sg, i.span().start());
                             sg.seg(out, &i.to_string());
-                            mode = ConsecMode::NoConnect;
                         },
-                        proc_macro2::TokenTree::Punct(p) => match p.as_char() {
-                            '\'' | '$' | '#' => {
-                                match mode {
-                                    ConsecMode::ConnectForward => { },
-                                    ConsecMode::NoConnect | ConsecMode::Punct => {
-                                        sg.seg(out, " ");
+                        TokenTree::Punct(p) => {
+                            if match &previous {
+                                Some(previous) => match previous {
+                                    TokenTree::Group(_) |
+                                    TokenTree::Ident(_) |
+                                    TokenTree::Literal(_) => match p.as_char() {
+                                        ':' => false,
+                                        '*' => false,
+                                        _ => true,
                                     },
-                                }
-                                append_whitespace(out, base_indent, sg, p.span().start());
-                                sg.seg(out, &p.to_string());
-                                mode = ConsecMode::ConnectForward;
-                            },
-                            ':' => {
-                                append_whitespace(out, base_indent, sg, p.span().start());
-                                sg.seg(out, &p.to_string());
-                                mode = ConsecMode::Punct;
-                            },
-                            '.' => {
-                                append_whitespace(out, base_indent, sg, p.span().start());
-                                sg.seg(out, &p.to_string());
-                                mode = ConsecMode::ConnectForward;
-                            },
-                            _ => {
-                                match mode {
-                                    ConsecMode::ConnectForward => { },
-                                    ConsecMode::NoConnect => {
-                                        sg.seg(out, " ");
-                                    },
-                                    ConsecMode::Punct => { },
-                                }
-                                append_whitespace(out, base_indent, sg, p.span().start());
-                                sg.seg(out, &p.to_string());
-                                mode = ConsecMode::Punct;
-                            },
-                        },
-                        proc_macro2::TokenTree::Literal(l) => {
-                            match mode {
-                                ConsecMode::ConnectForward => { },
-                                ConsecMode::NoConnect | ConsecMode::Punct => {
-                                    sg.seg(out, " ");
+                                    TokenTree::Punct(prev_p) => prev_p.span().end() != p.span().start(),
                                 },
+                                None => false,
+                            } {
+                                sg.seg(out, " ");
+                            }
+                            append_whitespace(out, base_indent, sg, p.span().start());
+                            sg.seg(out, &p.to_string());
+                        },
+                        TokenTree::Literal(l) => {
+                            if is_hetero_push(&previous) {
+                                sg.seg(out, " ");
                             }
                             append_whitespace(out, base_indent, sg, l.span().start());
                             sg.seg(out, &l.to_string());
-                            mode = ConsecMode::NoConnect;
                         },
                     }
+                    previous = Some(t);
                 }
                 if let Some(suf) = punct {
                     append_whitespace(out, base_indent, sg, suf.span().start());
