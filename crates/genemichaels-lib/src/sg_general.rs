@@ -440,8 +440,8 @@ pub(crate) fn append_macro_body(
                 fn is_pull_next_punct(p: &Punct) -> bool {
                     return match p.as_char() {
                         '.' => true,
+                        '\'' => true,
                         '$' => true,
-                        '`' => true,
                         '#' => true,
                         _ => false,
                     };
@@ -449,10 +449,10 @@ pub(crate) fn append_macro_body(
 
                 // With exceptions, the default heterogenous adjacent token tree behavior is to
                 // push. For punctuation-adjacent, it depends on the punctuation type.
-                fn is_hetero_push(prev: &Option<TokenTree>) -> bool {
+                fn is_hetero_push_next(prev: &Option<TokenTree>) -> bool {
                     return match &prev {
                         Some(prev) => match prev {
-                            TokenTree::Group(_) => false,
+                            TokenTree::Group(_) => true,
                             TokenTree::Ident(_) | TokenTree::Literal(_) => true,
                             TokenTree::Punct(punct) => !is_pull_next_punct(&punct),
                         },
@@ -477,7 +477,7 @@ pub(crate) fn append_macro_body(
                                         }), g.stream());
                                     },
                                     proc_macro2::Delimiter::Brace => {
-                                        if is_hetero_push(&previous) {
+                                        if is_hetero_push_next(&previous) {
                                             sg.seg(out, " ");
                                         }
                                         append_macro_body_bracketed(out, &indent, &mut sg, &MacroDelimiter::Brace({
@@ -502,7 +502,7 @@ pub(crate) fn append_macro_body(
                             });
                         },
                         TokenTree::Ident(i) => {
-                            if is_hetero_push(&previous) {
+                            if is_hetero_push_next(&previous) {
                                 sg.seg(out, " ");
                             }
                             append_whitespace(out, base_indent, sg, i.span().start());
@@ -515,6 +515,7 @@ pub(crate) fn append_macro_body(
                                     TokenTree::Ident(_) |
                                     TokenTree::Literal(_) => match p.as_char() {
                                         ':' => false,
+                                        '.' => false,
                                         _ => true,
                                     },
                                     TokenTree::Punct(prev_p) => prev_p.span().end() != p.span().start(),
@@ -527,7 +528,7 @@ pub(crate) fn append_macro_body(
                             sg.seg(out, &p.to_string());
                         },
                         TokenTree::Literal(l) => {
-                            if is_hetero_push(&previous) {
+                            if is_hetero_push_next(&previous) {
                                 sg.seg(out, " ");
                             }
                             append_whitespace(out, base_indent, sg, l.span().start());

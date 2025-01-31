@@ -39,6 +39,9 @@ fn unicode_len(text: &str) -> VisualLen {
     VisualLen(text.chars().count())
 }
 
+/// Identifies the start/stop locations of whitespace in a chunk of source.
+/// Whitespace is grouped runs, but the `keep_max_blank_lines` parameter allows
+/// splitting the groups.
 pub fn extract_whitespaces(
     keep_max_blank_lines: usize,
     source: &str,
@@ -374,7 +377,12 @@ pub fn extract_whitespaces(
             ).map_err(
                 |e| loga::err_with(
                     "Error undoing syn parse transformations",
-                    ea!(line = e.span().start().line, column = e.span().start().column, error = e.to_string()),
+                    ea!(
+                        line = e.span().start().line,
+                        column = e.span().start().column,
+                        error = e.to_string(),
+                        source = source.lines().skip(e.span().start().line - 1).next().unwrap()
+                    ),
                 ),
             )?,
         );

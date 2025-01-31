@@ -425,7 +425,22 @@ fn rt_self_type() {
 
 #[test]
 fn rt_skip_shebang() {
-    rt(r#"#!#[cfg(test)]
+    rt(r#"#!/bin/bash
 fn main() { }
 "#);
+}
+
+#[test]
+fn rt_dontskip_modattrs() {
+    rt(
+        r#"#![allow(
+    clippy::too_many_arguments,
+    clippy::field_reassign_with_default,
+    clippy::never_loop,
+    clippy::derive_hash_xor_eq
+)]
+
+fn main() { }
+"#,
+    );
 }
