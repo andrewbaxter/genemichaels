@@ -447,7 +447,7 @@ pub(crate) fn append_macro_body(
                     };
                 }
 
-                // With exceptions, the default heterogenous adjacent token tree behavior is to
+                // With exceptions, the default heterogeneous adjacent token tree behavior is to
                 // push. For punctuation-adjacent, it depends on the punctuation type.
                 fn is_hetero_push_next(prev: &Option<TokenTree>) -> bool {
                     return match &prev {

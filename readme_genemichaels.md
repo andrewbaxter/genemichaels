@@ -69,6 +69,10 @@ Here's the config file. All values shown are defaults and the keys can be omitte
   "keep_max_blank_lines": 0,
   // The number of spaces to indent by at each level.
   "indent_spaces": 4,
+  // `//` (plain line-comments) won't be treated implicitly as markdown. In this case you can
+  // use `//?` for explicitly markdown-formatted line-comments (these comments will work
+  // regardless of the setting)
+  "explicit_markdown_comments": false,
 }
 ```
 
