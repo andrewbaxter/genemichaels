@@ -503,7 +503,7 @@ pub fn format_str(source: &str, config: &FormatConfig) -> Result<FormatRes, loga
     let shebang;
     let shebang_line_off;
     let source1;
-    if source.starts_with("#!") {
+    if source.starts_with("#!/") {
         let shebang_end = match source.find("\n") {
             Some(o) => o + 1,
             None => source.len(),
