@@ -70,7 +70,8 @@ fn ow_dont_format_when_explicit_normal() {
     // Before/after newlines inconsequential
     owc(r#" 
 //  remove extra spaces"#, r#" 
-//  remove extra spaces"#, &FormatConfig {
+//  remove extra spaces
+"#, &FormatConfig {
         max_width: 120,
         explicit_markdown_comments: true,
         ..Default::default()
