@@ -43,6 +43,7 @@ pub mod utils;
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub enum CommentMode {
     Normal,
+    ExplicitNormal,
     DocInner,
     DocOuter,
     Verbatim,
@@ -473,6 +474,7 @@ pub struct FormatConfig {
     pub comment_errors_fatal: bool,
     pub keep_max_blank_lines: usize,
     pub indent_spaces: usize,
+    pub explicit_markdown_comments: bool,
 }
 
 impl Default for FormatConfig {
@@ -487,6 +489,7 @@ impl Default for FormatConfig {
             comment_errors_fatal: false,
             keep_max_blank_lines: 0,
             indent_spaces: 4,
+            explicit_markdown_comments:false,
         }
     }
 }
@@ -791,12 +794,16 @@ pub fn format_ast(
                                     }
                                     let prefix = format!("{}//{} ", " ".repeat(b.get(&config)), match comment.mode {
                                         CommentMode::Normal => "",
+                                        CommentMode::ExplicitNormal => "?",
                                         CommentMode::DocInner => "!",
                                         CommentMode::DocOuter => "/",
                                         CommentMode::Verbatim => ".",
                                     });
                                     let verbatim = match comment.mode {
                                         CommentMode::Verbatim => {
+                                            true
+                                        },
+                                        CommentMode::Normal if config.explicit_markdown_comments => {
                                             true
                                         },
                                         _ => {

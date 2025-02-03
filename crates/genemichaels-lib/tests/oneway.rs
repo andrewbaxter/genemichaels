@@ -1,30 +1,36 @@
-use genemichaels_lib::{
-    FormatConfig,
-    format_str,
+use {
+    genemichaels_lib::{
+        FormatConfig,
+        format_str,
+    },
 };
 
-fn ow(before: &str, want_after: &str) {
-    let res = format_str(before, &FormatConfig {
-        max_width: 120,
-        ..Default::default()
-    }).unwrap();
+fn owc(before: &str, want_after: &str, config: &FormatConfig) {
+    let res = format_str(before, config).unwrap();
     assert!(
         want_after == res.rendered,
         "Formatted text changed:\n\nWant after:\n{}\n\nAfter:\n{}\n",
         want_after
-            .lines()
+            .split("\n")
             .enumerate()
-            .map(|(line, text)| format!("{:>03} {}", line, text))
+            .map(|(line, text)| format!("{:>03} [{}]", line, text))
             .collect::<Vec<String>>()
             .join("\n"),
         res
             .rendered
-            .lines()
+            .split("\n")
             .enumerate()
-            .map(|(line, text)| format!("{:>03} {}", line, text))
+            .map(|(line, text)| format!("{:>03} [{}]", line, text))
             .collect::<Vec<String>>()
             .join("\n")
     );
+}
+
+fn ow(before: &str, want_after: &str) {
+    owc(before, want_after, &FormatConfig {
+        max_width: 120,
+        ..Default::default()
+    });
 }
 
 #[test]
@@ -48,4 +54,26 @@ fn ow_remove_blanks2() {
     x *= 2;
 }
 "#);
+}
+
+#[test]
+fn ow_format_explicit_normal() {
+    // Before/after newlines inconsequential
+    ow(r#" 
+//?  remove extra spaces"#, r#" 
+//? remove extra spaces
+"#);
+}
+
+#[test]
+fn ow_dont_format_when_explicit_normal() {
+    // Before/after newlines inconsequential
+    owc(r#" 
+//  remove extra spaces"#, r#" 
+//  remove extra spaces
+"#, &FormatConfig {
+        max_width: 120,
+        explicit_markdown_comments: true,
+        ..Default::default()
+    });
 }

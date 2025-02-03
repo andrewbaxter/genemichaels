@@ -88,7 +88,7 @@ pub fn extract_whitespaces(
             let start_re =
                 &self
                     .start_re
-                    .get_or_insert_with(|| Regex::new(r#"(?:(//)(/|!|\.)?)|(/\*\*/)|(?:(/\*)(\*|!)?)"#).unwrap());
+                    .get_or_insert_with(|| Regex::new(r#"(?:(//)(/|!|\.|\?)?)|(/\*\*/)|(?:(/\*)(\*|!)?)"#).unwrap());
             let block_event_re =
                 &self.block_event_re.get_or_insert_with(|| Regex::new(r#"((?:/\*)|(?:\*/))"#).unwrap());
 
@@ -168,6 +168,7 @@ pub fn extract_whitespaces(
                                             "/" => CommentMode::DocOuter,
                                             "!" => CommentMode::DocInner,
                                             "." => CommentMode::Verbatim,
+                                            "?" => CommentMode::ExplicitNormal,
                                             _ => unreachable!(),
                                         }, start_suffix_match.end()),
                                         None => (CommentMode::Normal, start_prefix_match.end()),
