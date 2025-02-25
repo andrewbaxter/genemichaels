@@ -4,7 +4,6 @@ use {
         Aargvark,
     },
     genemichaels_lib::{
-        es,
         format_str,
         FormatConfig,
     },
@@ -153,7 +152,7 @@ fn main() {
         None => loga::INFO,
     });
     let log = &log;
-    let res = es!({
+    let res = || -> Result<(), loga::Error> {
         if args.stdin.is_some() {
             if !args.files.is_empty() {
                 return Err(
@@ -164,7 +163,7 @@ fn main() {
                 )
             }
             let config = load_config(&log, &[args.config, Some(PathBuf::from(CONFIG_JSON))])?;
-            es!({
+            || -> Result<(), loga::Error> {
                 let mut source = Vec::new();
                 std::io::stdin().read_to_end(&mut source)?;
                 let source = String::from_utf8(source)?;
@@ -176,7 +175,7 @@ fn main() {
                     print!("{}", out);
                     return Ok(());
                 }
-            }).stack_context(log, "Error formatting stdin")?;
+            }().stack_context(log, "Error formatting stdin")?;
         } else if !args.files.is_empty() {
             let config = load_config(&log, &[args.config, Some(PathBuf::from(CONFIG_JSON))])?;
             let mut pool = FormatPool::new(log, args.thread_count, config);
@@ -299,7 +298,7 @@ fn main() {
             search.pool.join()?;
         }
         return Ok(());
-    });
+    }();
     if let Err(e) = res {
         match args.log {
             Some(Logging::Silent) => {
@@ -342,7 +341,7 @@ impl FormatPool {
         let errors = self.errors.clone();
         self.pool.execute(move || {
             let log = &log;
-            let res = es!({
+            let res = || -> Result<(), loga::Error> {
                 let source = fs::read_to_string(&file).context("Failed to read source file")?;
                 if skip(&source) {
                     log.log_with(loga::INFO, "Skipping due to skip comment", ea!());
@@ -354,7 +353,7 @@ impl FormatPool {
                     fs::write(&file, processed.as_bytes()).context("Error writing formatted code back")?;
                 }
                 return Ok(());
-            }).stack_context(log, "Error formatting file");
+            }().stack_context(log, "Error formatting file");
             match res {
                 Ok(_) => (),
                 Err(e) => {

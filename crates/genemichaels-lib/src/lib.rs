@@ -38,7 +38,6 @@ pub(crate) mod sg_statement;
 pub(crate) mod sg_type;
 pub(crate) mod sg_root;
 pub(crate) mod sg_general_lists;
-pub mod utils;
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub enum CommentMode {
@@ -489,7 +488,7 @@ impl Default for FormatConfig {
             comment_errors_fatal: false,
             keep_max_blank_lines: 0,
             indent_spaces: 4,
-            explicit_markdown_comments:false,
+            explicit_markdown_comments: false,
         }
     }
 }

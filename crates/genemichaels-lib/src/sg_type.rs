@@ -259,7 +259,8 @@ pub(crate) fn build_generics_part_b(
     sg.seg(out, "where");
     sg.seg_unsplit(out, " ");
 
-    // No final comma because can be followed by a ;, and ,; looks pretty odd
+    // No final comma because can be followed by a ;, and ,; looks pretty odd (and is
+    // rejected by the compiler)
     append_inline_list(out, base_indent, &mut sg, ",", &wh.predicates, InlineListSuffix::<Expr>::None);
     sg.build(out)
 }

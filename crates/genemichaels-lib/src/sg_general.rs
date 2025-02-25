@@ -328,7 +328,7 @@ pub(crate) fn append_macro_body(
         if exprs.args.len() == 1 && matches!(exprs.args.iter().next(), Some(Expr::Verbatim(_))) {
             // not really parsed, continue
         } else {
-            append_inline_list_raw(out, base_indent, sg, ",", &exprs.args, InlineListSuffix::<Expr>::None);
+            append_inline_list_raw(out, base_indent, sg, ",", &exprs.args, InlineListSuffix::<Expr>::VerbatimPunct);
             return;
         }
     }

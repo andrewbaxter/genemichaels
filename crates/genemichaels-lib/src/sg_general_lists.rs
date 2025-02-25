@@ -31,10 +31,17 @@ use crate::{
 };
 
 pub(crate) enum InlineListSuffix<T: Formattable> {
+    // _Must_ have no final punctuation, like in `A: X + Y + C` (can't have final
+    // `+`), `|` in where clauses
     None,
+    // Add final punctuation as long as not empty (most `,` separated lists)
     Punct,
-    // unit tuples only
+    // Keep existing final punctuation, mostly for macros where this is significant
+    VerbatimPunct,
+    // Unit tuples only - final punctuation mandatory
     UnitPunct,
+    // _Must_ have final punctuation, but followed by an extra pseudo-element like
+    // `..Default::default()`
     Extra(T),
 }
 
@@ -69,7 +76,11 @@ pub(crate) fn append_inline_list_raw<
         next_punct = pair.punct().copied();
     }
     match suffix {
-        InlineListSuffix::None => { },
+        InlineListSuffix::None => {
+            if let Some(p) = next_punct {
+                append_whitespace(out, base_indent, sg, p.span_start());
+            }
+        },
         InlineListSuffix::UnitPunct if exprs.len() == 1 => {
             if let Some(p) = next_punct {
                 append_whitespace(out, base_indent, sg, p.span_start());
@@ -83,6 +94,12 @@ pub(crate) fn append_inline_list_raw<
                 append_whitespace(out, base_indent, sg, p.span_start());
                 sg.seg_split(out, punct);
             } else if !exprs.is_empty() {
+                sg.seg_split(out, punct);
+            }
+        },
+        InlineListSuffix::VerbatimPunct => {
+            if let Some(p) = next_punct {
+                append_whitespace(out, base_indent, sg, p.span_start());
                 sg.seg_split(out, punct);
             }
         },

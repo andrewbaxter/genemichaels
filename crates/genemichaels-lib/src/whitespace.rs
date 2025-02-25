@@ -1,6 +1,5 @@
 use {
     crate::{
-        es,
         Comment,
         CommentMode,
         Whitespace,
@@ -973,7 +972,7 @@ pub fn format_md(
     // TODO, due to a bug a bunch of unreachable branches might have had code added.
     // I'd like to go back and see if some block-level starts can be removed in
     // contexts they shouldn't appear.
-    match es!({
+    match || -> Result<String, loga::Error> {
         let mut out = String::new();
         let mut state = State {
             line_buffer: String::new(),
@@ -998,7 +997,7 @@ pub fn format_md(
             false,
         );
         Ok(out)
-    }) {
+    }() {
         Ok(o) => {
             true_out.push_str(&o);
             Ok(())

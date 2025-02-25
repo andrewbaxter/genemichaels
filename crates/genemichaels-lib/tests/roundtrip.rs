@@ -1,4 +1,5 @@
 #![cfg(test)]
+
 use genemichaels_lib::{
     format_str,
     FormatConfig,
@@ -301,6 +302,26 @@ fn rt_comment_x() {
 }
 "#,
     );
+}
+
+#[test]
+fn rt_comments_macro_final_comma() {
+    rt(r#"x!{
+    a,
+    b,
+}
+"#);
+}
+
+#[test]
+fn rt_comments_macro_comment() {
+    rt(r#"x!{
+    a,
+    b
+    //. .
+    ,
+}
+"#);
 }
 
 #[test]
