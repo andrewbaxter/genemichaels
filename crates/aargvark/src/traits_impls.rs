@@ -42,6 +42,10 @@ pub trait AargvarkTrait: Sized {
 
     /// Called when `-h` is specified.
     fn build_help_pattern(state: &mut HelpState) -> HelpPattern;
+
+    fn complete() -> Vec<String> {
+        return vec![];
+    }
 }
 
 /// A helper enum, providing a simpler interface for types that can be parsed from
@@ -54,7 +58,7 @@ pub trait AargvarkFromStr: Sized {
 impl<T: AargvarkFromStr> AargvarkTrait for T {
     fn vark(state: &mut VarkState) -> R<Self> {
         let s = match state.peek() {
-            PeekR::None => return R::EOF,
+            PeekR::None => return R::EOF(vec![]),
             PeekR::Help => return R::Help(Box::new(|state| {
                 return HelpPartialProduction {
                     description: "".to_string(),
@@ -303,7 +307,15 @@ pub fn vark_from_iter<T: AargvarkTrait, C: FromIterator<T>>(state: &mut VarkStat
                 rewind_to = state.position();
             },
             R::Help(b) => return R::Help(b),
-            R::Err | R::EOF => {
+            R::EOF(v) => {
+                if state.autocomplete {
+                    return R::EOF(v);
+                } else {
+                    state.rewind(rewind_to);
+                    return state.r_ok(C::from_iter(out.into_iter()));
+                }
+            },
+            R::Err => {
                 state.rewind(rewind_to);
                 return state.r_ok(C::from_iter(out.into_iter()));
             },
@@ -346,7 +358,7 @@ impl<K: AargvarkFromStr, V: AargvarkFromStr> AargvarkTrait for AargvarkKV<K, V> 
     fn vark(state: &mut VarkState) -> R<Self> {
         let res = String::vark(state);
         let res = match res {
-            R::EOF => return R::EOF,
+            R::EOF(v) => return R::EOF(v),
             R::Err => return R::Err,
             R::Help(b) => return R::Help(b),
             R::Ok(r) => r,
@@ -390,7 +402,7 @@ impl<K: AargvarkFromStr, V: AargvarkFromStr> AargvarkTrait for AargvarkKV<K, V> 
 impl<K: AargvarkFromStr + Eq + std::hash::Hash, V: AargvarkFromStr> AargvarkTrait for HashMap<K, V> {
     fn vark(state: &mut VarkState) -> R<Self> {
         let res = match <Vec<AargvarkKV<K, V>>>::vark(state) {
-            R::EOF => return R::EOF,
+            R::EOF(v) => return R::EOF(v),
             R::Err => return R::Err,
             R::Help(b) => return R::Help(b),
             R::Ok(r) => r,

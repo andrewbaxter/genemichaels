@@ -8,6 +8,7 @@ use {
         FromField,
         FromVariant,
     },
+    flowcontrol::shed,
     proc_macro2::TokenStream,
     quote::{
         format_ident,
@@ -27,24 +28,6 @@ use {
         Type,
     },
 };
-
-/// Break boundary - remove the footgunishness of using loop for this directly
-macro_rules! bb{
-    ($l: lifetime _; $($t: tt) *) => {
-        $l: loop {
-            #[allow(unreachable_code)] break {
-                $($t) *
-            };
-        }
-    };
-    ($($t: tt) *) => {
-        loop {
-            #[allow(unreachable_code)] break {
-                $($t) *
-            };
-        }
-    };
-}
 
 #[derive(Default, Clone, FromDeriveInput)]
 #[darling(attributes(vark))]
@@ -141,11 +124,15 @@ fn gen_impl_unnamed(
     for (i, (field_vark_attr, field_help_docstr, field_ty)) in fields.iter().enumerate() {
         let eof_code = if i == 0 {
             quote!{
-                break a::R::EOF;
+                break a::R::EOF(complete);
             }
         } else {
             quote!{
-                break state.r_err(format!("Missing argument {}", #i));
+                if state.autocomplete() {
+                    break a::R::EOF(complete);
+                } else {
+                    break state.r_err(format!("Missing argument {}", #i));
+                }
             }
         };
         let f_ident = format_ident!("v{}", i);
@@ -165,14 +152,11 @@ fn gen_impl_unnamed(
             String::from_iter(placeholder)
         });
         parse_positional.push(quote!{
-            //. .
-            let r = #vark;
-            //. .
-            let #f_ident = match r {
+            let #f_ident = match #vark {
                 a:: R:: Ok(v) => v,
                 a:: R:: Help(b) => break a:: R:: Help(b),
                 a:: R:: Err => break a:: R:: Err,
-                a:: R:: EOF => {
+                a:: R:: EOF(complete) => {
                     #eof_code
                 }
             };
@@ -280,7 +264,7 @@ fn gen_impl_struct(
                 let f_local_ident = format_ident!("v{}", i);
 
                 // If a flag (non-positional) field, generate parsers and skip positional parsing
-                bb!{
+                shed!{
                     'no_flags _;
                     let mut flags = field_vark_attr.flag.clone();
                     if flags.is_empty() {
@@ -338,8 +322,12 @@ fn gen_impl_struct(
                                     a:: R:: Ok(v) => v,
                                     a:: R:: Help(b) => return a:: R:: Help(b),
                                     a:: R:: Err => return a:: R:: Err,
-                                    a:: R:: EOF => {
-                                        return state.r_err(format!("Missing argument for {}", #flag));
+                                    a:: R:: EOF(complete) => {
+                                        if state.autocomplete() {
+                                            return a::R::EOF(complete)
+                                        } else {
+                                            return state.r_err(format!("Missing argument for {}", #flag));
+                                        }
                                     }
                                 };
                                 flag_fields.#field_ident = Some(#f_local_ident);
@@ -380,11 +368,15 @@ fn gen_impl_struct(
                         .unwrap_or_else(|| field_ident.to_string().to_case(Case::UpperKebab));
                 let eof_code = if required_i == 0 {
                     quote!{
-                        break a::R::EOF;
+                        break a::R::EOF(complete);
                     }
                 } else {
                     quote!{
-                        break state.r_err(format!("Missing argument {}", #field_help_placeholder));
+                        if state.autocomplete() {
+                            break a::R::EOF(complete);
+                        } else {
+                            break state.r_err(format!("Missing argument {}", #field_help_placeholder));
+                        }
                     }
                 };
                 let gen = gen_impl_type(&f.ty, &ident.to_string());
@@ -404,7 +396,7 @@ fn gen_impl_struct(
                                 a:: R:: Ok(v) => v,
                                 a:: R:: Help(b) => break a:: R:: Help(b),
                                 a:: R:: Err => break a:: R:: Err,
-                                a:: R:: EOF => {
+                                a:: R:: EOF(_) => {
                                     unreachable!();
                                 }
                             },
@@ -418,7 +410,7 @@ fn gen_impl_struct(
                         a:: R:: Ok(v) => v,
                         a:: R:: Help(b) => break a:: R:: Help(b),
                         a:: R:: Err => break a:: R:: Err,
-                        a:: R:: EOF => {
+                        a:: R:: EOF(complete) => {
                             #eof_code
                         }
                     };
@@ -497,7 +489,7 @@ fn gen_impl_struct(
                                     },
                                     a:: R:: Help(b) => break a:: R:: Help(b),
                                     a:: R:: Err => break a:: R:: Err,
-                                    a:: R:: EOF => unreachable !(),
+                                    a:: R:: EOF(_) => unreachable !(),
                                 },
                             };
                         };
@@ -505,7 +497,7 @@ fn gen_impl_struct(
                             a::R::Ok(()) => { },
                             a::R::Help(b) => break a::R::Help(b),
                             a::R::Err => break a::R::Err,
-                            a::R::EOF => unreachable!(),
+                            a::R::EOF(_) => unreachable!(),
                         };
                         // Build obj + return
                         break state.r_ok(#ident {
@@ -612,6 +604,8 @@ fn gen_impl(ast: syn::DeriveInput) -> Result<TokenStream, syn::Error> {
             let mut all_tags = vec![];
             let mut vark_cases = vec![];
             let mut help_variants = vec![];
+            let mut empty_complete_variants = vec![];
+            let mut partial_complete_builder = vec![];
             for (subtype_index, v) in d.variants.iter().enumerate() {
                 let variant_vark_attr = VariantAttr::from_variant(v)?;
                 let variant_help_docstr = get_docstr(&v.attrs);
@@ -639,13 +633,17 @@ fn gen_impl(ast: syn::DeriveInput) -> Result<TokenStream, syn::Error> {
                     )?;
                 all_tags.push(name_str.clone());
                 let vark = gen.vark;
-                let partial_help_variant_pattern = gen.help_pattern;
+
+                // Parsing
                 vark_cases.push(quote!{
                     #name_str => {
                         state.consume();
                         #vark
                     }
                 });
+
+                // Help
+                let partial_help_variant_pattern = gen.help_pattern;
                 let help_variant_pattern;
                 if type_attr.break_help || variant_vark_attr.break_help {
                     help_variant_pattern =
@@ -660,11 +658,19 @@ fn gen_impl(ast: syn::DeriveInput) -> Result<TokenStream, syn::Error> {
                         description: #variant_help_docstr.to_string(),
                     });
                 });
+
+                // Autocomplete
+                empty_complete_variants.push(quote!(#name_str.to_string(),));
+                partial_complete_builder.push(quote!{
+                    if #name_str.starts_with(tag) {
+                        choices.push(#name_str.to_string());
+                    }
+                });
             }
             vark = quote!{
                 {
                     let tag = match state.peek() {
-                        a:: PeekR:: None => return a:: R:: EOF,
+                        a:: PeekR:: None => return a:: R:: EOF(vec![#(#empty_complete_variants) *]),
                         a:: PeekR:: Help => return a:: R:: Help(Box:: new(move | state | {
                             let mut variants = vec![];
                             #(#help_variants) * 
@@ -678,6 +684,12 @@ fn gen_impl(ast: syn::DeriveInput) -> Result<TokenStream, syn::Error> {
                     };
                     match tag {
                         #(#vark_cases) * _ => {
+                            if state.autocomplete() {
+                                let mut choices = vec![];
+                                #(#partial_complete_builder) * 
+                                //. .
+                                return a:: R:: EOF(choices);
+                            }
                             state.r_err(
                                 format!("Unrecognized variant {}. Choices are {:?}", tag, vec![#(#all_tags), *]),
                             )
