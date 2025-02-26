@@ -423,6 +423,12 @@ fn rt_extern_c_type1() {
 }
 
 #[test]
+fn rt_unsafe_extern_c_() {
+    rt(r#"unsafe extern "C" { }
+"#);
+}
+
+#[test]
 fn rt_static_mut1() {
     rt(r#"static mut X: Y = Y(7);
 "#);

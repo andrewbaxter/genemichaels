@@ -729,12 +729,16 @@ impl Formattable for Item {
                     let mut sg = new_sg(out);
 
                     // extern token missing?
-                    let mut prefix = String::new();
-                    prefix.push_str("extern ");
-                    if let Some(name) = &x.abi.name {
-                        prefix.push_str(&name.to_token_stream().to_string());
+                    if let Some(u) = &x.unsafety {
+                        append_whitespace(out, base_indent, &mut sg, u.span.start());
+                        sg.seg(out, "unsafe ");
                     }
-                    sg.seg(out, &prefix);
+                    append_whitespace(out, base_indent, &mut sg, x.abi.extern_token.span.start());
+                    sg.seg(out, "extern ");
+                    if let Some(name) = &x.abi.name {
+                        append_whitespace(out, base_indent, &mut sg, name.span().start());
+                        sg.seg(out, &name.to_token_stream().to_string());
+                    }
                     append_bracketed_statement_list(
                         out,
                         base_indent,
