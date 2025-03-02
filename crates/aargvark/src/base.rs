@@ -14,7 +14,11 @@ pub struct VarkFailure {
 /// Return type enum (like `Result`) during parsing.
 pub enum R<T> {
     /// Ran out of arguments before parsing successfully completed.
-    EOF,
+    ///
+    /// If autocomplete is enabled, this should contain autocomplete choices for where
+    /// the input ran out and no further parsing should be attempted (i.e. choices
+    /// should be propagated directly upward).
+    EOF(Vec<String>),
     /// Parsing failed due to incorrect arguments.
     Err,
     /// Encountered `-h` or `--help` and aborted.
@@ -35,6 +39,7 @@ pub enum PeekR<'a> {
 
 #[doc(hidden)]
 pub struct VarkState {
+    pub(crate) autocomplete: bool,
     pub(crate) command: Option<String>,
     pub(crate) args: Vec<String>,
     pub(crate) i: usize,
@@ -42,8 +47,9 @@ pub struct VarkState {
 }
 
 impl VarkState {
-    pub fn new(command: Option<String>, args: Vec<String>) -> Self {
+    pub fn new(autocomplete: bool, command: Option<String>, args: Vec<String>) -> Self {
         return Self {
+            autocomplete: autocomplete,
             command: command,
             args: args,
             i: 0,
@@ -53,6 +59,13 @@ impl VarkState {
 }
 
 impl VarkState {
+    /// In autocomplete mode - if true, then EOF should contain a list of possible next
+    /// entries (or empty if it's impossible to determine or there's nothing left to
+    /// type)
+    pub fn autocomplete<'a>(&'a self) -> bool {
+        return self.autocomplete;
+    }
+
     /// Return the next argument without consuming it.
     pub fn peek<'a>(&'a self) -> PeekR<'a> {
         if self.i >= self.args.len() {

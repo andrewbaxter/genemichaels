@@ -13,6 +13,7 @@ proc-macro = true
 [dependencies]
 convert_case = "0.6"
 darling = "0.20"
+flowcontrol = "0.2.3"
 genemichaels-lib = { version = "=0.6.0", path = "../genemichaels-lib" }
 proc-macro2 = "1"
 quote = "1"
