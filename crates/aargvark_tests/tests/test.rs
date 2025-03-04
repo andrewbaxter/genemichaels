@@ -2,7 +2,8 @@ extern crate aargvark;
 
 use {
     aargvark::{
-        traits_impls::AargvarkTrait,
+        traits::AargvarkTrait,
+        vark_complete,
         vark_explicit,
         Aargvark,
         VarkRet,
@@ -18,7 +19,7 @@ macro_rules! svec{
 
 #[test]
 fn t_str() {
-    let VarkRet::Ok(v) = vark_explicit::<String>(false, None, svec!["a"]).unwrap() else {
+    let VarkRet::Ok(v) = vark_explicit::<String>(None, svec!["a"]).unwrap() else {
         panic!();
     };
     assert_eq!(v, "a");
@@ -26,7 +27,7 @@ fn t_str() {
 
 #[test]
 fn t_vec() {
-    let VarkRet::Ok(v) = vark_explicit::<Vec<String>>(false, None, svec!["a", "b"]).unwrap() else {
+    let VarkRet::Ok(v) = vark_explicit::<Vec<String>>(None, svec!["a", "b"]).unwrap() else {
         panic!();
     };
     assert_eq!(v, svec!["a", "b"]);
@@ -39,7 +40,7 @@ fn t_enum_unit() {
         ToqQuol,
     }
 
-    let VarkRet::Ok(v) = vark_explicit::<Yol>(false, None, svec!["toq-quol"]).unwrap() else {
+    let VarkRet::Ok(v) = vark_explicit::<Yol>(None, svec!["toq-quol"]).unwrap() else {
         panic!();
     };
     assert_eq!(v, Yol::ToqQuol);
@@ -52,7 +53,7 @@ fn t_enum_tuple() {
         ToqQuol(String, String),
     }
 
-    let VarkRet::Ok(v) = vark_explicit::<Yol>(false, None, svec!["toq-quol", "yon", "nor"]).unwrap() else {
+    let VarkRet::Ok(v) = vark_explicit::<Yol>(None, svec!["toq-quol", "yon", "nor"]).unwrap() else {
         panic!();
     };
     assert_eq!(v, Yol::ToqQuol("yon".into(), "nor".into()));
@@ -67,7 +68,7 @@ fn t_enum_struct() {
         },
     }
 
-    let VarkRet::Ok(v) = vark_explicit::<Yol>(false, None, svec!["toq-quol", "pahla"]).unwrap() else {
+    let VarkRet::Ok(v) = vark_explicit::<Yol>(None, svec!["toq-quol", "pahla"]).unwrap() else {
         panic!();
     };
     assert_eq!(v, Yol::ToqQuol { a: "pahla".into() });
@@ -80,7 +81,7 @@ fn t_struct() {
         a: String,
     }
 
-    let VarkRet::Ok(v) = vark_explicit::<Naya>(false, None, svec!["wowo"]).unwrap() else {
+    let VarkRet::Ok(v) = vark_explicit::<Naya>(None, svec!["wowo"]).unwrap() else {
         panic!();
     };
     assert_eq!(v, Naya { a: "wowo".into() });
@@ -93,7 +94,7 @@ fn t_struct_opt_only() {
         a: Option<String>,
     }
 
-    let VarkRet::Ok(v) = vark_explicit::<Naya>(false, None, svec!["--a", "wowo"]).unwrap() else {
+    let VarkRet::Ok(v) = vark_explicit::<Naya>(None, svec!["--a", "wowo"]).unwrap() else {
         panic!();
     };
     assert_eq!(v, Naya { a: Some("wowo".into()) });
@@ -107,7 +108,7 @@ fn t_struct_opt_first() {
         a: Option<String>,
     }
 
-    let VarkRet::Ok(v) = vark_explicit::<Naya>(false, None, svec!["--a", "wowo", "noh"]).unwrap() else {
+    let VarkRet::Ok(v) = vark_explicit::<Naya>(None, svec!["--a", "wowo", "noh"]).unwrap() else {
         panic!();
     };
     assert_eq!(v, Naya {
@@ -124,7 +125,7 @@ fn t_struct_opt_last() {
         a: Option<String>,
     }
 
-    let VarkRet::Ok(v) = vark_explicit::<Naya>(false, None, svec!["noh", "--a", "wowo"]).unwrap() else {
+    let VarkRet::Ok(v) = vark_explicit::<Naya>(None, svec!["noh", "--a", "wowo"]).unwrap() else {
         panic!();
     };
     assert_eq!(v, Naya {
@@ -140,7 +141,7 @@ fn t_generic() {
         b: Option<T>,
     }
 
-    let VarkRet::Ok(v) = vark_explicit::<Naya<String>>(false, None, svec!["--b", "hi"]).unwrap() else {
+    let VarkRet::Ok(v) = vark_explicit::<Naya<String>>(None, svec!["--b", "hi"]).unwrap() else {
         panic!();
     };
     assert_eq!(v, Naya { b: Some("hi".to_string()) });
@@ -148,7 +149,7 @@ fn t_generic() {
 
 #[test]
 fn t_map() {
-    let VarkRet::Ok(v) = vark_explicit::<HashMap<String, i32>>(false, None, svec!["a=2", "b=3"]).unwrap() else {
+    let VarkRet::Ok(v) = vark_explicit::<HashMap<String, i32>>(None, svec!["a=2", "b=3"]).unwrap() else {
         panic!();
     };
     assert_eq!(v, {
@@ -165,7 +166,7 @@ fn t_docstring() {
     /// This is a naya
     struct Naya {}
 
-    let VarkRet::Ok(v) = vark_explicit::<Naya>(false, None, svec![]).unwrap() else {
+    let VarkRet::Ok(v) = vark_explicit::<Naya>(None, svec![]).unwrap() else {
         panic!();
     };
     assert_eq!(v, Naya {});
@@ -182,7 +183,7 @@ fn t_varkattr() {
         f: Option<i32>,
     }
 
-    let VarkRet::Ok(v) = vark_explicit::<Naya>(false, None, svec!["--g", "3"]).unwrap() else {
+    let VarkRet::Ok(v) = vark_explicit::<Naya>(None, svec!["--g", "3"]).unwrap() else {
         panic!();
     };
     assert_eq!(v, Naya { f: Some(3) });
@@ -197,7 +198,7 @@ fn t_flag_nonopt() {
         a: String,
     }
 
-    let VarkRet::Ok(v) = vark_explicit::<Naya>(false, None, svec!["--a", "wowo", "noh"]).unwrap() else {
+    let VarkRet::Ok(v) = vark_explicit::<Naya>(None, svec!["--a", "wowo", "noh"]).unwrap() else {
         panic!();
     };
     assert_eq!(v, Naya {
@@ -216,7 +217,7 @@ fn t_flag_2_nonopt_ord1() {
         b: String,
     }
 
-    let VarkRet::Ok(v) = vark_explicit::<Naya>(false, None, svec!["--a", "wowo", "--b", "noh"]).unwrap() else {
+    let VarkRet::Ok(v) = vark_explicit::<Naya>(None, svec!["--a", "wowo", "--b", "noh"]).unwrap() else {
         panic!();
     };
     assert_eq!(v, Naya {
@@ -235,7 +236,7 @@ fn t_flag_2_nonopt_ord2() {
         b: String,
     }
 
-    let VarkRet::Ok(v) = vark_explicit::<Naya>(false, None, svec!["--b", "noh", "--a", "wowo"]).unwrap() else {
+    let VarkRet::Ok(v) = vark_explicit::<Naya>(None, svec!["--b", "noh", "--a", "wowo"]).unwrap() else {
         panic!();
     };
     assert_eq!(v, Naya {
@@ -245,7 +246,7 @@ fn t_flag_2_nonopt_ord2() {
 }
 
 #[test]
-fn t_autocomplete_enum() {
+fn t_autocomplete_enum_empty() {
     #[derive(Aargvark)]
     enum Yomo {
         One,
@@ -253,11 +254,19 @@ fn t_autocomplete_enum() {
         Two,
     }
 
-    let VarkRet::Autocomplete(v) = vark_explicit::<Yomo>(true, None, svec!["o"]).unwrap() else {
-        panic!();
-    };
-    assert_eq!(v, vec!{
-        "one",
-        "ochre"
-    });
+    let v = vark_complete::<Yomo>(aargvark::CompleteCursorPosition::Partial, None, svec![]);
+    assert_eq!(v, vec![vec!["one".to_string()], vec!["ochre".to_string()], vec!["two".to_string()]]);
+}
+
+#[test]
+fn t_autocomplete_enum_partial() {
+    #[derive(Aargvark)]
+    enum Yomo {
+        One,
+        Ochre,
+        Two,
+    }
+
+    let v = vark_complete::<Yomo>(aargvark::CompleteCursorPosition::Partial, None, svec!["o"]);
+    assert_eq!(v, vec![vec!["one".to_string()], vec!["ochre".to_string()]]);
 }

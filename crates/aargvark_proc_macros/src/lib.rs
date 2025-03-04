@@ -122,19 +122,6 @@ fn gen_impl_unnamed(
     let mut help_field_patterns = vec![];
     let help_unit_transparent = fields.len() == 1 && fields[0].1.is_empty();
     for (i, (field_vark_attr, field_help_docstr, field_ty)) in fields.iter().enumerate() {
-        let eof_code = if i == 0 {
-            quote!{
-                break a::R::EOF(complete);
-            }
-        } else {
-            quote!{
-                if state.autocomplete() {
-                    break a::R::EOF(complete);
-                } else {
-                    break state.r_err(format!("Missing argument {}", #i));
-                }
-            }
-        };
         let f_ident = format_ident!("v{}", i);
         let gen = gen_impl_type(field_ty, path);
         let vark = gen.vark;
@@ -152,13 +139,13 @@ fn gen_impl_unnamed(
             String::from_iter(placeholder)
         });
         parse_positional.push(quote!{
-            let #f_ident = match #vark {
+            //. .
+            let r = #vark;
+            //. .
+            let #f_ident = match r {
                 a:: R:: Ok(v) => v,
                 a:: R:: Help(b) => break a:: R:: Help(b),
                 a:: R:: Err => break a:: R:: Err,
-                a:: R:: EOF(complete) => {
-                    #eof_code
-                }
             };
         });
         copy_fields.push(f_ident.to_token_stream());
@@ -175,7 +162,9 @@ fn gen_impl_unnamed(
     return GenRec {
         vark: quote!{
             loop {
-                #(#parse_positional) * break state.r_ok(#ident(#(#copy_fields), *));
+                #(#parse_positional) * 
+                //. .
+                break state.r_ok(#ident(#(#copy_fields), *), None);
             }
         },
         help_pattern: if fields.is_empty() {
@@ -257,6 +246,7 @@ fn gen_impl_struct(
             let mut vark_copy_flag_fields = vec![];
             let mut seen_flags = HashSet::new();
             let mut required_i = 0usize;
+            let mut init_need_flags = vec![];
             'next_field: for (i, f) in d.named.iter().enumerate() {
                 let field_vark_attr = FieldAttr::from_field(f)?;
                 let field_help_docstr = get_docstr(&f.attrs);
@@ -277,7 +267,6 @@ fn gen_impl_struct(
                             );
                         }
                     }
-                    let flags_string = format!("{:?}", flags);
                     let ty;
                     let copy;
                     let optional;
@@ -292,7 +281,8 @@ fn gen_impl_struct(
                             f
                         } else {
                             return state.r_err(
-                                format!("One flag of the following flag set {} must be specified.", #flags_string),
+                                format!("Missing required flags: {:?}", need_flags),
+                                Some(build_completer(need_flags)),
                             );
                         });
                         optional = false;
@@ -312,23 +302,25 @@ fn gen_impl_struct(
                     let gen = gen_impl_type(ty, &field_ident.to_string());
                     let vark = gen.vark;
                     for flag in &flags {
+                        if !optional {
+                            init_need_flags.push(quote!{
+                                #flag,
+                            });
+                        }
                         vark_parse_flag_cases.push(quote!{
                             #flag => {
+                                need_flags.remove(#flag);
                                 if flag_fields.#field_ident.is_some() {
-                                    return state.r_err(format!("The argument {} was already specified", #flag));
+                                    return state.r_err(
+                                        format!("The argument {} was already specified", #flag),
+                                        Some(a::empty_completer()),
+                                    );
                                 }
                                 state.consume();
                                 let #f_local_ident = match #vark {
                                     a:: R:: Ok(v) => v,
                                     a:: R:: Help(b) => return a:: R:: Help(b),
                                     a:: R:: Err => return a:: R:: Err,
-                                    a:: R:: EOF(complete) => {
-                                        if state.autocomplete() {
-                                            return a::R::EOF(complete)
-                                        } else {
-                                            return state.r_err(format!("Missing argument for {}", #flag));
-                                        }
-                                    }
                                 };
                                 flag_fields.#field_ident = Some(#f_local_ident);
                                 return a::R::Ok(true);
@@ -366,25 +358,13 @@ fn gen_impl_struct(
                     field_vark_attr
                         .placeholder
                         .unwrap_or_else(|| field_ident.to_string().to_case(Case::UpperKebab));
-                let eof_code = if required_i == 0 {
-                    quote!{
-                        break a::R::EOF(complete);
-                    }
-                } else {
-                    quote!{
-                        if state.autocomplete() {
-                            break a::R::EOF(complete);
-                        } else {
-                            break state.r_err(format!("Missing argument {}", #field_help_placeholder));
-                        }
-                    }
-                };
                 let gen = gen_impl_type(&f.ty, &ident.to_string());
                 let vark = gen.vark;
                 let field_help_pattern = gen.help_pattern;
                 vark_parse_positional.push(quote!{
                     let #f_local_ident = loop {
-                        if match state.peek() {
+                        let peek = state.peek();
+                        if match peek {
                             a:: PeekR:: None => false,
                             a:: PeekR:: Help => return a:: R:: Help(Box:: new(move | state | {
                                 return a:: HelpPartialProduction {
@@ -392,13 +372,12 @@ fn gen_impl_struct(
                                     content: build_partial_help(state, #required_i, &flag_fields),
                                 };
                             })),
-                            a:: PeekR:: Ok(s) => match parse_flags(&mut flag_fields, state, s.to_string()) {
+                            a:: PeekR:: Ok(
+                                s
+                            ) => match parse_flags(&mut need_flags, &mut flag_fields, state, s.to_string()) {
                                 a:: R:: Ok(v) => v,
                                 a:: R:: Help(b) => break a:: R:: Help(b),
                                 a:: R:: Err => break a:: R:: Err,
-                                a:: R:: EOF(_) => {
-                                    unreachable!();
-                                }
                             },
                         }
                         {
@@ -410,9 +389,6 @@ fn gen_impl_struct(
                         a:: R:: Ok(v) => v,
                         a:: R:: Help(b) => break a:: R:: Help(b),
                         a:: R:: Err => break a:: R:: Err,
-                        a:: R:: EOF(complete) => {
-                            #eof_code
-                        }
                     };
                 });
                 vark_copy_flag_fields.push(quote!{
@@ -446,7 +422,10 @@ fn gen_impl_struct(
                         let mut flag_fields = FlagFields {
                             #(#vark_flag_fields_default) *
                         };
+                        type NeedFlags = std::collections::HashSet<&'static str>;
+                        let mut need_flags =[#(#init_need_flags) *].into_iter().collect::< NeedFlags >();
                         fn parse_flags #decl_generics(
+                            need_flags: & mut NeedFlags,
                             flag_fields:& mut FlagFields #forward_generics,
                             state:& mut a:: VarkState,
                             s: String
@@ -473,7 +452,7 @@ fn gen_impl_struct(
                         let flag_search_res = loop {
                             match state.peek() {
                                 a:: PeekR:: None => {
-                                    break state.r_ok(());
+                                    break state.r_ok((), None);
                                 },
                                 a:: PeekR:: Help => return a:: R:: Help(Box:: new(move | state | {
                                     return a:: HelpPartialProduction {
@@ -481,15 +460,16 @@ fn gen_impl_struct(
                                         content: build_partial_help(state, #required_i, &flag_fields),
                                     };
                                 })),
-                                a:: PeekR:: Ok(s) => match parse_flags(&mut flag_fields, state, s.to_string()) {
+                                a:: PeekR:: Ok(
+                                    s
+                                ) => match parse_flags(&mut need_flags, &mut flag_fields, state, s.to_string()) {
                                     a:: R:: Ok(v) => {
                                         if !v {
-                                            break state.r_ok(());
+                                            break state.r_ok((), None);
                                         }
                                     },
                                     a:: R:: Help(b) => break a:: R:: Help(b),
                                     a:: R:: Err => break a:: R:: Err,
-                                    a:: R:: EOF(_) => unreachable !(),
                                 },
                             };
                         };
@@ -497,13 +477,17 @@ fn gen_impl_struct(
                             a::R::Ok(()) => { },
                             a::R::Help(b) => break a::R::Help(b),
                             a::R::Err => break a::R::Err,
-                            a::R::EOF(_) => unreachable!(),
                         };
+                        fn build_completer(need_flags: NeedFlags) -> a::AargvarkCompleter {
+                            return Box::new(move || {
+                                return need_flags.iter().map(|v| vec![v.to_string()]).collect();
+                            });
+                        }
                         // Build obj + return
                         break state.r_ok(#ident {
                             #(#vark_copy_flag_fields),
                             *
-                        });
+                        }, None);
                     }
                 }
             };
@@ -548,7 +532,7 @@ fn gen_impl_struct(
         Fields::Unit => {
             return Ok(GenRec {
                 vark: quote!{
-                    state.r_ok(#ident)
+                    state.r_ok(#ident, None)
                 },
                 help_pattern: quote!{
                     a::HelpPattern(vec![])
@@ -581,8 +565,8 @@ fn gen_impl(ast: syn::DeriveInput) -> Result<TokenStream, syn::Error> {
     }
     let help_placeholder =
         type_attr.placeholder.clone().unwrap_or_else(|| ident.to_string().to_case(Case::UpperKebab));
-    let vark;
-    let help_build;
+    let impl_vark;
+    let impl_help_build;
     match &ast.data {
         syn::Data::Struct(d) => {
             let gen =
@@ -597,15 +581,13 @@ fn gen_impl(ast: syn::DeriveInput) -> Result<TokenStream, syn::Error> {
                     0,
                     &d.fields,
                 )?;
-            vark = gen.vark;
-            help_build = gen.help_pattern;
+            impl_vark = gen.vark;
+            impl_help_build = gen.help_pattern;
         },
         syn::Data::Enum(d) => {
             let mut all_tags = vec![];
             let mut vark_cases = vec![];
             let mut help_variants = vec![];
-            let mut empty_complete_variants = vec![];
-            let mut partial_complete_builder = vec![];
             for (subtype_index, v) in d.variants.iter().enumerate() {
                 let variant_vark_attr = VariantAttr::from_variant(v)?;
                 let variant_help_docstr = get_docstr(&v.attrs);
@@ -633,17 +615,13 @@ fn gen_impl(ast: syn::DeriveInput) -> Result<TokenStream, syn::Error> {
                     )?;
                 all_tags.push(name_str.clone());
                 let vark = gen.vark;
-
-                // Parsing
+                let partial_help_variant_pattern = gen.help_pattern;
                 vark_cases.push(quote!{
                     #name_str => {
                         state.consume();
                         #vark
                     }
                 });
-
-                // Help
-                let partial_help_variant_pattern = gen.help_pattern;
                 let help_variant_pattern;
                 if type_attr.break_help || variant_vark_attr.break_help {
                     help_variant_pattern =
@@ -658,19 +636,28 @@ fn gen_impl(ast: syn::DeriveInput) -> Result<TokenStream, syn::Error> {
                         description: #variant_help_docstr.to_string(),
                     });
                 });
-
-                // Autocomplete
-                empty_complete_variants.push(quote!(#name_str.to_string(),));
-                partial_complete_builder.push(quote!{
-                    if #name_str.starts_with(tag) {
-                        choices.push(#name_str.to_string());
-                    }
-                });
             }
-            vark = quote!{
+            impl_vark = quote!{
                 {
+                    fn build_completer(arg: & str) -> a:: AargvarkCompleter {
+                        let arg = arg.to_string();
+                        return Box:: new(move || {
+                            let mut out = vec![];
+                            for want_arg in &[#(#all_tags), *] {
+                                if want_arg.starts_with(&arg) {
+                                    out.push(vec![want_arg.to_string()]);
+                                }
+                            }
+                            return out;
+                        });
+                    }
                     let tag = match state.peek() {
-                        a:: PeekR:: None => return a:: R:: EOF(vec![#(#empty_complete_variants) *]),
+                        a:: PeekR:: None => {
+                            return state.r_err(
+                                format!("Need variant tag - choices are {:?}", vec![#(#all_tags), *]),
+                                Some(build_completer("")),
+                            );
+                        },
                         a:: PeekR:: Help => return a:: R:: Help(Box:: new(move | state | {
                             let mut variants = vec![];
                             #(#help_variants) * 
@@ -683,21 +670,18 @@ fn gen_impl(ast: syn::DeriveInput) -> Result<TokenStream, syn::Error> {
                         a:: PeekR:: Ok(s) => s,
                     };
                     match tag {
-                        #(#vark_cases) * _ => {
-                            if state.autocomplete() {
-                                let mut choices = vec![];
-                                #(#partial_complete_builder) * 
-                                //. .
-                                return a:: R:: EOF(choices);
-                            }
+                        #(#vark_cases) * 
+                        //. .
+                        _ => {
                             state.r_err(
-                                format!("Unrecognized variant {}. Choices are {:?}", tag, vec![#(#all_tags), *]),
+                                format!("Unrecognized variant {} - choices are {:?}", tag, vec![#(#all_tags), *]),
+                                Some(build_completer(tag)),
                             )
                         }
                     }
                 }
             };
-            help_build = quote!{
+            impl_help_build = quote!{
                 let(
                     key,
                     variants
@@ -711,21 +695,21 @@ fn gen_impl(ast: syn::DeriveInput) -> Result<TokenStream, syn::Error> {
         syn::Data::Union(_) => panic!("Union not supported"),
     };
     return Ok(quote!{
-        impl #decl_generics aargvark:: traits_impls:: AargvarkTrait for #ident #forward_generics {
+        impl #decl_generics aargvark:: traits:: AargvarkTrait for #ident #forward_generics {
             fn vark(state:& mut aargvark:: base:: VarkState) -> aargvark:: base:: R < #ident #forward_generics > {
                 mod a {
                     pub use aargvark::help::*;
                     pub use aargvark::base::*;
-                    pub use aargvark::traits_impls::*;
+                    pub use aargvark::traits::*;
                 }
-                #vark
+                #impl_vark
             }
             fn build_help_pattern(state:& mut aargvark:: help:: HelpState) -> aargvark:: help:: HelpPattern {
                 mod a {
                     pub use aargvark::help::*;
-                    pub use aargvark::traits_impls::*;
+                    pub use aargvark::traits::*;
                 }
-                #help_build
+                #impl_help_build
             }
         }
     });

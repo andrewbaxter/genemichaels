@@ -5,7 +5,7 @@ version = "0.7.2"
 edition.workspace = true
 license.workspace = true
 repository = "https://github.com/andrewbaxter/genemichaels"
-readme = "../../readme_aargvark.md"
+readme = "./readme.md"
 
 [package.metadata.docs.rs]
 all-features = true
@@ -14,12 +14,14 @@ all-features = true
 default = []
 serde_json = ["dep:serde_json", "dep:serde", "dep:serde_path_to_error"]
 serde_yaml = ["dep:serde_yaml", "dep:serde", "dep:serde_path_to_error"]
+serde_toml = ["dep:toml", "dep:serde", "dep:serde_path_to_error"]
 http_types = ["dep:http"]
 
 [dependencies]
 aargvark_proc_macros = { path = "../aargvark_proc_macros", version = "=3.3.2" }
 serde_json = { version = "1", optional = true }
-serde_yaml = { version = "0", optional = true }
+serde_yaml = { version = "0.9", optional = true }
+toml = { version = "0.8", optional = true }
 serde_path_to_error = { version = "0.1", optional = true }
 convert_case = "0.6"
 comfy-table = { version = "7", features = ["custom_styling"] }
@@ -29,3 +31,4 @@ serde = { version = "1", optional = true }
 console = "0.15"
 textwrap = { version = "0.16", features = ["terminal_size"] }
 unicode-width = "0.1"
+shell-escape = "0.1"

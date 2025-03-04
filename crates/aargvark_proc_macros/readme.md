@@ -1,0 +1,1 @@
+This is the proc macro generation internal code. It's expected to use this via the `aargvark` crate - see that crate for usage details.
