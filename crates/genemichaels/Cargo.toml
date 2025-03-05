@@ -1,7 +1,7 @@
 [package]
 name = "genemichaels"
 description = "Makes your code formatty"
-version = "0.7.0"
+version = "0.7.1"
 edition.workspace = true
 license.workspace = true
 repository = "https://github.com/andrewbaxter/genemichaels"
@@ -12,9 +12,9 @@ syn = { workspace = true }
 walkdir = "2"
 threadpool = "1"
 cargo-manifest = "0.15"
-aargvark = { version = "=0.8.0", path = "../aargvark" }
+aargvark = { version = "=0.8.1", path = "../aargvark" }
 console = "0.15"
 loga = "0.5"
 serde = { workspace = true }
 serde_json = { workspace = true }
-genemichaels-lib = { version = "=0.7.0", path = "../genemichaels-lib" }
+genemichaels-lib = { version = "=0.7.1", path = "../genemichaels-lib" }
