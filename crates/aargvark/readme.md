@@ -15,7 +15,10 @@ This attempts to support parsing arbitrarily complex command line arguments. Lik
 
 A definition like:
 
-```rust
+```rust no_run
+use aargvark::Aargvark;
+use std::path::PathBuf;
+
 #[derive(Aargvark)]
 struct RestartArgs {
     message: String,
@@ -48,7 +51,7 @@ let args = aargvark::vark::<Args>();
 
 Produces this output:
 
-```
+```text
 $ ; (The real thing is colored too)
 $ ultrathon -h
 Usage: ultrathon SERVER-NAME COMMAND [ ...FLAGS]
@@ -68,7 +71,7 @@ COMMAND: start | restart | stop
 
 ```
 
-```
+```text
 $ ultrathon bootleg-server stop -h
 Usage: ultrathon bootleg-server stop MESSAGE FORCE
 
@@ -97,30 +100,35 @@ Why not this?
 
 To add it to your project, run
 
-```sh
+```text
 cargo add aargvark
 ```
 
 To parse command line arguments
 
-1. Define the data type you want to parse them into, like
+```rust no_run
+use aargvark::{Aargvark, vark};
 
-   ```rust
-   /// General description for the command.
-   #[derive(Aargvark)]
-   struct MyArgs {
-     /// Field documentation.
-     velociraptor: String,
-     #[vark(flag = "-d", flag = "--deadly")]
-     deadly: bool,
-     color_pattern: Option<ColorPattern>,
-   }
-   ```
+// 1. Define the data type you want to parse them into, like
 
-2. Vark it
-   ```rust
-   let args = vark::<MyArgs>();
-   ```
+#[derive(Aargvark)]
+struct ColorPattern; // ...
+
+/// This command changes the color of a velociraptor, deadly
+/// or not. This text is shown in help output.
+#[derive(Aargvark)]
+struct MyArgs {
+  /// Field documentation, also included in help output.
+  velociraptor: String,
+  #[vark(flag = "-d", flag = "--deadly")]
+  deadly: bool,
+  color_pattern: Option<ColorPattern>,
+}
+
+// 2. Vark it
+
+let args = vark::<MyArgs>();
+```
 
 Non-optional fields become positional arguments unless you give them a flag with `#[vark(flag = "--flag")]`. Optional fields become optional (`--long`) arguments. If you want a `bool` flag that's enabled if the flag is specified (i.e. doesn't take a value), use `Option<()>`.
 
