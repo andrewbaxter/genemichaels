@@ -12,8 +12,8 @@ markdown = { version = "=1.0.0-alpha.21" }
 proc-macro2 = { version = "1", features = ["span-locations"] }
 quote = "1"
 syn = { workspace = true }
-cargo-manifest = "0.15"
-derive_more = "0.99"
+cargo-manifest = "0.19"
+derive_more = { version = "2", features = ["full"] }
 loga = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

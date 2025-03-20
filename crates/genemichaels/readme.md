@@ -37,13 +37,11 @@ to use it with reckless abandon.
 
 ## Configuration
 
-The configuration file is optional with (I think) sane defaults if not provided. A default config file named `.genemichaels.json` in the same directory as `Cargo.toml` or the current directory if not in a project will be used.
-
-The config contains parameters that tweak the formatting output, suitable for establishing a convention for a project. Things that don't affect the output (thread count, verbosity, etc) are command line arguments instead.
+Gene Michaels can be configured with a configuration file named `.genemichaels.json` in the current directory or any parent directory, or named `genemichaels.json` in your user configuration directory (ex: `~/.config/genemichaels.json`). If for some reason it doesn't find your config file you can double check it by running `genemichaels` with `strace`.
 
 The configuration file is json, but it will strip lines starting with `//` first if you want to add comments.
 
-Here's the config file. All values shown are defaults and the keys can be omitted if the default works for you.
+Here is the default config - all values shown are defaults and can be omitted.
 
 ```jsonc
 {
