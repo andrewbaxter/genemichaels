@@ -23,12 +23,12 @@ serde_json = { version = "1", optional = true }
 serde_yaml = { version = "0.9", optional = true }
 toml = { version = "0.8", optional = true }
 serde_path_to_error = { version = "0.1", optional = true }
-convert_case = "0.6"
+convert_case = "0.8"
 comfy-table = { version = "7", features = ["custom_styling"] }
 url = { version = "2", optional = true }
 http = { version = "1", optional = true }
 serde = { version = "1", optional = true }
 console = "0.15"
 textwrap = { version = "0.16", features = ["terminal_size"] }
-unicode-width = "0.1"
+unicode-width = "0.2"
 shell-escape = "0.1"

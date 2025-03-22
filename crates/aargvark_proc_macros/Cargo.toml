@@ -11,7 +11,7 @@ readme = "./readme.md"
 proc-macro = true
 
 [dependencies]
-convert_case = "0.6"
+convert_case = "0.8"
 darling = "0.20"
 flowcontrol = "0.2.3"
 genemichaels-lib = { version = "=0.7.1", path = "../genemichaels-lib" }

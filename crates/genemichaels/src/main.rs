@@ -3,6 +3,7 @@ use {
         vark,
         Aargvark,
     },
+    flowcontrol::shed,
     genemichaels_lib::{
         format_str,
         FormatConfig,
@@ -11,9 +12,11 @@ use {
         ea,
         fatal,
         DebugDisplay,
+        ErrContext,
         Log,
         ResultContext,
     },
+    serde::de::DeserializeOwned,
     std::{
         collections::HashSet,
         env::current_dir,
@@ -74,36 +77,38 @@ fn skip(src: &str) -> bool {
     src.lines().take(5).any(|l| l.contains("`nogenemichaels`"))
 }
 
-fn load_config(log: &Log, paths: &[Option<PathBuf>]) -> Result<FormatConfig, loga::Error> {
-    let Some(path) = paths.iter().filter_map(|p| {
-        let Some(p) = p else {
-            return None;
-        };
-        if !p.exists() {
-            log.log_with(loga::DEBUG, "Tried config path not found", ea!(path = p.to_string_lossy()));
-            return None;
-        }
-        return Some(p);
-    }).next() else {
-        return Ok(FormatConfig::default());
-    };
-    let log = log.fork(ea!(path = path.to_string_lossy()));
+/// Using existing code that's not quite jsonc, but I think we might as well move
+/// to jsonc at some point.
+fn maybe_load_almost_jsonc<T: DeserializeOwned>(path: &Path) -> Result<Option<T>, loga::Error> {
+    let log = Log::new().fork(ea!(path = path.to_string_lossy()));
     let log = &log;
+    let body = match read(path) {
+        Ok(b) => b,
+        Err(e) => {
+            match e.kind() {
+                std::io::ErrorKind::NotADirectory | std::io::ErrorKind::NotFound => {
+                    return Ok(None);
+                },
+                _ => {
+                    return Err(e.stack_context(log, "Failed to read JSON file"));
+                },
+            }
+        },
+    };
     return Ok(
         serde_json::from_str(
-            &String::from_utf8(read(path).stack_context(log, "Failed to read config file")?)
-                .stack_context(log, "Failed to decode file as utf8")?
-                .lines()
-                .filter(|l| {
-                    if l.trim_start().starts_with("//") {
-                        return false;
-                    }
-                    return true;
-                })
-                .collect::<Vec<&str>>()
-                .join("\n"),
-        ).stack_context(log, "Failed to parse file as json")?,
+            &String::from_utf8(body).stack_context(log, "Failed to decode JSON file as utf8")?.lines().filter(|l| {
+                if l.trim_start().starts_with("//") {
+                    return false;
+                }
+                return true;
+            }).collect::<Vec<&str>>().join("\n"),
+        ).stack_context(log, "Failed to parse JSON file")?,
     );
+}
+
+fn load_almost_jsonc<T: DeserializeOwned>(path: &Path) -> Result<T, loga::Error> {
+    return Ok(maybe_load_almost_jsonc(path)?.context_with("Path does not exist", ea!(path = path.dbg_str()))?);
 }
 
 fn process_file_contents(log: &Log, config: &FormatConfig, source: &str) -> Result<String, loga::Error> {
@@ -153,6 +158,35 @@ fn main() {
     });
     let log = &log;
     let res = || -> Result<(), loga::Error> {
+        let config = shed!{
+            'found_config _;
+            // Try exact location if specified
+            if let Some(path) = args.config {
+                break 'found_config load_almost_jsonc(&path)?;
+            }
+            // Search current and all parent directories
+            {
+                let cwd = current_dir().context("Error determining current directory, during search for config")?;
+                let mut at = cwd.as_path();
+                loop {
+                    if let Some(c) = maybe_load_almost_jsonc(&at.join(CONFIG_JSON))? {
+                        break 'found_config c;
+                    }
+                    let Some(next_at) = at.parent() else {
+                        break;
+                    };
+                    at = next_at;
+                }
+            }
+            // Try global config directory
+            if let Some(d) = dirs::config_dir() {
+                if let Some(c) = maybe_load_almost_jsonc(&d.join(CONFIG_JSON))? {
+                    break 'found_config c;
+                }
+            }
+            // No config, use default settings
+            break Default::default();
+        };
         if args.stdin.is_some() {
             if !args.files.is_empty() {
                 return Err(
@@ -162,7 +196,6 @@ fn main() {
                     ),
                 )
             }
-            let config = load_config(&log, &[args.config, Some(PathBuf::from(CONFIG_JSON))])?;
             || -> Result<(), loga::Error> {
                 let mut source = Vec::new();
                 std::io::stdin().read_to_end(&mut source)?;
@@ -177,7 +210,6 @@ fn main() {
                 }
             }().stack_context(log, "Error formatting stdin")?;
         } else if !args.files.is_empty() {
-            let config = load_config(&log, &[args.config, Some(PathBuf::from(CONFIG_JSON))])?;
             let mut pool = FormatPool::new(log, args.thread_count, config);
             for file in args.files {
                 pool.process_file(file);
@@ -200,8 +232,6 @@ fn main() {
                     log.err("Couldn't find a Cargo.toml manifest in any directory up to filesystem root; aborting"),
                 );
             };
-            let config =
-                load_config(log, &[args.config, Some(manifest_path.parent().unwrap().join(CONFIG_JSON))])?;
 
             struct DirSearch {
                 seen: HashSet<PathBuf>,
