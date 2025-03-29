@@ -1,7 +1,7 @@
 [package]
 name = "aargvark"
 description = "Self-similar argument parsing"
-version = "0.8.1"
+version = "0.8.2"
 edition.workspace = true
 license.workspace = true
 repository = "https://github.com/andrewbaxter/genemichaels"
@@ -18,7 +18,7 @@ serde_toml = ["dep:toml", "dep:serde", "dep:serde_path_to_error"]
 http_types = ["dep:http"]
 
 [dependencies]
-aargvark_proc_macros = { path = "../aargvark_proc_macros", version = "=3.4.1" }
+aargvark_proc_macros = { path = "../aargvark_proc_macros", version = "=3.4.2" }
 serde_json = { version = "1", optional = true }
 serde_yaml = { version = "0.9", optional = true }
 toml = { version = "0.8", optional = true }
