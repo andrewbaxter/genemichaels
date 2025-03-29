@@ -117,6 +117,11 @@ fn extract_blank_before_end() {
 }
 
 #[test]
+fn extract_quad_slash() {
+    t(0, "//// abcd", vec![comment(CommentMode::Normal, "// abcd")]);
+}
+
+#[test]
 fn from_rt_blank_keep1() {
     let got = extract_whitespaces_first(1, r#"
 

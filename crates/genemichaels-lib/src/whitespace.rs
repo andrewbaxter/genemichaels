@@ -84,10 +84,10 @@ pub fn extract_whitespaces(
         }
 
         fn add_comments(&mut self, end: LineColumn, between_ast_nodes: &str) {
-            let start_re =
-                &self
-                    .start_re
-                    .get_or_insert_with(|| Regex::new(r#"(?:(//)(/|!|\.|\?)?)|(/\*\*/)|(?:(/\*)(\*|!)?)"#).unwrap());
+            let start_re = &self.start_re.get_or_insert_with(|| Regex::new(
+                // `//` maybe followed by `[/!.?]`, `/**/`, or `/*` maybe followed by `[*!]`
+                r#"(?:(//)(/|!|\.|\?)?)|(/\*\*/)|(?:(/\*)(\*|!)?)"#,
+            ).unwrap());
             let block_event_re =
                 &self.block_event_re.get_or_insert_with(|| Regex::new(r#"((?:/\*)|(?:\*/))"#).unwrap());
 
@@ -162,7 +162,7 @@ pub fn extract_whitespaces(
                             "//" => {
                                 let mode = {
                                     let start_suffix_match = found_start.get(2);
-                                    let (mode, match_end) = match start_suffix_match {
+                                    let (mut mode, mut match_end) = match start_suffix_match {
                                         Some(start_suffix_match) => (match start_suffix_match.as_str() {
                                             "/" => CommentMode::DocOuter,
                                             "!" => CommentMode::DocInner,
@@ -172,6 +172,11 @@ pub fn extract_whitespaces(
                                         }, start_suffix_match.end()),
                                         None => (CommentMode::Normal, start_prefix_match.end()),
                                     };
+                                    if mode == CommentMode::DocOuter && text[match_end..].starts_with("/") {
+                                        // > 3 slashes, so actually not a doc comment
+                                        mode = CommentMode::Normal;
+                                        match_end = start_prefix_match.end();
+                                    }
                                     text = &text[match_end..];
                                     mode
                                 };
