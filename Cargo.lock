@@ -374,7 +374,7 @@ dependencies = [
 
 [[package]]
 name = "genemichaels"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "aargvark",
  "cargo-manifest",
@@ -392,7 +392,7 @@ dependencies = [
 
 [[package]]
 name = "genemichaels-lib"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "cargo-manifest",
  "derive_more",
