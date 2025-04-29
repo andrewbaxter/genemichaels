@@ -212,6 +212,12 @@ fn rt_comments_generic_type1() {
 }
 
 #[test]
+fn rt_generic_nested_constraint() {
+    rt(r#"trait X: Y<Error: Debug> { }
+"#);
+}
+
+#[test]
 fn rt_comments_blank_nokeep1() {
     let res = format_str(r#"
 

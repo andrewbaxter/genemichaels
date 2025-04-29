@@ -768,7 +768,7 @@ impl Formattable for GenericArgument {
             GenericArgument::Constraint(c) => {
                 let mut node = new_sg(out);
                 node.seg(out, &c.ident);
-                append_binary(out, base_indent, &mut node, " =", |out: &mut MakeSegsState, base_indent: &Alignment| {
+                append_binary(out, base_indent, &mut node, ":", |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut node = new_sg(out);
                     append_inline_list(out, base_indent, &mut node, " +", &c.bounds, InlineListSuffix::<Expr>::None);
                     node.build(out)
