@@ -16,7 +16,7 @@ use crate::{
         append_path,
         build_path,
         build_generics_part_b,
-        build_generics_part_a,
+        append_generics_part_a,
         append_generics,
     },
     Alignment,
@@ -109,9 +109,7 @@ fn new_sg_sig(out: &mut MakeSegsState, base_indent: &Alignment, sig: &Signature)
     sg.seg(out, "fn ");
     append_whitespace(out, base_indent, &mut sg, sig.ident.span().start());
     sg.seg(out, &sig.ident);
-    if !sig.generics.params.is_empty() {
-        sg.child(build_generics_part_a(out, base_indent, &sig.generics));
-    }
+    append_generics_part_a(out, base_indent, &mut sg, &sig.generics);
     sg.child(
         new_sg_bracketed_list(
             out,
@@ -372,6 +370,10 @@ impl Formattable for ImplItem {
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     append_vis(out, base_indent, &mut sg, &x.vis);
+                    if let Some(def) = &x.defaultness {
+                        append_whitespace(out, base_indent, &mut sg, def.span.start());
+                        sg.seg(out, "default ");
+                    }
                     sg.child(new_sg_sig(out, base_indent, &x.sig));
                     sg.child(
                         new_sg_block(
@@ -404,8 +406,11 @@ impl Formattable for ImplItem {
                     prefix.push_str("type ");
                     prefix.push_str(&x.ident.to_string());
                     sg.seg(out, &prefix);
-                    append_generics(out, base_indent, &mut sg, &x.generics);
+                    append_generics_part_a(out, base_indent, &mut sg, &x.generics);
                     append_binary(out, base_indent, &mut sg, " =", &x.ty);
+                    if let Some(wh) = &x.generics.where_clause {
+                        sg.child(build_generics_part_b(out, base_indent, wh));
+                    }
                     append_whitespace(out, base_indent, &mut sg, x.semi_token.span.start());
                     sg.seg(out, ";");
                     sg.build(out)
@@ -526,9 +531,7 @@ impl Formattable for TraitItem {
                         prefix.push_str("type ");
                         prefix.push_str(&x.ident.to_string());
                         sg.seg(out, &prefix);
-                        if !x.generics.params.is_empty() {
-                            sg.child(build_generics_part_a(out, base_indent, &x.generics));
-                        }
+                        append_generics_part_a(out, base_indent, &mut sg, &x.generics);
                         if let Some(c) = &x.colon_token {
                             append_whitespace(out, base_indent, &mut sg, c.span.start());
                             append_binary(
@@ -550,9 +553,6 @@ impl Formattable for TraitItem {
                                 },
                             );
                         }
-                        if let Some(wh) = &x.generics.where_clause {
-                            sg.child(build_generics_part_b(out, base_indent, wh));
-                        }
                         sg.build(out)
                     };
                     let mut sg = new_sg(out);
@@ -571,6 +571,9 @@ impl Formattable for TraitItem {
                             None => build_base(out, base_indent),
                         }
                     });
+                    if let Some(wh) = &x.generics.where_clause {
+                        sg.child(build_generics_part_b(out, base_indent, wh));
+                    }
                     append_whitespace(out, base_indent, &mut sg, x.semi_token.span.start());
                     sg.seg(out, ";");
                     sg.build(out)
@@ -770,9 +773,7 @@ impl Formattable for Item {
                     append_whitespace(out, base_indent, &mut sg, x.impl_token.span.start());
                     prefix.push_str("impl");
                     sg.seg(out, &prefix);
-                    if !x.generics.params.is_empty() {
-                        sg.child(build_generics_part_a(out, base_indent, &x.generics));
-                    }
+                    append_generics_part_a(out, base_indent, &mut sg, &x.generics);
                     sg.seg(out, " ");
                     if let Some((bang, base, _)) = &x.trait_ {
                         if bang.is_some() {
@@ -873,9 +874,7 @@ impl Formattable for Item {
                     append_whitespace(out, base_indent, &mut sg, x.struct_token.span.start());
                     sg.seg(out, "struct ");
                     sg.seg(out, &x.ident.to_string());
-                    if !x.generics.params.is_empty() {
-                        sg.child(build_generics_part_a(out, base_indent, &x.generics));
-                    }
+                    append_generics_part_a(out, base_indent, &mut sg, &x.generics);
                     match &x.fields {
                         syn::Fields::Named(s) => {
                             if let Some(wh) = &x.generics.where_clause {
@@ -942,9 +941,7 @@ impl Formattable for Item {
                     prefix.push_str("trait ");
                     prefix.push_str(&x.ident.to_string());
                     sg.seg(out, &prefix);
-                    if !x.generics.params.is_empty() {
-                        sg.child(build_generics_part_a(out, base_indent, &x.generics));
-                    }
+                    append_generics_part_a(out, base_indent, &mut sg, &x.generics);
                     if x.colon_token.is_some() {
                         sg.seg(out, ": ");
                         append_inline_list(
@@ -1015,8 +1012,11 @@ impl Formattable for Item {
                     prefix.push_str("type ");
                     prefix.push_str(&x.ident.to_string());
                     sg.seg(out, &prefix);
-                    append_generics(out, base_indent, &mut sg, &x.generics);
+                    append_generics_part_a(out, base_indent, &mut sg, &x.generics);
                     append_binary(out, base_indent, &mut sg, " =", x.ty.as_ref());
+                    if let Some(wh) = &x.generics.where_clause {
+                        sg.child(build_generics_part_b(out, base_indent, wh));
+                    }
                     append_whitespace(out, base_indent, &mut sg, x.semi_token.span.start());
                     sg.seg(out, ";");
                     sg.build(out)

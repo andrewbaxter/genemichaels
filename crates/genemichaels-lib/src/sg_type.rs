@@ -205,12 +205,16 @@ pub(crate) fn build_array_type(
     sg.build(out)
 }
 
-pub(crate) fn build_generics_part_a(
+pub(crate) fn append_generics_part_a(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
+    sg: &mut SplitGroupBuilder,
     generics: &Generics,
-) -> SplitGroupIdx {
-    new_sg_bracketed_list_common(
+) {
+    if generics.params.is_empty() {
+        return;
+    }
+    sg.child(new_sg_bracketed_list_common(
         out,
         base_indent,
         // not really optional, just sometimes not parsed
@@ -226,7 +230,7 @@ pub(crate) fn build_generics_part_a(
             column: 0,
         }),
         ">",
-    )
+    ));
 }
 
 pub(crate) fn append_generics(
@@ -235,10 +239,7 @@ pub(crate) fn append_generics(
     sg: &mut SplitGroupBuilder,
     generics: &Generics,
 ) {
-    if generics.params.is_empty() {
-        return;
-    }
-    sg.child(build_generics_part_a(out, base_indent, generics));
+    append_generics_part_a(out, base_indent, sg, generics);
     if let Some(wh) = &generics.where_clause {
         sg.child(build_generics_part_b(out, base_indent, wh));
     }

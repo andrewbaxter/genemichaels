@@ -72,6 +72,25 @@ fn rt_trait_associated_type_where1() {
 }
 
 #[test]
+fn rt_trait_impl_associated_type_where1() {
+    rt(r#"impl ABC for T {
+    type Assoc = usize
+    where
+        T: Trait;
+}
+"#);
+}
+
+
+#[test]
+fn rt_trait_impl_default_fn() {
+    rt(r#"impl ABC for T {
+    default fn deserialize_or_zeroed() { }
+}
+"#);
+}
+
+#[test]
 fn rt_tuple_unit1() {
     rt(r#"fn main() {
     x((7,));
