@@ -3,15 +3,15 @@
 <td><a href="https://docs.rs/aargvark"><img alt="docs.rs" src="https://img.shields.io/docsrs/aargvark"></td></a>
 </tr></table>
 
-A simple and consistent derive-based command line argument parsing, in the same genre as Clap-derive. It currently supports
+Simple, consistent, and flexible derive-based command line argument parsing, in the same genre as Clap-derive. It currently supports
 
 - Command line parsing
 - Help
-- Shell completion generation
+- Shell completion
 
-Generally speaking this is intended to make CLI parsing simple by virtue of being simple and consistent, rather than poweruser-optimized keypress-minimizing parsing.
+Minimizing keypressing, bespoke CLI behaviors, and optimizing for powerusers aren't goals.
 
-This attempts to support parsing arbitrarily complex command line arguments. Like with Serde, you can combine structs, vecs, enums in any way you want. Just because you can doesn't mean you should.
+Aargvark supports parsing arbitrarily complex command line arguments: like with Serde, you can combine structs, vecs, enums in any way you want. Just because you can doesn't mean you should.
 
 A definition like:
 
@@ -87,7 +87,7 @@ Usage: ultrathon bootleg-server stop MESSAGE FORCE
 Why this and not Clap?
 
 - It has a super-simple interface (just `#[derive(Aargvark)]` on any enum/structure)
-- This parses more complex data types, like vectors of sub-structures, or enums
+- This parses more complex data types, like vectors of sub-structures or enums
 - It's more consistent
 
 Why not this?
@@ -208,7 +208,7 @@ For bash, something like:
 _my_program () {
   # Only invoke if the cursor is at the end of the line
   if [[ $COMP_POINT == ${#COMP_LINE} ]]; then
-  
+
     # Determine if a new argument is being started, or a partially written argument
     # is being finished
     local vark_complete_type
@@ -231,4 +231,4 @@ Any type implementing `AargvarkTrait` has the option of replacing the latest com
 
 When implementing `AargvarkFromStr` you can additionally define the function `build_completer` to provide the same.
 
-When the completer is invoked, it should produce a list of completion options. Each element is also a list, of command line options.  Aargvark will quote the list to turn it into a shell-safe command line upon output.
+When the completer is invoked, it should produce a list of completion options. Each element is also a list, of command line options. Aargvark will quote the list to turn it into a shell-safe command line upon output.
