@@ -1,56 +1,59 @@
-use crate::{
-    new_sg,
-    new_sg_lit,
-    sg_general::{
-        append_binary,
-        append_bracketed_statement_list,
-        append_whitespace,
-        append_macro_body,
-        new_sg_outer_attrs,
-        new_sg_binary,
-        new_sg_block,
-        new_sg_macro,
-        append_macro_bracketed,
+use {
+    crate::{
+        new_sg,
+        new_sg_lit,
+        sg_general::{
+            append_binary,
+            append_bracketed_statement_list,
+            append_whitespace,
+            append_macro_body,
+            new_sg_outer_attrs,
+            new_sg_binary,
+            new_sg_block,
+            new_sg_macro,
+            append_macro_bracketed,
+        },
+        sg_type::{
+            append_path,
+            build_path,
+            build_generics_part_b,
+            append_generics_part_a,
+            append_generics,
+        },
+        Alignment,
+        Formattable,
+        FormattableStmt,
+        MakeSegsState,
+        MarginGroup,
+        SplitGroupBuilder,
+        check_split_brace_threshold,
+        SplitGroupIdx,
+        sg_general_lists::{
+            append_inline_list,
+            append_bracketed_list,
+            append_bracketed_list_curly,
+            new_sg_bracketed_list,
+            append_bracketed_list_common,
+            InlineListSuffix,
+        },
     },
-    sg_type::{
-        append_path,
-        build_path,
-        build_generics_part_b,
-        append_generics_part_a,
-        append_generics,
+    quote::ToTokens,
+    syn::{
+        spanned::Spanned,
+        Expr,
+        Field,
+        ForeignItem,
+        ImplItem,
+        Item,
+        ReturnType,
+        Signature,
+        StaticMutability,
+        Stmt,
+        TraitItem,
+        UseTree,
+        Variant,
+        Visibility,
     },
-    Alignment,
-    Formattable,
-    FormattableStmt,
-    MakeSegsState,
-    MarginGroup,
-    SplitGroupBuilder,
-    check_split_brace_threshold,
-    SplitGroupIdx,
-    sg_general_lists::{
-        append_inline_list,
-        append_bracketed_list,
-        append_bracketed_list_curly,
-        new_sg_bracketed_list,
-        append_bracketed_list_common,
-        InlineListSuffix,
-    },
-};
-use quote::ToTokens;
-use syn::{
-    Expr,
-    Field,
-    ForeignItem,
-    ImplItem,
-    Item,
-    ReturnType,
-    Signature,
-    StaticMutability,
-    Stmt,
-    TraitItem,
-    UseTree,
-    Variant,
-    Visibility,
 };
 
 fn append_vis(out: &mut MakeSegsState, base_indent: &Alignment, node: &mut SplitGroupBuilder, vis: &Visibility) {
@@ -161,6 +164,7 @@ impl Formattable for Stmt {
                 out,
                 base_indent,
                 &l.attrs,
+                self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     append_whitespace(out, base_indent, &mut sg, l.let_token.span.start());
@@ -205,6 +209,7 @@ impl Formattable for Stmt {
                 out,
                 base_indent,
                 &e.attrs,
+                self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     if let Some(semi) = &e.semi_token {
                         let mut sg = new_sg(out);
@@ -243,6 +248,7 @@ impl Formattable for ForeignItem {
                 out,
                 base_indent,
                 &x.attrs,
+                self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     append_vis(out, base_indent, &mut sg, &x.vis);
@@ -256,6 +262,7 @@ impl Formattable for ForeignItem {
                 out,
                 base_indent,
                 &x.attrs,
+                self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     append_whitespace(out, base_indent, &mut sg, x.static_token.span.start());
@@ -278,6 +285,7 @@ impl Formattable for ForeignItem {
                 out,
                 base_indent,
                 &x.attrs,
+                self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     append_vis(out, base_indent, &mut sg, &x.vis);
@@ -295,6 +303,7 @@ impl Formattable for ForeignItem {
                 out,
                 base_indent,
                 &x.attrs,
+                self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     new_sg_macro(out, base_indent, &x.mac, x.semi_token.is_some())
                 },
@@ -340,6 +349,7 @@ impl Formattable for ImplItem {
                 out,
                 base_indent,
                 &x.attrs,
+                self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     sg.child({
@@ -367,6 +377,7 @@ impl Formattable for ImplItem {
                 out,
                 base_indent,
                 &x.attrs,
+                self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     append_vis(out, base_indent, &mut sg, &x.vis);
@@ -394,6 +405,7 @@ impl Formattable for ImplItem {
                 out,
                 base_indent,
                 &x.attrs,
+                self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     append_vis(out, base_indent, &mut sg, &x.vis);
@@ -420,6 +432,7 @@ impl Formattable for ImplItem {
                 out,
                 base_indent,
                 &x.attrs,
+                self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     new_sg_macro(out, base_indent, &x.mac, x.semi_token.is_some())
                 },
@@ -465,6 +478,7 @@ impl Formattable for TraitItem {
                 out,
                 base_indent,
                 &x.attrs,
+                self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     sg.child({
@@ -495,6 +509,7 @@ impl Formattable for TraitItem {
                 out,
                 base_indent,
                 &x.attrs,
+                self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     sg.child(new_sg_sig(out, base_indent, &x.sig));
@@ -523,6 +538,7 @@ impl Formattable for TraitItem {
                 out,
                 base_indent,
                 &x.attrs,
+                self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let build_base = |out: &mut MakeSegsState, base_indent: &Alignment| {
                         let mut sg = new_sg(out);
@@ -583,6 +599,7 @@ impl Formattable for TraitItem {
                 out,
                 base_indent,
                 &x.attrs,
+                self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     new_sg_macro(out, base_indent, &x.mac, x.semi_token.is_some())
                 },
@@ -643,6 +660,7 @@ impl Formattable for Item {
                 out,
                 base_indent,
                 &x.attrs,
+                self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     append_vis(out, base_indent, &mut sg, &x.vis);
@@ -661,6 +679,7 @@ impl Formattable for Item {
                 out,
                 base_indent,
                 &x.attrs,
+                self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     if check_split_brace_threshold(out, x.variants.len()) {
@@ -687,6 +706,7 @@ impl Formattable for Item {
                 out,
                 base_indent,
                 &x.attrs,
+                self.span(),
                 |out: &mut MakeSegsState, _base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     append_whitespace(out, base_indent, &mut sg, x.extern_token.span.start());
@@ -705,6 +725,7 @@ impl Formattable for Item {
                 out,
                 base_indent,
                 &x.attrs,
+                self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     append_vis(out, base_indent, &mut sg, &x.vis);
@@ -728,6 +749,7 @@ impl Formattable for Item {
                 out,
                 base_indent,
                 &x.attrs,
+                self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
 
@@ -759,6 +781,7 @@ impl Formattable for Item {
                 out,
                 base_indent,
                 &x.attrs,
+                self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     let mut prefix = String::new();
@@ -803,6 +826,7 @@ impl Formattable for Item {
                 out,
                 base_indent,
                 &x.attrs,
+                self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     sg.child(build_path(out, base_indent, &x.mac.path));
@@ -818,6 +842,7 @@ impl Formattable for Item {
                 out,
                 base_indent,
                 &x.attrs,
+                self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     append_vis(out, base_indent, &mut sg, &x.vis);
@@ -846,6 +871,7 @@ impl Formattable for Item {
                 out,
                 base_indent,
                 &x.attrs,
+                self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     append_vis(out, base_indent, &mut sg, &x.vis);
@@ -868,6 +894,7 @@ impl Formattable for Item {
                 out,
                 base_indent,
                 &x.attrs,
+                self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     append_vis(out, base_indent, &mut sg, &x.vis);
@@ -925,6 +952,7 @@ impl Formattable for Item {
                 out,
                 base_indent,
                 &x.attrs,
+                self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     append_vis(out, base_indent, &mut sg, &x.vis);
@@ -974,6 +1002,7 @@ impl Formattable for Item {
                 out,
                 base_indent,
                 &x.attrs,
+                self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     append_vis(out, base_indent, &mut sg, &x.vis);
@@ -1004,6 +1033,7 @@ impl Formattable for Item {
                 out,
                 base_indent,
                 &x.attrs,
+                self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     append_vis(out, base_indent, &mut sg, &x.vis);
@@ -1026,6 +1056,7 @@ impl Formattable for Item {
                 out,
                 base_indent,
                 &x.attrs,
+                self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     if check_split_brace_threshold(out, x.fields.named.len()) {
@@ -1052,6 +1083,7 @@ impl Formattable for Item {
                 out,
                 base_indent,
                 &x.attrs,
+                self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     append_vis(out, base_indent, &mut sg, &x.vis);
@@ -1100,44 +1132,50 @@ impl Formattable for Item {
 
 impl Formattable for Variant {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
-        new_sg_outer_attrs(out, base_indent, &self.attrs, |out: &mut MakeSegsState, base_indent: &Alignment| {
-            let mut sg = new_sg(out);
-            append_whitespace(out, base_indent, &mut sg, self.ident.span().start());
-            sg.seg(out, &self.ident);
-            match &self.fields {
-                syn::Fields::Named(s) => {
-                    if check_split_brace_threshold(out, s.named.len()) {
-                        sg.initial_split();
-                    }
-                    append_bracketed_list_curly(
-                        out,
-                        base_indent,
-                        &mut sg,
-                        s.brace_token.span.open().start(),
-                        &s.named,
-                        None::<Expr>,
-                        s.brace_token.span.close().start(),
-                    );
-                },
-                syn::Fields::Unnamed(t) => {
-                    append_bracketed_list_common(
-                        out,
-                        base_indent,
-                        &mut sg,
-                        t.paren_token.span.open().start(),
-                        "(",
-                        &t.unnamed,
-                        t.paren_token.span.close().start(),
-                        ")",
-                    );
-                },
-                syn::Fields::Unit => { },
-            }
-            if let Some(e) = &self.discriminant {
-                append_binary(out, base_indent, &mut sg, " =", &e.1);
-            }
-            sg.build(out)
-        })
+        new_sg_outer_attrs(
+            out,
+            base_indent,
+            &self.attrs,
+            self.span(),
+            |out: &mut MakeSegsState, base_indent: &Alignment| {
+                let mut sg = new_sg(out);
+                append_whitespace(out, base_indent, &mut sg, self.ident.span().start());
+                sg.seg(out, &self.ident);
+                match &self.fields {
+                    syn::Fields::Named(s) => {
+                        if check_split_brace_threshold(out, s.named.len()) {
+                            sg.initial_split();
+                        }
+                        append_bracketed_list_curly(
+                            out,
+                            base_indent,
+                            &mut sg,
+                            s.brace_token.span.open().start(),
+                            &s.named,
+                            None::<Expr>,
+                            s.brace_token.span.close().start(),
+                        );
+                    },
+                    syn::Fields::Unnamed(t) => {
+                        append_bracketed_list_common(
+                            out,
+                            base_indent,
+                            &mut sg,
+                            t.paren_token.span.open().start(),
+                            "(",
+                            &t.unnamed,
+                            t.paren_token.span.close().start(),
+                            ")",
+                        );
+                    },
+                    syn::Fields::Unit => { },
+                }
+                if let Some(e) = &self.discriminant {
+                    append_binary(out, base_indent, &mut sg, " =", &e.1);
+                }
+                sg.build(out)
+            },
+        )
     }
 
     fn has_attrs(&self) -> bool {
@@ -1147,16 +1185,22 @@ impl Formattable for Variant {
 
 impl Formattable for Field {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
-        new_sg_outer_attrs(out, base_indent, &self.attrs, |out: &mut MakeSegsState, base_indent: &Alignment| {
-            let mut sg = new_sg(out);
-            append_vis(out, base_indent, &mut sg, &self.vis);
-            if let Some(n) = &self.ident {
-                append_whitespace(out, base_indent, &mut sg, n.span().start());
-                sg.seg(out, &format!("{}: ", n));
-            }
-            sg.child(self.ty.make_segs(out, base_indent));
-            sg.build(out)
-        })
+        new_sg_outer_attrs(
+            out,
+            base_indent,
+            &self.attrs,
+            self.span(),
+            |out: &mut MakeSegsState, base_indent: &Alignment| {
+                let mut sg = new_sg(out);
+                append_vis(out, base_indent, &mut sg, &self.vis);
+                if let Some(n) = &self.ident {
+                    append_whitespace(out, base_indent, &mut sg, n.span().start());
+                    sg.seg(out, &format!("{}: ", n));
+                }
+                sg.child(self.ty.make_segs(out, base_indent));
+                sg.build(out)
+            },
+        )
     }
 
     fn has_attrs(&self) -> bool {

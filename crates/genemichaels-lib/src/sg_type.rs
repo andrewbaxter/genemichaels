@@ -4,6 +4,7 @@ use std::{
 use proc_macro2::LineColumn;
 use quote::ToTokens;
 use syn::{
+    spanned::Spanned,
     AngleBracketedGenericArguments,
     BareFnArg,
     Expr,
@@ -337,6 +338,7 @@ impl Formattable for GenericParam {
                 out,
                 base_indent,
                 &t.attrs,
+                self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let build_base = |out: &mut MakeSegsState, base_indent: &Alignment| {
                         let mut sg = new_sg(out);
@@ -367,6 +369,7 @@ impl Formattable for GenericParam {
                 out,
                 base_indent,
                 &c.attrs,
+                self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let build_base = |out: &mut MakeSegsState, base_indent: &Alignment| {
                         let mut sg = new_sg(out);
@@ -445,25 +448,37 @@ impl Formattable for TypeParamBound {
 
 impl Formattable for LifetimeParam {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
-        new_sg_outer_attrs(out, base_indent, &self.attrs, |out: &mut MakeSegsState, base_indent: &Alignment| {
-            let mut node = new_sg(out);
-            node.seg(out, &self.lifetime);
-            if self.colon_token.is_some() {
-                append_binary(out, base_indent, &mut node, ":", |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut node = new_sg(out);
-                    append_inline_list(
+        new_sg_outer_attrs(
+            out,
+            base_indent,
+            &self.attrs,
+            self.span(),
+            |out: &mut MakeSegsState, base_indent: &Alignment| {
+                let mut node = new_sg(out);
+                node.seg(out, &self.lifetime);
+                if self.colon_token.is_some() {
+                    append_binary(
                         out,
                         base_indent,
                         &mut node,
-                        " +",
-                        &self.bounds,
-                        InlineListSuffix::None::<Expr>,
+                        ":",
+                        |out: &mut MakeSegsState, base_indent: &Alignment| {
+                            let mut node = new_sg(out);
+                            append_inline_list(
+                                out,
+                                base_indent,
+                                &mut node,
+                                " +",
+                                &self.bounds,
+                                InlineListSuffix::None::<Expr>,
+                            );
+                            node.build(out)
+                        },
                     );
-                    node.build(out)
-                });
-            }
-            node.build(out)
-        })
+                }
+                node.build(out)
+            },
+        )
     }
 
     fn has_attrs(&self) -> bool {
@@ -650,16 +665,22 @@ impl Formattable for Type {
 
 impl Formattable for BareFnArg {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
-        new_sg_outer_attrs(out, base_indent, &self.attrs, |out: &mut MakeSegsState, base_indent: &Alignment| {
-            if let Some(name) = &self.name {
-                let mut node = new_sg(out);
-                node.seg(out, format!("{}: ", name.0));
-                node.child(self.ty.make_segs(out, base_indent));
-                node.build(out)
-            } else {
-                self.ty.make_segs(out, base_indent)
-            }
-        })
+        new_sg_outer_attrs(
+            out,
+            base_indent,
+            &self.attrs,
+            self.span(),
+            |out: &mut MakeSegsState, base_indent: &Alignment| {
+                if let Some(name) = &self.name {
+                    let mut node = new_sg(out);
+                    node.seg(out, format!("{}: ", name.0));
+                    node.child(self.ty.make_segs(out, base_indent));
+                    node.build(out)
+                } else {
+                    self.ty.make_segs(out, base_indent)
+                }
+            },
+        )
     }
 
     fn has_attrs(&self) -> bool {
@@ -674,6 +695,7 @@ impl Formattable for FnArg {
                 out,
                 base_indent,
                 &x.attrs,
+                self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let build_self = |out: &mut MakeSegsState, base_indent: &Alignment| {
                         let mut sg = new_sg(out);
@@ -715,6 +737,7 @@ impl Formattable for FnArg {
                 out,
                 base_indent,
                 &x.attrs,
+                self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     new_sg_binary(out, base_indent, x.pat.as_ref(), x.colon_token.span.start(), ":", x.ty.as_ref())
                 },

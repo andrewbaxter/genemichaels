@@ -9,26 +9,28 @@ pub use whitespace::{
     format_md,
     HashLineColumn,
 };
-use loga::{
-    ea,
-    Error,
+use {
+    loga::{
+        ea,
+        Error,
+    },
+    proc_macro2::{
+        Ident,
+        LineColumn,
+    },
+    quote::ToTokens,
+    serde::{
+        Serialize,
+        Deserialize,
+    },
+    sg_general::append_whitespace,
+    std::{
+        cell::RefCell,
+        collections::HashMap,
+        rc::Rc,
+    },
+    syn::File,
 };
-use proc_macro2::{
-    Ident,
-    LineColumn,
-};
-use quote::ToTokens;
-use serde::{
-    Serialize,
-    Deserialize,
-};
-use sg_general::append_whitespace;
-use std::{
-    cell::RefCell,
-    collections::HashMap,
-    rc::Rc,
-};
-use syn::File;
 
 pub(crate) mod whitespace;
 pub(crate) mod sg_expr;

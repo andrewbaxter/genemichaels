@@ -1,8 +1,10 @@
 #![cfg(test)]
 
-use genemichaels_lib::{
-    format_str,
-    FormatConfig,
+use {
+    genemichaels_lib::{
+        format_str,
+        FormatConfig,
+    },
 };
 
 fn rt(text: &str) {
@@ -80,7 +82,6 @@ fn rt_trait_impl_associated_type_where1() {
 }
 "#);
 }
-
 
 #[test]
 fn rt_trait_impl_default_fn() {
@@ -493,6 +494,21 @@ fn rt_dontskip_modattrs() {
 )]
 
 fn main() { }
+"#,
+    );
+}
+
+#[test]
+fn rt_rustfmt_skip_subtree() {
+    rt(
+        r#"fn main() {
+    #[rustfmt::skip]
+    struct SomeStrangeIndentation {
+ abcd: i32,
+                              def: String, k: Option<
+               (
+                  )>}
+}
 "#,
     );
 }

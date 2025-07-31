@@ -31,6 +31,7 @@ use {
     },
     std::fmt::Write,
     syn::{
+        spanned::Spanned,
         token::{
             Brace,
             Bracket,
@@ -223,12 +224,14 @@ pub(crate) fn new_sg_outer_attrs(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
     attrs: &Vec<Attribute>,
+    span_including_attrs: proc_macro2::Span,
     child: impl Formattable,
 ) -> SplitGroupIdx {
     if attrs.is_empty() {
         return child.make_segs(out, base_indent);
     }
     let mut sg = new_sg(out);
+    let mut skip_fmt = false;
     for attr in attrs {
         match attr.style {
             syn::AttrStyle::Outer => { },
@@ -241,8 +244,29 @@ pub(crate) fn new_sg_outer_attrs(
             sg.seg_unsplit(out, " ");
         }
         sg.split_if(out, base_indent.clone(), out.config.split_attributes, false);
+        if attr.meta.to_token_stream().to_string() == "rustfmt :: skip" {
+            skip_fmt = true;
+        }
     }
-    sg.child(child.make_segs(out, base_indent));
+    'child: {
+        'noskip_fmt: {
+            if !skip_fmt {
+                break 'noskip_fmt;
+            }
+            let Some(text) = span_including_attrs.source_text() else {
+                break 'noskip_fmt;
+            };
+            let mut after_attr = 0;
+            if let Some(attr) = attrs.last() {
+                // I believe byte range must be within `source_text`: if any attr is synthetic
+                // then `source_text` should be None
+                after_attr = attr.span().byte_range().end;
+            }
+            sg.seg(out, &text[after_attr - span_including_attrs.span().byte_range().start..]);
+            break 'child;
+        }
+        sg.child(child.make_segs(out, base_indent));
+    }
     sg.build(out)
 }
 
