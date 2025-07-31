@@ -244,7 +244,7 @@ pub(crate) fn new_sg_outer_attrs(
             sg.seg_unsplit(out, " ");
         }
         sg.split_if(out, base_indent.clone(), out.config.split_attributes, false);
-        if attr.meta.to_token_stream().to_string() == "rustfmt :: skip" {
+        if attr.meta.to_token_stream().to_string().contains("rustfmt :: skip") {
             skip_fmt = true;
         }
     }

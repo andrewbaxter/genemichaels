@@ -46,7 +46,7 @@ impl Formattable for File {
                 if matches!(&attr.style, AttrStyle::Outer) {
                     continue;
                 }
-                if attr.meta.to_token_stream().to_string() == "rustfmt :: skip" {
+                if attr.meta.to_token_stream().to_string().contains("rustfmt :: skip") {
                     break 'res_rustfmt_skip self.span().source_text();
                 }
             }
