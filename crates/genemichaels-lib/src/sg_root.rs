@@ -1,18 +1,20 @@
 use {
-    syn::{
-        spanned::Spanned,
-        File,
-    },
     crate::{
         new_sg,
         sg_general::{
-            new_sg_outer_attrs,
             append_statement_list_raw,
+            new_sg_outer_attrs,
         },
         Alignment,
         Formattable,
         MakeSegsState,
         SplitGroupIdx,
+    },
+    quote::ToTokens,
+    syn::{
+        spanned::Spanned,
+        AttrStyle,
+        File,
     },
 };
 
@@ -38,6 +40,20 @@ impl Formattable for File {
             sg.split_always(out, base_indent.clone(), true);
             sg.split_always(out, base_indent.clone(), true);
             sg.child(build_inner(out, base_indent, self));
+            sg.build(out)
+        } else if let Some(text) = 'res_rustfmt_skip: {
+            for attr in &self.attrs {
+                if matches!(&attr.style, AttrStyle::Outer) {
+                    continue;
+                }
+                if attr.meta.to_token_stream().to_string() == "rustfmt :: skip" {
+                    break 'res_rustfmt_skip self.span().source_text();
+                }
+            }
+            break 'res_rustfmt_skip None;
+        } {
+            let mut sg = new_sg(out);
+            sg.seg(out, text);
             sg.build(out)
         } else {
             build_inner(out, base_indent, self)

@@ -499,6 +499,21 @@ fn main() { }
 }
 
 #[test]
+fn rt_rustfmt_skip_all() {
+    rt(
+        r#"#![rustfmt::skip]
+           fn main() {
+    struct SomeStrangeIndentation {
+ abcd: i32,
+                              def: String, k: Option<
+               (
+                  )>}
+}
+"#,
+    );
+}
+
+#[test]
 fn rt_rustfmt_skip_subtree() {
     rt(
         r#"fn main() {
