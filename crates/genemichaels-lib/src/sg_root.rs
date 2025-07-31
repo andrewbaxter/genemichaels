@@ -52,6 +52,7 @@ impl Formattable for File {
             }
             break 'res_rustfmt_skip None;
         } {
+            out.whitespaces.clear();
             let mut sg = new_sg(out);
             sg.seg(out, text);
             sg.build(out)

@@ -514,6 +514,22 @@ fn rt_rustfmt_skip_all() {
 }
 
 #[test]
+fn rt_rustfmt_skip_all_with_comments() {
+    rt(
+        r#"#![rustfmt::skip]
+           fn main() {
+    struct SomeStrangeIndentation {
+ abcd: i32,
+     // comment 1
+                              def: String, k: Option<
+               (
+                  )>}
+}
+"#,
+    );
+}
+
+#[test]
 fn rt_rustfmt_skip_subtree() {
     rt(
         r#"fn main() {
@@ -523,6 +539,24 @@ fn rt_rustfmt_skip_subtree() {
                               def: String, k: Option<
                (
                   )>}
+}
+"#,
+    );
+}
+
+#[test]
+fn rt_rustfmt_skip_subtree_comment() {
+    rt(
+        r#"fn main() {
+    #[rustfmt::skip]
+    // Start comment
+    struct SomeStrangeIndentation {
+// Some comment
+ abcd: i32,
+                              def: String, k: Option<
+               (
+                  )>}
+    // End line end comment
 }
 "#,
     );

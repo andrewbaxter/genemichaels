@@ -29,7 +29,10 @@ use {
         quote,
         ToTokens,
     },
-    std::fmt::Write,
+    std::{
+        fmt::Write,
+        ops::Bound,
+    },
     syn::{
         spanned::Spanned,
         token::{
@@ -249,20 +252,60 @@ pub(crate) fn new_sg_outer_attrs(
         }
     }
     'child: {
-        'noskip_fmt: {
+        'to_noskip_fmt: {
             if !skip_fmt {
-                break 'noskip_fmt;
+                break 'to_noskip_fmt;
             }
             let Some(text) = span_including_attrs.source_text() else {
-                break 'noskip_fmt;
+                break 'to_noskip_fmt;
             };
-            let mut after_attr = 0;
+            let after_attr_byte_offset;
+            let after_attr_line_col;
             if let Some(attr) = attrs.last() {
                 // I believe byte range must be within `source_text`: if any attr is synthetic
                 // then `source_text` should be None
-                after_attr = attr.span().byte_range().end;
+                after_attr_byte_offset = attr.span().byte_range().end;
+                after_attr_line_col = Bound::Excluded(HashLineColumn(attr.span().end()));
+            } else {
+                after_attr_byte_offset = 0;
+                after_attr_line_col = Bound::Included(HashLineColumn(span_including_attrs.start()));
             }
-            sg.seg(out, &text[after_attr - span_including_attrs.span().byte_range().start..]);
+            sg.seg(out, &text[after_attr_byte_offset - span_including_attrs.span().byte_range().start..]);
+            let remove_whitespaces_keys =
+                out
+                    .whitespaces
+                    .range((after_attr_line_col, Bound::Included(HashLineColumn(span_including_attrs.end()))))
+                    .map(|x| *x.0)
+                    .collect::<Vec<_>>();
+            for k in remove_whitespaces_keys {
+                let ws = out.whitespaces.remove(&k).unwrap();
+
+                // Line end comments after the end of the unformatted span will get lost since
+                // they should be included by span formatting. This checks if they've been missed
+                // and smashes them on the end.
+                for ws in ws {
+                    match ws.mode {
+                        WhitespaceMode::BlankLines(_) => { },
+                        WhitespaceMode::Comment(comment) => {
+                            if text.contains(&comment.lines) {
+                                continue;
+                            }
+                            sg.add(out, crate::Segment {
+                                node: sg.node,
+                                line: None,
+                                mode: crate::SegmentMode::All,
+                                content: crate::SegmentContent::Whitespace((base_indent.clone(), vec![Whitespace {
+                                    loc: k.0,
+                                    mode: WhitespaceMode::Comment(crate::Comment {
+                                        mode: crate::CommentMode::Normal,
+                                        lines: comment.lines,
+                                    }),
+                                }])),
+                            });
+                        },
+                    }
+                }
+            }
             break 'child;
         }
         sg.child(child.make_segs(out, base_indent));

@@ -5,10 +5,6 @@
     clippy::derive_hash_xor_eq
 )]
 
-pub use whitespace::{
-    format_md,
-    HashLineColumn,
-};
 use {
     loga::{
         ea,
@@ -25,11 +21,15 @@ use {
     },
     sg_general::append_whitespace,
     std::{
+        collections::BTreeMap,
         cell::RefCell,
-        collections::HashMap,
         rc::Rc,
     },
     syn::File,
+};
+pub use whitespace::{
+    format_md,
+    HashLineColumn,
 };
 
 pub(crate) mod whitespace;
@@ -124,7 +124,7 @@ struct Lines {
 pub struct MakeSegsState {
     nodes: Vec<SplitGroup>,
     segs: Vec<Segment>,
-    whitespaces: HashMap<HashLineColumn, Vec<Whitespace>>,
+    whitespaces: BTreeMap<HashLineColumn, Vec<Whitespace>>,
     config: FormatConfig,
 }
 
@@ -497,7 +497,7 @@ impl Default for FormatConfig {
 
 pub struct FormatRes {
     pub rendered: String,
-    pub lost_comments: HashMap<HashLineColumn, Vec<Whitespace>>,
+    pub lost_comments: BTreeMap<HashLineColumn, Vec<Whitespace>>,
     pub warnings: Vec<Error>,
 }
 
@@ -549,7 +549,7 @@ pub fn format_str(source: &str, config: &FormatConfig) -> Result<FormatRes, loga
 pub fn format_ast(
     ast: impl Formattable,
     config: &FormatConfig,
-    whitespaces: HashMap<HashLineColumn, Vec<Whitespace>>,
+    whitespaces: BTreeMap<HashLineColumn, Vec<Whitespace>>,
 ) -> Result<FormatRes, loga::Error> {
     // Build text
     let mut out = MakeSegsState {

@@ -77,3 +77,51 @@ fn ow_dont_format_when_explicit_normal() {
         ..Default::default()
     });
 }
+
+#[test]
+fn ow_rustfmt_skip_start_comment_duplication() {
+    owc(
+        r#"fn main() {
+    #[rustfmt::skip] // early comment
+    struct SomeStrangeIndentation { }
+}
+"#,
+        r#"fn main() {
+    // early comment
+    #[rustfmt::skip]
+    // early comment
+    struct SomeStrangeIndentation { }
+}
+"#,
+        &FormatConfig {
+            max_width: 120,
+            explicit_markdown_comments: true,
+            ..Default::default()
+        },
+    );
+}
+
+#[test]
+fn ow_rustfmt_skip_end_line_end_comment_keep() {
+    owc(
+        r#"fn main() {
+    #[rustfmt::skip]
+    struct SomeStrangeIndentation {
+       } // End line end comment
+}
+"#,
+        r#"fn main() {
+    #[rustfmt::skip]
+    struct SomeStrangeIndentation {
+       }
+    // End line end comment
+
+}
+"#,
+        &FormatConfig {
+            max_width: 120,
+            explicit_markdown_comments: true,
+            ..Default::default()
+        },
+    );
+}

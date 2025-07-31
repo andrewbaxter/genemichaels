@@ -15,19 +15,31 @@ use {
     regex::Regex,
     std::{
         cell::RefCell,
-        collections::HashMap,
+        collections::BTreeMap,
         hash::Hash,
         rc::Rc,
         str::FromStr,
     },
 };
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub struct HashLineColumn(pub LineColumn);
 
 impl Hash for HashLineColumn {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         (self.0.line, self.0.column).hash(state);
+    }
+}
+
+impl Ord for HashLineColumn {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        return self.0.line.cmp(&other.0.line).then(self.0.column.cmp(&other.0.column));
+    }
+}
+
+impl PartialOrd for HashLineColumn {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        return Some(self.0.cmp(&other.0));
     }
 }
 
@@ -44,7 +56,7 @@ fn unicode_len(text: &str) -> VisualLen {
 pub fn extract_whitespaces(
     keep_max_blank_lines: usize,
     source: &str,
-) -> Result<(HashMap<HashLineColumn, Vec<Whitespace>>, TokenStream), loga::Error> {
+) -> Result<(BTreeMap<HashLineColumn, Vec<Whitespace>>, TokenStream), loga::Error> {
     let mut line_lookup = vec![];
     {
         let mut offset = 0usize;
@@ -64,7 +76,7 @@ pub fn extract_whitespaces(
         keep_max_blank_lines: usize,
         // starting offset of each line
         line_lookup: Vec<usize>,
-        whitespaces: HashMap<HashLineColumn, Vec<Whitespace>>,
+        whitespaces: BTreeMap<HashLineColumn, Vec<Whitespace>>,
         // records the beginning of the last line extracted - this is the destination for
         // transposed comments
         line_start: Option<LineColumn>,
@@ -318,7 +330,7 @@ pub fn extract_whitespaces(
         source: source,
         keep_max_blank_lines: keep_max_blank_lines,
         line_lookup: line_lookup,
-        whitespaces: HashMap::new(),
+        whitespaces: BTreeMap::new(),
         last_offset: 0usize,
         line_start: None,
         start_re: None,
