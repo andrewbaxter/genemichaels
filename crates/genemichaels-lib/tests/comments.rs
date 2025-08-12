@@ -1,12 +1,14 @@
-use genemichaels_lib::{
-    Comment,
-    extract_whitespaces,
-    CommentMode,
-    HashLineColumn,
-    format_md,
-    Whitespace,
+use {
+    genemichaels_lib::{
+        Comment,
+        extract_whitespaces,
+        CommentMode,
+        HashLineColumn,
+        format_md,
+        Whitespace,
+    },
+    proc_macro2::LineColumn,
 };
-use proc_macro2::LineColumn;
 
 fn extract_whitespaces_first(keep_max_blank_lines: usize, text: &str) -> Vec<Whitespace> {
     let (mut whitespaces, tokens) = extract_whitespaces(keep_max_blank_lines, text).unwrap();

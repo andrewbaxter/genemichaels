@@ -1,8 +1,10 @@
 #![cfg(test)]
 
-use genemichaels_lib::{
-    format_str,
-    FormatConfig,
+use {
+    genemichaels_lib::{
+        format_str,
+        FormatConfig,
+    },
 };
 
 fn rt(text: &str) {
@@ -80,7 +82,6 @@ fn rt_trait_impl_associated_type_where1() {
 }
 "#);
 }
-
 
 #[test]
 fn rt_trait_impl_default_fn() {
@@ -493,6 +494,70 @@ fn rt_dontskip_modattrs() {
 )]
 
 fn main() { }
+"#,
+    );
+}
+
+#[test]
+fn rt_rustfmt_skip_all() {
+    rt(
+        r#"#![rustfmt::skip]
+           fn main() {
+    struct SomeStrangeIndentation {
+ abcd: i32,
+                              def: String, k: Option<
+               (
+                  )>}
+}
+"#,
+    );
+}
+
+#[test]
+fn rt_rustfmt_skip_all_with_comments() {
+    rt(
+        r#"#![rustfmt::skip]
+           fn main() {
+    struct SomeStrangeIndentation {
+ abcd: i32,
+     // comment 1
+                              def: String, k: Option<
+               (
+                  )>}
+}
+"#,
+    );
+}
+
+#[test]
+fn rt_rustfmt_skip_subtree() {
+    rt(
+        r#"fn main() {
+    #[rustfmt::skip]
+    struct SomeStrangeIndentation {
+ abcd: i32,
+                              def: String, k: Option<
+               (
+                  )>}
+}
+"#,
+    );
+}
+
+#[test]
+fn rt_rustfmt_skip_subtree_comment() {
+    rt(
+        r#"fn main() {
+    #[rustfmt::skip]
+    // Start comment
+    struct SomeStrangeIndentation {
+// Some comment
+ abcd: i32,
+                              def: String, k: Option<
+               (
+                  )>}
+    // End line end comment
+}
 "#,
     );
 }

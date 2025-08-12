@@ -9,25 +9,27 @@
 //!   <>, {} in use statements
 //!
 //! * curly bracketed: `{ a, b, c }` - inline within brackets with spaces
-use proc_macro2::LineColumn;
-use quote::ToTokens;
-use syn::{
-    punctuated::Punctuated,
-    Expr,
-};
-use crate::{
-    Formattable,
-    FormattablePunct,
-    MakeSegsState,
-    Alignment,
-    SplitGroupBuilder,
-    sg_general::{
-        append_whitespace,
-        has_comments,
+use {
+    proc_macro2::LineColumn,
+    quote::ToTokens,
+    syn::{
+        punctuated::Punctuated,
+        Expr,
     },
-    SplitGroupIdx,
-    new_sg,
-    whitespace::HashLineColumn,
+    crate::{
+        Formattable,
+        FormattablePunct,
+        MakeSegsState,
+        Alignment,
+        SplitGroupBuilder,
+        sg_general::{
+            append_whitespace,
+            has_comments,
+        },
+        SplitGroupIdx,
+        new_sg,
+        whitespace::HashLineColumn,
+    },
 };
 
 pub(crate) enum InlineListSuffix<T: Formattable> {
