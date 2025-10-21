@@ -297,6 +297,17 @@ fn main() {
                             if ws == manifest_dir {
                                 continue;
                             }
+                            if ws.ends_with("/*") {
+                                if let Some(glob) = ws.parent() {
+                                    let children = std::fs::read_dir(glob).unwrap();
+                                    for child in children {
+                                       let child = child.unwrap().path();
+                                        process_manifest(search, child.join(CARGO_TOML));
+                                       
+                                    }
+                                    continue;
+                                }
+                            }
                             process_manifest(search, ws.join(CARGO_TOML));
                         }
                     },
