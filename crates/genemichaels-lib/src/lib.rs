@@ -54,6 +54,7 @@ pub enum CommentMode {
 pub struct Comment {
     pub mode: CommentMode,
     pub lines: String,
+    pub orig_start_offset: usize,
 }
 
 #[derive(Debug)]

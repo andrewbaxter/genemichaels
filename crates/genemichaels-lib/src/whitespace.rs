@@ -110,6 +110,7 @@ pub fn extract_whitespaces(
                 mode: CommentMode,
                 lines: Vec<String>,
                 loc: LineColumn,
+                orig_start_offset: Option<usize>,
             }
 
             impl CommentBuffer {
@@ -122,9 +123,11 @@ pub fn extract_whitespaces(
                         mode: crate::WhitespaceMode::Comment(Comment {
                             mode: self.mode,
                             lines: self.lines.split_off(0).join("\n"),
+                            orig_start_offset: self.orig_start_offset.unwrap(),
                         }),
                     });
                     self.blank_lines = 0;
+                    self.orig_start_offset = None;
                 }
 
                 fn add(&mut self, mode: CommentMode, line: &str) {
@@ -156,11 +159,13 @@ pub fn extract_whitespaces(
                 mode: CommentMode::Normal,
                 lines: vec![],
                 loc: end,
+                orig_start_offset: None,
             };
             let mut text = between_ast_nodes;
             'comment_loop : loop {
                 match start_re.captures(text) {
                     Some(found_start) => {
+                        buffer.orig_start_offset.get_or_insert(found_start.get(0).unwrap().start());
                         let start_prefix_match =
                             found_start
                                 .get(1)

@@ -561,3 +561,29 @@ fn rt_rustfmt_skip_subtree_comment() {
 "#,
     );
 }
+
+#[test]
+fn rt_rustfmt_skip_subtree_comment_array() {
+    rt(
+        r#"fn main() {
+    #[rustfmt::skip]
+    let src_attribs = [
+        // EGL_WIDTH
+        0x3057, src.width() as i32,
+        // EGL_HEIGHT
+        0x3056, src.height() as i32,
+        //EGL_DMA_BUF_PLANE0_FD_EXT
+        0x3271, srcfd,
+        // EGL_DMA_BUF_PLANE0_OFFSET_EXT
+        0x3273, 0,
+        // EGL_DMA_BUF_PLANE0_PITCH_EXT
+        0x3274, src.stride() as i32,
+        // EGL_LINUX_DRM_FOURCC_EXT
+        // DRM_FORMAT_XRGB8888
+        0x3203, 0x34325258,
+        egl::EGL_NONE,
+     ];
+}
+"#,
+    );
+}
