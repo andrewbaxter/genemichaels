@@ -308,7 +308,6 @@ fn main() {
                                     },
                                     Err(e) => {
                                         eprintln!("Error while reading dir {}: {}", glob.to_string_lossy(), e);
-                                        continue;
                                     },
                                 }
                                 continue;
