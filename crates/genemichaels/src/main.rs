@@ -298,15 +298,20 @@ fn main() {
                                 continue;
                             }
                             if ws.ends_with("/*") {
-                                if let Some(glob) = ws.parent() {
-                                    let children = std::fs::read_dir(glob).unwrap();
-                                    for child in children {
-                                       let child = child.unwrap().path();
-                                        process_manifest(search, child.join(CARGO_TOML));
-                                       
-                                    }
-                                    continue;
+                                let glob = ws.parent().unwrap();
+                                match std::fs::read_dir(glob) {
+                                    Ok(children) => {
+                                        for child in children {
+                                            let child = child.unwrap().path();
+                                            process_manifest(search, child.join(CARGO_TOML));
+                                        }
+                                    },
+                                    Err(e) => {
+                                        eprintln!("Error while reading dir {}: {}", glob.to_string_lossy(), e);
+                                        continue;
+                                    },
                                 }
+                                continue;
                             }
                             process_manifest(search, ws.join(CARGO_TOML));
                         }
