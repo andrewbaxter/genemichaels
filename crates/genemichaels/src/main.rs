@@ -302,8 +302,12 @@ fn main() {
                                 match std::fs::read_dir(glob) {
                                     Ok(children) => {
                                         for child in children {
-                                            let child = child.unwrap().path();
-                                            process_manifest(search, child.join(CARGO_TOML));
+                                            match child {
+                                                Ok(child) => process_manifest(search, child.join(CARGO_TOML)),
+                                                Err(e) => {
+                                                    eprintln!("Error while reading dir {}: {}", glob.to_string_lossy(), e);
+                                                },
+                                            }
                                         }
                                     },
                                     Err(e) => {
