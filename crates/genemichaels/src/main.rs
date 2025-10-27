@@ -303,7 +303,20 @@ fn main() {
                                     Ok(children) => {
                                         for child in children {
                                             match child {
-                                                Ok(child) => process_manifest(search, child.join(CARGO_TOML)),
+                                                Ok(child) => {
+                                                    let metadata = child.metadata();
+                                                    match metadata {
+                                                        Ok(metadata) => {
+                                                            if metadata.is_file() {
+                                                                continue;
+                                                            }
+                                                            process_manifest(search, child.path().join(CARGO_TOML));
+                                                        },
+                                                        Err(e) => {
+                                                            eprintln!("Error while getting path metadata for {}: {}", glob.to_string_lossy(), e);
+                                                        },
+                                                    }
+                                                },
                                                 Err(e) => {
                                                     eprintln!("Error while reading dir {}: {}", glob.to_string_lossy(), e);
                                                 },
