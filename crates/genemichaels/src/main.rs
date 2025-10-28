@@ -297,39 +297,43 @@ fn main() {
                             if ws == manifest_dir {
                                 continue;
                             }
-                            if ws.ends_with("*") {
-                                let glob = ws.parent().unwrap();
-                                match std::fs::read_dir(glob) {
-                                    Ok(children) => {
-                                        for child in children {
-                                            match child {
-                                                Ok(child) => {
-                                                    let metadata = child.metadata();
-                                                    match metadata {
-                                                        Ok(metadata) => {
-                                                            if metadata.is_file() {
-                                                                continue;
-                                                            }
-                                                            process_manifest(search, child.path().join(CARGO_TOML));
-                                                        },
-                                                        Err(e) => {
-                                                            eprintln!("Error while getting path metadata for {}: {}", glob.to_string_lossy(), e);
-                                                        },
-                                                    }
-                                                },
-                                                Err(e) => {
-                                                    eprintln!("Error while reading dir {}: {}", glob.to_string_lossy(), e);
-                                                },
-                                            }
+                            if !ws.ends_with("*") {
+                                process_manifest(search, ws.join(CARGO_TOML));
+                                continue;
+                            }
+                            let glob = ws.parent().unwrap();
+                            let children = match std::fs::read_dir(glob) {
+                                Ok(children) => children,
+                                Err(e) => {
+                                    eprintln!("Error while reading dir {}: {}", glob.to_string_lossy(), e);
+                                    continue;
+                                },
+                            };
+                            for child in children {
+                                let child = match child {
+                                    Ok(child) => child,
+                                    Err(e) => {
+                                        eprintln!("Error while reading dir {}: {}", glob.to_string_lossy(), e);
+                                        continue;
+                                    },
+                                };
+                                let metadata = child.metadata();
+                                match metadata {
+                                    Ok(metadata) => {
+                                        if metadata.is_file() {
+                                            continue;
                                         }
                                     },
                                     Err(e) => {
-                                        eprintln!("Error while reading dir {}: {}", glob.to_string_lossy(), e);
+                                        eprintln!(
+                                            "Error while getting path metadata for {}: {}",
+                                            glob.to_string_lossy(),
+                                            e
+                                        );
                                     },
                                 }
-                                continue;
+                                process_manifest(search, child.path().join(CARGO_TOML));
                             }
-                            process_manifest(search, ws.join(CARGO_TOML));
                         }
                     },
                     Err(e) => {
