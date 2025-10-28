@@ -297,7 +297,7 @@ fn main() {
                             if ws == manifest_dir {
                                 continue;
                             }
-                            if ws.ends_with("/*") {
+                            if ws.ends_with("*") {
                                 let glob = ws.parent().unwrap();
                                 match std::fs::read_dir(glob) {
                                     Ok(children) => {
