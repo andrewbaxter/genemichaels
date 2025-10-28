@@ -292,47 +292,35 @@ fn main() {
                                 process_dir(search, manifest_dir.join(example_path).parent().unwrap().to_owned());
                             }
                         }
-                        for ws in manifest.workspace.map(|ws| ws.members).into_iter().flatten() {
-                            let ws = manifest_dir.join(ws);
-                            if ws == manifest_dir {
+                        for member in manifest.workspace.map(|ws| ws.members).into_iter().flatten() {
+                            let member = manifest_dir.join(member);
+                            if member == manifest_dir {
                                 continue;
                             }
-                            if !ws.ends_with("*") {
-                                process_manifest(search, ws.join(CARGO_TOML));
-                                continue;
+
+                            // NOTE: glob::glob takes a &str instead of a path. May cause problems in the future on
+                            // systems with non-UTF-8 paths, such as Linux.
+                            if member.to_str().is_none() {
+                                eprintln!(
+                                    "Crate or workspace member path is not UTF-8, some members may fail to format."
+                                );
                             }
-                            let glob = ws.parent().unwrap();
-                            let children = match std::fs::read_dir(glob) {
-                                Ok(children) => children,
+                            let entries = match glob::glob(&member.to_string_lossy().into_owned()) {
+                                Ok(entries) => entries,
                                 Err(e) => {
-                                    eprintln!("Error while reading dir {}: {}", glob.to_string_lossy(), e);
+                                    eprintln!("Failed to parse glob pattern {}: {}", member.to_string_lossy(), e);
                                     continue;
                                 },
                             };
-                            for child in children {
-                                let child = match child {
-                                    Ok(child) => child,
-                                    Err(e) => {
-                                        eprintln!("Error while reading dir {}: {}", glob.to_string_lossy(), e);
-                                        continue;
-                                    },
-                                };
-                                let metadata = child.metadata();
-                                match metadata {
-                                    Ok(metadata) => {
-                                        if metadata.is_file() {
-                                            continue;
-                                        }
-                                    },
-                                    Err(e) => {
-                                        eprintln!(
-                                            "Error while getting path metadata for {}: {}",
-                                            glob.to_string_lossy(),
-                                            e
-                                        );
-                                    },
+                            for entry in entries {
+                                match entry {
+                                    Ok(path) => process_manifest(search, path.join(CARGO_TOML)),
+                                    Err(e) => eprintln!(
+                                        "Error while reading dir {}: {}",
+                                        e.path().to_string_lossy(),
+                                        e
+                                    ),
                                 }
-                                process_manifest(search, child.path().join(CARGO_TOML));
                             }
                         }
                     },
