@@ -140,7 +140,7 @@ pub(crate) fn line_length(out: &MakeSegsState, lines: &Lines, line_i: LineIdx) -
             SegmentContent::Text(t) => len += t.chars().count(),
             SegmentContent::Break(b, _) => {
                 if out.nodes.get(seg.node.0).unwrap().split {
-                    len += b.get(&out.config);
+                    len += out.config.indent_spaces * b.get().0;
                 }
             },
             SegmentContent::Whitespace(_) => { },
@@ -188,11 +188,11 @@ pub(crate) fn split_line_at(
         match &seg.content {
             SegmentContent::Break(a, activate) => {
                 if *activate {
-                    a.activate(&out.config);
+                    a.activate();
                 }
             },
             SegmentContent::Whitespace((a, _)) => {
-                a.activate(&out.config);
+                a.activate();
             },
             _ => { },
         };
@@ -246,6 +246,8 @@ pub(crate) struct Alignment_ {
     pub(crate) active: bool,
 }
 
+struct IndentLevel(usize);
+
 #[derive(Clone)]
 pub struct Alignment(Rc<RefCell<Alignment_>>);
 
@@ -263,20 +265,19 @@ impl Alignment {
         })))
     }
 
-    pub(crate) fn activate(&self, config: &FormatConfig) -> usize {
+    pub(crate) fn activate(&self) {
         self.0.borrow_mut().active = true;
-        self.get(config)
     }
 
-    pub(crate) fn get(&self, config: &FormatConfig) -> usize {
+    pub(crate) fn get(&self) -> IndentLevel {
         let parent = match &self.0.as_ref().borrow().parent {
-            Some(p) => p.get(config),
+            Some(p) => p.get(),
             None => {
-                return 0usize;
+                return IndentLevel(0usize);
             },
         };
         if self.0.as_ref().borrow_mut().active {
-            config.indent_spaces + parent
+            IndentLevel(parent.0 + 1)
         } else {
             parent
         }
@@ -464,6 +465,20 @@ impl Formattable for &Ident {
 }
 
 #[derive(Debug, Copy, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IndentUnit {
+    Spaces,
+    Tabs,
+}
+
+fn render_indent(config: &FormatConfig, current_indent: IndentLevel) -> String {
+    match config.indent_unit {
+        IndentUnit::Spaces => return " ".repeat(config.indent_spaces * current_indent.0),
+        IndentUnit::Tabs => return "\t".repeat(current_indent.0),
+    }
+}
+
+#[derive(Debug, Copy, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct FormatConfig {
     pub max_width: usize,
@@ -475,6 +490,8 @@ pub struct FormatConfig {
     pub comment_errors_fatal: bool,
     pub keep_max_blank_lines: usize,
     pub indent_spaces: usize,
+    /// Indent with spaces or tabs.
+    pub indent_unit: IndentUnit,
     pub explicit_markdown_comments: bool,
 }
 
@@ -490,6 +507,7 @@ impl Default for FormatConfig {
             comment_errors_fatal: false,
             keep_max_blank_lines: 0,
             indent_spaces: 4,
+            indent_unit: IndentUnit::Spaces,
             explicit_markdown_comments: false,
         }
     }
@@ -771,11 +789,11 @@ pub fn format_ast(
                             break 'continue_lineloop;
                         }
                         if *activate {
-                            b.activate(&config);
+                            b.activate();
                         }
                         if segs.len() > 1 {
                             // if empty line (=just break), don't write indent
-                            push!(&" ".repeat(b.get(&config)));
+                            push!(&render_indent(config, b.get()));
                         }
                     },
                     SegmentContent::Whitespace((b, whitespaces)) => {
@@ -793,13 +811,18 @@ pub fn format_ast(
                                     if comment_i > 0 {
                                         push!("\n");
                                     }
-                                    let prefix = format!("{}//{} ", " ".repeat(b.get(&config)), match comment.mode {
-                                        CommentMode::Normal => "",
-                                        CommentMode::ExplicitNormal => "?",
-                                        CommentMode::DocInner => "!",
-                                        CommentMode::DocOuter => "/",
-                                        CommentMode::Verbatim => ".",
-                                    });
+                                    let prefix = format!(
+                                        //. .
+                                        "{}//{} ",
+                                        render_indent(config, b.get()),
+                                        match comment.mode {
+                                            CommentMode::Normal => "",
+                                            CommentMode::ExplicitNormal => "?",
+                                            CommentMode::DocInner => "!",
+                                            CommentMode::DocOuter => "/",
+                                            CommentMode::Verbatim => ".",
+                                        }
+                                    );
                                     let verbatim = match comment.mode {
                                         CommentMode::Verbatim => {
                                             true
