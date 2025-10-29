@@ -17,6 +17,18 @@ fn rt(text: &str) {
     pretty_assertions::assert_str_eq!(text, res.rendered);
 }
 
+fn rt_tabs(text: &str) {
+    let res = format_str(text, &FormatConfig {
+        max_width: 120,
+        keep_max_blank_lines: 0,
+        indent_spaces: 4,
+        indent_unit: genemichaels_lib::IndentUnit::Tabs,
+        ..Default::default()
+    }).unwrap();
+    assert!(res.lost_comments.is_empty(), "Comments remain: {:?}", res.lost_comments);
+    pretty_assertions::assert_str_eq!(text, res.rendered);
+}
+
 #[test]
 fn rt_field1() {
     rt(r#"fn main() {
@@ -584,6 +596,22 @@ fn rt_rustfmt_skip_subtree_comment_array() {
         egl::EGL_NONE,
      ];
 }
+"#,
+    );
+}
+
+#[test]
+fn rttabs_struct_generic1() {
+    rt_tabs(
+        r#"struct DefaultTupleStruct<A, B, C>(
+	A,
+	#[serde(default)]
+	B,
+	#[serde(default = "MyDefault::my_default")]
+	C,
+)
+where
+	C: MyDefault;
 "#,
     );
 }

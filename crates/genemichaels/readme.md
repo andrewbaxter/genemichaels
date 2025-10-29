@@ -65,12 +65,15 @@ Here is the default config - all values shown are defaults and can be omitted.
   // use this to keep extra line breaks (1 will keep up to 1 extra line break) during comment
   // extraction. This is unused during formatting.
   "keep_max_blank_lines": 0,
-  // The number of spaces to indent by at each level.
+  // How much to indent at each split block. When using each split block is indented by one tab
+  // but this value is used as the tab width for width/wrapping calculations.
   "indent_spaces": 4,
+  // `"tabs"` or `"spaces"`. Write indents using spaces or tabs.
+  "indent_unit": "spaces",
   // `//` (plain line-comments) won't be treated implicitly as markdown. In this case you can
   // use `//?` for explicitly markdown-formatted line-comments (these comments will work
   // regardless of the setting)
-  "explicit_markdown_comments": false,
+  "explicit_markdown_comments": false
 }
 ```
 
