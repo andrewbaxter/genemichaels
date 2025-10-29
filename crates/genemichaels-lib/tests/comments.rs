@@ -66,6 +66,7 @@ fn comment(mode: CommentMode, lines: &str) -> Whitespace {
         mode: genemichaels_lib::WhitespaceMode::Comment(Comment {
             mode: mode,
             lines: lines.to_string(),
+            orig_start_offset: 0,
         }),
     };
 }

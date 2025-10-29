@@ -95,7 +95,7 @@ pub fn extract_whitespaces(
                 self.source[line_start_offset..].chars().take(loc.column).map(char::len_utf8).sum::<usize>()
         }
 
-        fn add_comments(&mut self, end: LineColumn, between_ast_nodes: &str) {
+        fn add_comments(&mut self, end: LineColumn, abs_start: usize, between_ast_nodes: &str) {
             let start_re = &self.start_re.get_or_insert_with(|| Regex::new(
                 // `//` maybe followed by `[/!.?]`, `/**/`, or `/*` maybe followed by `[*!]`
                 r#"(?:(//)(/|!|\.|\?)?)|(/\*\*/)|(?:(/\*)(\*|!)?)"#,
@@ -110,6 +110,7 @@ pub fn extract_whitespaces(
                 mode: CommentMode,
                 lines: Vec<String>,
                 loc: LineColumn,
+                orig_start_offset: Option<usize>,
             }
 
             impl CommentBuffer {
@@ -122,9 +123,11 @@ pub fn extract_whitespaces(
                         mode: crate::WhitespaceMode::Comment(Comment {
                             mode: self.mode,
                             lines: self.lines.split_off(0).join("\n"),
+                            orig_start_offset: self.orig_start_offset.unwrap(),
                         }),
                     });
                     self.blank_lines = 0;
+                    self.orig_start_offset = None;
                 }
 
                 fn add(&mut self, mode: CommentMode, line: &str) {
@@ -156,11 +159,13 @@ pub fn extract_whitespaces(
                 mode: CommentMode::Normal,
                 lines: vec![],
                 loc: end,
+                orig_start_offset: None,
             };
-            let mut text = between_ast_nodes;
+            let mut text = (abs_start, between_ast_nodes);
             'comment_loop : loop {
-                match start_re.captures(text) {
+                match start_re.captures(text.1) {
                     Some(found_start) => {
+                        buffer.orig_start_offset.get_or_insert(abs_start + found_start.get(0).unwrap().start());
                         let start_prefix_match =
                             found_start
                                 .get(1)
@@ -168,7 +173,7 @@ pub fn extract_whitespaces(
                                 .or_else(|| found_start.get(4))
                                 .unwrap();
                         if buffer.out.is_empty() && buffer.lines.is_empty() {
-                            buffer.add_blank_lines(&text[..start_prefix_match.start()]);
+                            buffer.add_blank_lines(&text.1[..start_prefix_match.start()]);
                         }
                         match start_prefix_match.as_str() {
                             "//" => {
@@ -184,24 +189,24 @@ pub fn extract_whitespaces(
                                         }, start_suffix_match.end()),
                                         None => (CommentMode::Normal, start_prefix_match.end()),
                                     };
-                                    if mode == CommentMode::DocOuter && text[match_end..].starts_with("/") {
+                                    if mode == CommentMode::DocOuter && text.1[match_end..].starts_with("/") {
                                         // > 3 slashes, so actually not a doc comment
                                         mode = CommentMode::Normal;
                                         match_end = start_prefix_match.end();
                                     }
-                                    text = &text[match_end..];
+                                    text = (text.0 + match_end, &text.1[match_end..]);
                                     mode
                                 };
-                                let (line, next_start) = match text.find('\n') {
-                                    Some(line_end) => (&text[..line_end], line_end + 1),
-                                    None => (text, text.len()),
+                                let (line, next_start) = match text.1.find('\n') {
+                                    Some(line_end) => (&text.1[..line_end], line_end + 1),
+                                    None => (text.1, text.1.len()),
                                 };
                                 buffer.add(mode, line);
-                                text = &text[next_start..];
+                                text = (text.0 + next_start, &text.1[next_start..]);
                             },
                             "/**/" => {
                                 buffer.add(CommentMode::Normal, "".into());
-                                text = &text[start_prefix_match.end()..];
+                                text = (text.0 + start_prefix_match.end(), &text.1[start_prefix_match.end()..]);
                             },
                             "/*" => {
                                 let mode = {
@@ -214,14 +219,14 @@ pub fn extract_whitespaces(
                                         }, start_suffix_match.end()),
                                         None => (CommentMode::Normal, start_prefix_match.end()),
                                     };
-                                    text = &text[match_end..];
+                                    text = (text.0 + match_end, &text.1[match_end..]);
                                     mode
                                 };
                                 let mut nesting = 1;
                                 let mut search_end_at = 0usize;
                                 let (lines, next_start) = loop {
                                     let found_event =
-                                        block_event_re.captures(&text[search_end_at..]).unwrap().get(1).unwrap();
+                                        block_event_re.captures(&text.1[search_end_at..]).unwrap().get(1).unwrap();
                                     let event_start = search_end_at + found_event.start();
                                     search_end_at += found_event.end();
                                     match found_event.as_str() {
@@ -231,7 +236,7 @@ pub fn extract_whitespaces(
                                         "*/" => {
                                             nesting -= 1;
                                             if nesting == 0 {
-                                                break (&text[..event_start], search_end_at);
+                                                break (&text.1[..event_start], search_end_at);
                                             }
                                         },
                                         _ => unreachable!(),
@@ -242,14 +247,14 @@ pub fn extract_whitespaces(
                                     line = line.strip_prefix("* ").unwrap_or(line);
                                     buffer.add(mode, line);
                                 }
-                                text = &text[next_start..];
+                                text = (text.0 + next_start, &text.1[next_start..]);
                             },
                             _ => unreachable!(),
                         }
                     },
                     None => {
                         if buffer.out.is_empty() && buffer.lines.is_empty() {
-                            buffer.add_blank_lines(text);
+                            buffer.add_blank_lines(text.1);
                         }
                         break 'comment_loop;
                     },
@@ -307,7 +312,7 @@ pub fn extract_whitespaces(
                 };
                 let text = &self.source[start .. eol];
                 if text.trim_start().starts_with("//") {
-                    self.add_comments(*previous_start, text);
+                    self.add_comments(*previous_start, start, text);
                 }
                 start = eol;
                 break true;
@@ -321,7 +326,7 @@ pub fn extract_whitespaces(
                 return;
             }
             let whole_text = &self.source[start .. end_offset];
-            self.add_comments(end, whole_text);
+            self.add_comments(end, start, whole_text);
         }
     }
 
@@ -406,7 +411,7 @@ pub fn extract_whitespaces(
     state.add_comments(LineColumn {
         line: 0,
         column: 1,
-    }, &source[state.last_offset..]);
+    }, state.last_offset, &source[state.last_offset..]);
     Ok((state.whitespaces, tokens))
 }
 

@@ -31,7 +31,10 @@ use {
     },
     std::{
         fmt::Write,
-        ops::Bound,
+        ops::{
+            Bound,
+            RangeBounds,
+        },
     },
     syn::{
         spanned::Spanned,
@@ -271,6 +274,8 @@ pub(crate) fn new_sg_outer_attrs(
                 after_attr_line_col = Bound::Included(HashLineColumn(span_including_attrs.start()));
             }
             sg.seg(out, &text[after_attr_byte_offset - span_including_attrs.span().byte_range().start..]);
+
+            // Remove comments used within subtree from global block
             let remove_whitespaces_keys =
                 out
                     .whitespaces
@@ -287,7 +292,11 @@ pub(crate) fn new_sg_outer_attrs(
                     match ws.mode {
                         WhitespaceMode::BlankLines(_) => { },
                         WhitespaceMode::Comment(comment) => {
-                            if text.contains(&comment.lines) {
+                            if match span_including_attrs.byte_range().end_bound() {
+                                Bound::Included(x) => comment.orig_start_offset <= *x,
+                                Bound::Excluded(x) => comment.orig_start_offset < *x,
+                                Bound::Unbounded => unreachable!(),
+                            } {
                                 continue;
                             }
                             sg.add(out, crate::Segment {
@@ -299,6 +308,7 @@ pub(crate) fn new_sg_outer_attrs(
                                     mode: WhitespaceMode::Comment(crate::Comment {
                                         mode: crate::CommentMode::Normal,
                                         lines: comment.lines,
+                                        orig_start_offset: 0,
                                     }),
                                 }])),
                             });
