@@ -96,6 +96,14 @@ fn rt_trait_impl_associated_type_where1() {
 }
 
 #[test]
+fn rt_type_assignment_where1() {
+    rt(r#"type CoreBitFields<const C: usize>
+where
+    [u8; (C + 7) / 8]: Sized = [u8; (C + 7) / 8];
+"#);
+}
+
+#[test]
 fn rt_trait_impl_default_fn() {
     rt(r#"impl ABC for T {
     default fn deserialize_or_zeroed() { }

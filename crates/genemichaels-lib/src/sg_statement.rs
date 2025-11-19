@@ -1043,10 +1043,10 @@ impl Formattable for Item {
                     prefix.push_str(&x.ident.to_string());
                     sg.seg(out, &prefix);
                     append_generics_part_a(out, base_indent, &mut sg, &x.generics);
-                    append_binary(out, base_indent, &mut sg, " =", x.ty.as_ref());
                     if let Some(wh) = &x.generics.where_clause {
                         sg.child(build_generics_part_b(out, base_indent, wh));
                     }
+                    append_binary(out, base_indent, &mut sg, " =", x.ty.as_ref());
                     append_whitespace(out, base_indent, &mut sg, x.semi_token.span.start());
                     sg.seg(out, ";");
                     sg.build(out)
