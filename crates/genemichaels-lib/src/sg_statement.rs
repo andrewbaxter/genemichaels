@@ -243,6 +243,7 @@ impl FormattableStmt for ForeignItem {
 
 impl Formattable for ForeignItem {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
+        #[deny(clippy::wildcard_enum_match_arm)]
         match self {
             ForeignItem::Fn(x) => new_sg_outer_attrs(
                 out,
@@ -318,6 +319,7 @@ impl Formattable for ForeignItem {
     }
 
     fn has_attrs(&self) -> bool {
+        #[deny(clippy::wildcard_enum_match_arm)]
         match self {
             ForeignItem::Fn(x) => !x.attrs.is_empty(),
             ForeignItem::Static(x) => !x.attrs.is_empty(),
@@ -331,6 +333,7 @@ impl Formattable for ForeignItem {
 
 impl FormattableStmt for ImplItem {
     fn want_margin(&self) -> (MarginGroup, bool) {
+        #[deny(clippy::wildcard_enum_match_arm)]
         match self {
             ImplItem::Const(_) => (MarginGroup::None, false),
             ImplItem::Fn(_) => (MarginGroup::BlockDef, true),
@@ -344,6 +347,7 @@ impl FormattableStmt for ImplItem {
 
 impl Formattable for ImplItem {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
+        #[deny(clippy::wildcard_enum_match_arm)]
         match self {
             ImplItem::Const(x) => new_sg_outer_attrs(
                 out,
@@ -447,6 +451,7 @@ impl Formattable for ImplItem {
     }
 
     fn has_attrs(&self) -> bool {
+        #[deny(clippy::wildcard_enum_match_arm)]
         match self {
             ImplItem::Const(x) => !x.attrs.is_empty(),
             ImplItem::Fn(x) => !x.attrs.is_empty(),
@@ -460,6 +465,7 @@ impl Formattable for ImplItem {
 
 impl FormattableStmt for TraitItem {
     fn want_margin(&self) -> (MarginGroup, bool) {
+        #[deny(clippy::wildcard_enum_match_arm)]
         match self {
             TraitItem::Const(_) => (MarginGroup::None, false),
             TraitItem::Fn(m) => (MarginGroup::BlockDef, m.default.is_some()),
@@ -473,6 +479,7 @@ impl FormattableStmt for TraitItem {
 
 impl Formattable for TraitItem {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
+        #[deny(clippy::wildcard_enum_match_arm)]
         match self {
             TraitItem::Const(x) => new_sg_outer_attrs(
                 out,
@@ -614,6 +621,7 @@ impl Formattable for TraitItem {
     }
 
     fn has_attrs(&self) -> bool {
+        #[deny(clippy::wildcard_enum_match_arm)]
         match self {
             TraitItem::Const(x) => !x.attrs.is_empty(),
             TraitItem::Fn(x) => !x.attrs.is_empty(),
@@ -627,6 +635,7 @@ impl Formattable for TraitItem {
 
 impl FormattableStmt for Item {
     fn want_margin(&self) -> (MarginGroup, bool) {
+        #[deny(clippy::wildcard_enum_match_arm)]
         match self {
             Item::Const(_) => (MarginGroup::None, false),
             Item::Enum(_) => (MarginGroup::BlockDef, true),
@@ -655,6 +664,7 @@ impl FormattableStmt for Item {
 
 impl Formattable for Item {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
+        #[deny(clippy::wildcard_enum_match_arm)]
         match self {
             Item::Const(x) => new_sg_outer_attrs(
                 out,
@@ -1108,6 +1118,7 @@ impl Formattable for Item {
     }
 
     fn has_attrs(&self) -> bool {
+        #[deny(clippy::wildcard_enum_match_arm)]
         match self {
             Item::Const(x) => !x.attrs.is_empty(),
             Item::Enum(x) => !x.attrs.is_empty(),

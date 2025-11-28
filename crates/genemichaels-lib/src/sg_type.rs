@@ -1,48 +1,48 @@
-use std::{
-    fmt::Write,
-};
-use proc_macro2::LineColumn;
-use quote::ToTokens;
-use syn::{
-    spanned::Spanned,
-    AngleBracketedGenericArguments,
-    BareFnArg,
-    Expr,
-    FnArg,
-    GenericArgument,
-    GenericParam,
-    Generics,
-    LifetimeParam,
-    Path,
-    QSelf,
-    ReturnType,
-    Token,
-    Type,
-    TypeParamBound,
-    WhereClause,
-    WherePredicate,
-};
-use crate::{
-    new_sg,
-    new_sg_lit,
-    sg_general::{
-        append_binary,
-        append_whitespace,
-        new_sg_outer_attrs,
-        new_sg_binary,
-        new_sg_macro,
+use {
+    crate::{
+        Alignment,
+        Formattable,
+        MakeSegsState,
+        SplitGroupBuilder,
+        SplitGroupIdx,
+        new_sg,
+        new_sg_lit,
+        sg_general::{
+            append_binary,
+            append_whitespace,
+            new_sg_binary,
+            new_sg_macro,
+            new_sg_outer_attrs,
+        },
+        sg_general_lists::{
+            InlineListSuffix,
+            append_bracketed_list_common,
+            append_inline_list,
+            new_sg_bracketed_list,
+            new_sg_bracketed_list_common,
+        },
     },
-    Alignment,
-    Formattable,
-    MakeSegsState,
-    SplitGroupBuilder,
-    SplitGroupIdx,
-    sg_general_lists::{
-        append_inline_list,
-        new_sg_bracketed_list_common,
-        append_bracketed_list_common,
-        new_sg_bracketed_list,
-        InlineListSuffix,
+    proc_macro2::LineColumn,
+    quote::ToTokens,
+    std::fmt::Write,
+    syn::{
+        AngleBracketedGenericArguments,
+        BareFnArg,
+        Expr,
+        FnArg,
+        GenericArgument,
+        GenericParam,
+        Generics,
+        LifetimeParam,
+        Path,
+        QSelf,
+        ReturnType,
+        Token,
+        Type,
+        TypeParamBound,
+        WhereClause,
+        WherePredicate,
+        spanned::Spanned,
     },
 };
 
@@ -172,18 +172,34 @@ pub(crate) fn append_path<
     }
 }
 
+pub(crate) enum BuildRefMutability {
+    Const,
+    Mut,
+}
+
 pub(crate) fn build_ref(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
     start: LineColumn,
-    mutability: bool,
+    raw: bool,
+    mutability: Option<BuildRefMutability>,
     expr: impl Formattable,
 ) -> SplitGroupIdx {
     let mut sg = new_sg(out);
     append_whitespace(out, base_indent, &mut sg, start);
     sg.seg(out, "&");
-    if mutability {
-        sg.seg(out, "mut ");
+    if raw {
+        sg.seg(out, "raw ");
+    }
+    if let Some(m) = mutability {
+        match m {
+            BuildRefMutability::Const => {
+                sg.seg(out, "const ");
+            },
+            BuildRefMutability::Mut => {
+                sg.seg(out, "mut ");
+            },
+        }
     }
     sg.child(expr.make_segs(out, base_indent));
     sg.build(out)
@@ -291,6 +307,7 @@ pub(crate) fn append_angle_bracketed_generics(
 
 impl Formattable for WherePredicate {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
+        #[deny(clippy::wildcard_enum_match_arm)]
         match self {
             WherePredicate::Type(t) => {
                 let mut sg = new_sg(out);
@@ -399,6 +416,7 @@ impl Formattable for GenericParam {
 impl Formattable for TypeParamBound {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
         let mut sg = new_sg(out);
+        #[deny(clippy::wildcard_enum_match_arm)]
         match self {
             syn::TypeParamBound::Trait(t) => {
                 if t.paren_token.is_some() {
@@ -435,6 +453,23 @@ impl Formattable for TypeParamBound {
             },
             syn::TypeParamBound::Lifetime(l) => {
                 sg.seg(out, l.to_string());
+            },
+            TypeParamBound::PreciseCapture(p) => {
+                append_whitespace(out, base_indent, &mut sg, p.use_token.span.start());
+                sg.seg(out, p.use_token.to_token_stream().to_string());
+                append_bracketed_list_common(
+                    out,
+                    base_indent,
+                    &mut sg,
+                    p.lt_token.span.start(),
+                    "<",
+                    &p.params,
+                    p.gt_token.span.start(),
+                    "> ",
+                );
+            },
+            TypeParamBound::Verbatim(x) => {
+                new_sg_lit(out, None, x);
             },
             _ => unreachable!(),
         }
@@ -496,8 +531,28 @@ impl Formattable for syn::Lifetime {
     }
 }
 
+impl Formattable for syn::CapturedParam {
+    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
+        #[deny(clippy::wildcard_enum_match_arm)]
+        match self {
+            syn::CapturedParam::Lifetime(lifetime) => {
+                return lifetime.make_segs(out, base_indent);
+            },
+            syn::CapturedParam::Ident(ident) => {
+                return ident.make_segs(out, base_indent);
+            },
+            _ => unreachable!(),
+        }
+    }
+
+    fn has_attrs(&self) -> bool {
+        return false;
+    }
+}
+
 impl Formattable for &Type {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
+        #[deny(clippy::wildcard_enum_match_arm)]
         match self {
             Type::Array(x) => build_array_type(
                 out,
@@ -755,6 +810,7 @@ impl Formattable for FnArg {
 
 impl Formattable for GenericArgument {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
+        #[deny(clippy::wildcard_enum_match_arm)]
         match self {
             GenericArgument::Lifetime(l) => l.make_segs(out, base_indent),
             GenericArgument::Type(t) => t.make_segs(out, base_indent),

@@ -623,3 +623,11 @@ where
 "#,
     );
 }
+
+#[test]
+fn rt_const_ref() {
+    rt(r#"fn main() {
+    (*&raw const X).x(text);
+}
+"#);
+}

@@ -32,3 +32,6 @@ console = "0.15"
 textwrap = { version = "0.16", features = ["terminal_size"] }
 unicode-width = "0.2"
 shell-escape = "0.1"
+
+[lints.clippy]
+all = "allow"

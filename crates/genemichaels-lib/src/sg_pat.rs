@@ -1,5 +1,10 @@
 use {
     crate::{
+        Alignment,
+        Formattable,
+        HashLineColumn,
+        MakeSegsState,
+        SplitGroupIdx,
         new_sg,
         new_sg_lit,
         sg_general::{
@@ -10,36 +15,33 @@ use {
             new_sg_outer_attrs,
         },
         sg_general_lists::{
+            InlineListSuffix,
             append_bracketed_list_common,
             append_bracketed_list_curly,
             append_inline_list_raw,
             new_sg_bracketed_list,
             new_sg_bracketed_list_common,
-            InlineListSuffix,
         },
         sg_type::{
+            BuildRefMutability,
             append_path,
             build_extended_path,
             build_ref,
         },
-        Alignment,
-        Formattable,
-        HashLineColumn,
-        MakeSegsState,
-        SplitGroupIdx,
     },
     quote::ToTokens,
     std::fmt::Write,
     syn::{
-        spanned::Spanned,
         Expr,
         FieldPat,
         Pat,
+        spanned::Spanned,
     },
 };
 
 impl Formattable for &Pat {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
+        #[deny(clippy::wildcard_enum_match_arm)]
         match self {
             Pat::Ident(x) => new_sg_outer_attrs(
                 out,
@@ -68,16 +70,14 @@ impl Formattable for &Pat {
                             new_sg_lit(out, start.map(|s| (base_indent, s)), &prefix)
                         }, at.0.span.start(), " @", |out: &mut MakeSegsState, base_indent: &Alignment| {
                             loop {
-                                let t = match at.1.as_ref() {
-                                    Pat::Tuple(t) => t,
-                                    _ => break,
+                                let Pat::Tuple(t) = at.1.as_ref() else {
+                                    break;
                                 };
                                 if t.elems.len() != 1 {
                                     break;
                                 }
-                                let x = match t.elems.iter().next().unwrap() {
-                                    Pat::Or(x) => x,
-                                    _ => break,
+                                let Pat::Or(x) = t.elems.iter().next().unwrap() else {
+                                    break;
                                 };
 
                                 // Not actually a tuple, but an @-bind | grouping snowflake syntax. Workaround
@@ -219,7 +219,14 @@ impl Formattable for &Pat {
                 &x.attrs,
                 self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    build_ref(out, base_indent, x.and_token.span.start(), x.mutability.is_some(), x.pat.as_ref())
+                    build_ref(
+                        out,
+                        base_indent,
+                        x.and_token.span.start(),
+                        false,
+                        x.mutability.map(|_| BuildRefMutability::Mut),
+                        x.pat.as_ref(),
+                    )
                 },
             ),
             Pat::Rest(x) => new_sg_outer_attrs(
@@ -380,6 +387,7 @@ impl Formattable for &Pat {
     }
 
     fn has_attrs(&self) -> bool {
+        #[deny(clippy::wildcard_enum_match_arm)]
         match self {
             Pat::Ident(x) => !x.attrs.is_empty(),
             Pat::Lit(x) => !x.attrs.is_empty(),

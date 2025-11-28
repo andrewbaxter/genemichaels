@@ -21,3 +21,6 @@ regex = "1"
 
 [dev-dependencies]
 pretty_assertions = "1"
+
+[lints.clippy]
+all = "allow"

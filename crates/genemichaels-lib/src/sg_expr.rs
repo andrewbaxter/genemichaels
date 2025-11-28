@@ -1,7 +1,41 @@
 use {
+    crate::{
+        Alignment,
+        Formattable,
+        MakeSegsState,
+        SplitGroupIdx,
+        check_split_brace_threshold,
+        new_sg,
+        new_sg_lit,
+        sg_general::{
+            append_binary,
+            append_bracketed_statement_list,
+            append_macro_body,
+            append_whitespace,
+            build_rev_pair,
+            has_comments,
+            new_sg_binary,
+            new_sg_block,
+            new_sg_macro,
+            new_sg_outer_attrs,
+        },
+        sg_general_lists::{
+            InlineListSuffix,
+            append_bracketed_list_common,
+            append_bracketed_list_curly,
+            new_sg_bracketed_list,
+            new_sg_bracketed_list_common,
+        },
+        sg_type::{
+            BuildRefMutability,
+            build_array_type,
+            build_extended_path,
+            build_path,
+            build_ref,
+        },
+    },
     quote::ToTokens,
     syn::{
-        spanned::Spanned,
         Expr,
         ExprAwait,
         ExprClosure,
@@ -9,40 +43,7 @@ use {
         ExprMethodCall,
         ExprTry,
         FieldValue,
-    },
-    crate::{
-        new_sg,
-        new_sg_lit,
-        sg_general::{
-            append_binary,
-            append_bracketed_statement_list,
-            append_whitespace,
-            build_rev_pair,
-            new_sg_outer_attrs,
-            new_sg_binary,
-            new_sg_block,
-            new_sg_macro,
-            append_macro_body,
-            has_comments,
-        },
-        sg_type::{
-            build_array_type,
-            build_extended_path,
-            build_path,
-            build_ref,
-        },
-        Alignment,
-        Formattable,
-        MakeSegsState,
-        check_split_brace_threshold,
-        SplitGroupIdx,
-        sg_general_lists::{
-            append_bracketed_list_curly,
-            new_sg_bracketed_list_common,
-            append_bracketed_list_common,
-            new_sg_bracketed_list,
-            InlineListSuffix,
-        },
+        spanned::Spanned,
     },
 };
 
@@ -62,6 +63,7 @@ enum DottedRes<'a> {
 
 #[allow(clippy::needless_lifetimes)]
 fn get_dotted<'a>(e: &'a Expr) -> DottedRes<'a> {
+    #[deny(clippy::wildcard_enum_match_arm)]
     match e {
         Expr::Await(x) => DottedRes::Dotted(Dotted::Await(x)),
         Expr::Field(x) => DottedRes::Dotted(Dotted::Field(x)),
@@ -70,7 +72,46 @@ fn get_dotted<'a>(e: &'a Expr) -> DottedRes<'a> {
             DottedRes::Dotted(d) => DottedRes::Dotted(Dotted::Try(x, Box::new(d))),
             DottedRes::Leaf(_) => DottedRes::Leaf(e),
         },
-        _ => DottedRes::Leaf(e),
+        Expr::Array(_) |
+        Expr::Assign(_) |
+        Expr::Async(_) |
+        Expr::Binary(_) |
+        Expr::Block(_) |
+        Expr::Break(_) |
+        Expr::Call(_) |
+        Expr::Cast(_) |
+        Expr::Closure(_) |
+        Expr::Const(_) |
+        Expr::Continue(_) |
+        Expr::ForLoop(_) |
+        Expr::Group(_) |
+        Expr::If(_) |
+        Expr::Index(_) |
+        Expr::Infer(_) |
+        Expr::Let(_) |
+        Expr::Lit(_) |
+        Expr::Loop(_) |
+        Expr::Macro(_) |
+        Expr::Match(_) |
+        Expr::Paren(_) |
+        Expr::Path(_) |
+        Expr::Range(_) |
+        Expr::RawAddr(_) |
+        Expr::Reference(_) |
+        Expr::Repeat(_) |
+        Expr::Return(_) |
+        Expr::Struct(_) |
+        Expr::TryBlock(_) |
+        Expr::Tuple(_) |
+        Expr::Unary(_) |
+        Expr::Unsafe(_) |
+        Expr::Verbatim(_) |
+        Expr::While(_) |
+        Expr::Yield(_) |
+        _ => DottedRes
+        ::Leaf(
+            e,
+        ),
     }
 }
 
@@ -190,6 +231,7 @@ impl Formattable for Expr {
 
 impl Formattable for &Expr {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
+        #[deny(clippy::wildcard_enum_match_arm)]
         match self {
             Expr::Array(e) => new_sg_outer_attrs(
                 out,
@@ -742,7 +784,14 @@ impl Formattable for &Expr {
                 &e.attrs,
                 self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    build_ref(out, base_indent, e.and_token.span.start(), e.mutability.is_some(), e.expr.as_ref())
+                    build_ref(
+                        out,
+                        base_indent,
+                        e.and_token.span.start(),
+                        false,
+                        e.mutability.map(|_| BuildRefMutability::Mut),
+                        e.expr.as_ref(),
+                    )
                 },
             ),
             Expr::Repeat(e) => new_sg_outer_attrs(
@@ -990,11 +1039,24 @@ impl Formattable for &Expr {
                     node.build(out)
                 },
             ),
+            Expr::RawAddr(e) => new_sg_outer_attrs(
+                out,
+                base_indent,
+                &e.attrs,
+                self.span(),
+                |out: &mut MakeSegsState, base_indent: &Alignment| {
+                    build_ref(out, base_indent, e.and_token.span.start(), true, Some(match e.mutability {
+                        syn::PointerMutability::Const(_) => BuildRefMutability::Const,
+                        syn::PointerMutability::Mut(_) => BuildRefMutability::Mut,
+                    }), e.expr.as_ref())
+                },
+            ),
             _ => unreachable!(),
         }
     }
 
     fn has_attrs(&self) -> bool {
+        #[deny(clippy::wildcard_enum_match_arm)]
         match self {
             Expr::Array(x) => !x.attrs.is_empty(),
             Expr::Assign(x) => !x.attrs.is_empty(),
@@ -1035,6 +1097,7 @@ impl Formattable for &Expr {
             Expr::Yield(x) => !x.attrs.is_empty(),
             Expr::Const(x) => !x.attrs.is_empty(),
             Expr::Infer(x) => !x.attrs.is_empty(),
+            Expr::RawAddr(x) => !x.attrs.is_empty(),
             _ => unreachable!(),
         }
     }
