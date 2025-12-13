@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "aargvark"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "aargvark_proc_macros",
  "comfy-table",
@@ -24,7 +24,7 @@ dependencies = [
 
 [[package]]
 name = "aargvark_proc_macros"
-version = "3.5.3"
+version = "3.5.4"
 dependencies = [
  "convert_case 0.8.0",
  "darling",
@@ -374,7 +374,7 @@ dependencies = [
 
 [[package]]
 name = "genemichaels"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "aargvark",
  "cargo-manifest",
@@ -393,7 +393,7 @@ dependencies = [
 
 [[package]]
 name = "genemichaels-lib"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "cargo-manifest",
  "derive_more",
