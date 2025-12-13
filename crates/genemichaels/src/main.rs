@@ -121,7 +121,17 @@ fn process_file_contents(log: &Log, config: &FormatConfig, source: &str) -> Resu
             ),
         );
     }
-    match syn::parse_str::<File>(&res.rendered) {
+    let reparse;
+    if source.starts_with("#!/") {
+        let shebang_end = match source.find("\n") {
+            Some(o) => o + 1,
+            None => source.len(),
+        };
+        reparse = &source[shebang_end..];
+    } else {
+        reparse = source;
+    }
+    match syn::parse_str::<File>(reparse) {
         Ok(_) => { },
         Err(e) => {
             return Err(
@@ -298,8 +308,8 @@ fn main() {
                                 continue;
                             }
 
-                            // NOTE: glob::glob takes a &str instead of a path. May cause problems in the future on
-                            // systems with non-UTF-8 paths, such as Linux.
+                            // NOTE: glob::glob takes a &str instead of a path. May cause problems in the
+                            // future on systems with non-UTF-8 paths, such as Linux.
                             if member.to_str().is_none() {
                                 eprintln!(
                                     "Crate or workspace member path is not UTF-8, some members may fail to format."
