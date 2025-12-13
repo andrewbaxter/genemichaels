@@ -121,17 +121,7 @@ fn process_file_contents(log: &Log, config: &FormatConfig, source: &str) -> Resu
             ),
         );
     }
-    let reparse;
-    if source.starts_with("#!/") {
-        let shebang_end = match source.find("\n") {
-            Some(o) => o + 1,
-            None => source.len(),
-        };
-        reparse = &source[shebang_end..];
-    } else {
-        reparse = source;
-    }
-    match syn::parse_str::<File>(reparse) {
+    match syn::parse_file(&res.rendered) {
         Ok(_) => { },
         Err(e) => {
             return Err(
