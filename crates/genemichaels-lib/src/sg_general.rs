@@ -1,23 +1,24 @@
 use {
     crate::{
-        check_split_brace_threshold,
-        new_sg,
-        sg_general_lists::{
-            append_inline_list_raw,
-            InlineListSuffix,
-        },
-        sg_type::build_path,
-        whitespace::HashLineColumn,
         Alignment,
         Formattable,
         FormattablePunct,
         FormattableStmt,
+        IncMacroDepth,
         MakeSegsState,
         MarginGroup,
         SplitGroupBuilder,
         SplitGroupIdx,
         Whitespace,
         WhitespaceMode,
+        check_split_brace_threshold,
+        new_sg,
+        sg_general_lists::{
+            InlineListSuffix,
+            append_inline_list_raw,
+        },
+        sg_type::build_path,
+        whitespace::HashLineColumn,
     },
     proc_macro2::{
         LineColumn,
@@ -26,8 +27,8 @@ use {
         TokenTree,
     },
     quote::{
-        quote,
         ToTokens,
+        quote,
     },
     std::{
         fmt::Write,
@@ -37,6 +38,14 @@ use {
         },
     },
     syn::{
+        Attribute,
+        Block,
+        Expr,
+        ExprCall,
+        Item,
+        Macro,
+        MacroDelimiter,
+        Stmt,
         spanned::Spanned,
         token::{
             Brace,
@@ -46,14 +55,6 @@ use {
             Paren,
             Plus,
         },
-        Attribute,
-        Block,
-        Expr,
-        ExprCall,
-        Item,
-        Macro,
-        MacroDelimiter,
-        Stmt,
     },
 };
 
@@ -398,6 +399,8 @@ pub(crate) fn append_macro_body(
     sg: &mut SplitGroupBuilder,
     tokens: TokenStream,
 ) {
+    let _in_macro = IncMacroDepth::new(out);
+
     // Try to parse entire macro like a function call
     if let Ok(exprs) = syn::parse2::<ExprCall>(quote!{
         f(#tokens)

@@ -344,11 +344,7 @@ impl VarkRetHelp {
                         table.add_row(
                             vec![
                                 comfy_table::Cell::new(
-                                    format!(
-                                        "   {} {}",
-                                        style_literal(&f.literal),
-                                        f.pattern.render(stack, help_state)
-                                    ),
+                                    format!("   {} {}", style_literal(&f.literal), f.pattern.render(stack, help_state)),
                                 ),
                                 Cell::new(style_description(&f.description))
                             ],

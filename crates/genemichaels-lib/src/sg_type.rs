@@ -604,7 +604,11 @@ impl Formattable for &Type {
                             Some(v) => InlineListSuffix::Extra(|out: &mut MakeSegsState, _base_indent: &Alignment| {
                                 new_sg_lit(out, Some((base_indent, v.dots.spans[0].start())), "...")
                             }),
-                            None => InlineListSuffix::Punct,
+                            None => if out.macro_depth.get() == 0 {
+                                InlineListSuffix::Punct
+                            } else {
+                                InlineListSuffix::VerbatimPunct
+                            },
                         },
                         x.paren_token.span.close().start(),
                         ")",
