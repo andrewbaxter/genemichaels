@@ -102,7 +102,7 @@ pub(crate) fn append_inline_list_raw<
         InlineListSuffix::VerbatimPunct => {
             if let Some(p) = next_punct {
                 append_whitespace(out, base_indent, sg, p.span_start());
-                sg.seg_split(out, punct);
+                sg.seg(out, punct);
             }
         },
         InlineListSuffix::Extra(e) => {
