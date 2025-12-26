@@ -36,7 +36,6 @@ use {
             Mutex,
         },
     },
-    syn::File,
     threadpool::ThreadPool,
 };
 

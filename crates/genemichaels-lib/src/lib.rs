@@ -47,6 +47,8 @@ pub enum CommentMode {
 pub struct Comment {
     pub mode: CommentMode,
     pub lines: String,
+    /// The offset in the original source where the comment started (location of // or
+    /// /* that initiated this specific comment mode)
     pub orig_start_offset: usize,
 }
 

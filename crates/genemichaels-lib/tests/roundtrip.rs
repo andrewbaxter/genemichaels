@@ -252,6 +252,14 @@ fn rt_comments_generic_type1() {
 }
 
 #[test]
+fn rt_comments_mixed1() {
+    rt(r#"// a
+/// b
+struct S;
+"#);
+}
+
+#[test]
 fn rt_generic_nested_constraint() {
     rt(r#"trait X: Y<Error: Debug> { }
 "#);

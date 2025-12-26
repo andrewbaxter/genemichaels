@@ -130,12 +130,13 @@ pub fn extract_whitespaces(
                     self.orig_start_offset = None;
                 }
 
-                fn add(&mut self, mode: CommentMode, line: &str) {
+                fn add(&mut self, mode: CommentMode, line: &str, orig_start_offset: usize) {
                     if self.mode != mode && !self.lines.is_empty() {
                         self.flush();
                     }
                     self.mode = mode;
                     self.lines.push(line.to_string());
+                    self.orig_start_offset.get_or_insert(orig_start_offset);
                 }
 
                 fn add_blank_lines(&mut self, text: &str) {
@@ -165,7 +166,7 @@ pub fn extract_whitespaces(
             'comment_loop : loop {
                 match start_re.captures(text.1) {
                     Some(found_start) => {
-                        buffer.orig_start_offset.get_or_insert(abs_start + found_start.get(0).unwrap().start());
+                        let orig_start_offset = abs_start + found_start.get(0).unwrap().start();
                         let start_prefix_match =
                             found_start
                                 .get(1)
@@ -201,11 +202,11 @@ pub fn extract_whitespaces(
                                     Some(line_end) => (&text.1[..line_end], line_end + 1),
                                     None => (text.1, text.1.len()),
                                 };
-                                buffer.add(mode, line);
+                                buffer.add(mode, line, orig_start_offset);
                                 text = (text.0 + next_start, &text.1[next_start..]);
                             },
                             "/**/" => {
-                                buffer.add(CommentMode::Normal, "".into());
+                                buffer.add(CommentMode::Normal, "".into(), orig_start_offset);
                                 text = (text.0 + start_prefix_match.end(), &text.1[start_prefix_match.end()..]);
                             },
                             "/*" => {
@@ -245,7 +246,7 @@ pub fn extract_whitespaces(
                                 for line in lines.lines() {
                                     let mut line = line.trim();
                                     line = line.strip_prefix("* ").unwrap_or(line);
-                                    buffer.add(mode, line);
+                                    buffer.add(mode, line, orig_start_offset);
                                 }
                                 text = (text.0 + next_start, &text.1[next_start..]);
                             },
