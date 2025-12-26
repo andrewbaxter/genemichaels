@@ -1,4 +1,3 @@
-use std::cell::Cell;
 use {
     loga::{
         ea,
@@ -16,7 +15,10 @@ use {
     sg_general::append_whitespace,
     std::{
         collections::BTreeMap,
-        cell::RefCell,
+        cell::{
+            Cell,
+            RefCell,
+        },
         rc::Rc,
     },
     syn::File,

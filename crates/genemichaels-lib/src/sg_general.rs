@@ -331,7 +331,6 @@ pub(crate) fn append_macro_bracketed(
     mac: &Macro,
     semi: bool,
 ) {
-    let _in_macro = IncMacroDepth::new(out);
     append_macro_body_bracketed(out, base_indent, sg, &mac.delimiter, mac.tokens.clone());
     if semi {
         sg.seg(out, ";");
@@ -344,7 +343,6 @@ pub(crate) fn new_sg_macro(
     mac: &Macro,
     semi: bool,
 ) -> SplitGroupIdx {
-    let _in_macro = IncMacroDepth::new(out);
     let mut sg = new_sg(out);
     sg.child(build_path(out, base_indent, &mac.path));
     sg.seg(out, "!");
@@ -359,7 +357,6 @@ pub(crate) fn append_macro_body_bracketed(
     delim: &MacroDelimiter,
     tokens: TokenStream,
 ) {
-    let _in_macro = IncMacroDepth::new(out);
     let indent = base_indent.indent();
     match delim {
         syn::MacroDelimiter::Paren(x) => {
