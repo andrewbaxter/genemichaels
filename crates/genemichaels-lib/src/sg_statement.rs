@@ -127,7 +127,11 @@ fn new_sg_sig(out: &mut MakeSegsState, base_indent: &Alignment, sig: &Signature)
                     new_sg_lit(out, Some((base_indent, v.dots.spans[0].start())), "...")
                 })
             } else {
-                InlineListSuffix::Punct
+                if out.macro_depth.get() == 0 {
+                    InlineListSuffix::Punct
+                } else {
+                    InlineListSuffix::VerbatimPunct
+                }
             },
             sig.paren_token.span.close().start(),
             ")",
@@ -1253,7 +1257,11 @@ impl Formattable for &UseTree {
                     true,
                     ",",
                     &x.items,
-                    InlineListSuffix::<Expr>::Punct,
+                    if out.macro_depth.get() == 0 {
+                        InlineListSuffix::<Expr>::Punct
+                    } else {
+                        InlineListSuffix::VerbatimPunct
+                    },
                     x.brace_token.span.close().start(),
                     "}",
                 );

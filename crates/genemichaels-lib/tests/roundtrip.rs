@@ -368,6 +368,12 @@ fn rt_comments_macro_final_comma() {
 }
 
 #[test]
+fn rt_comments_macro_final_comma2() {
+    rt(r#"x!(1, 2,);
+"#);
+}
+
+#[test]
 fn rt_comments_macro_comment() {
     rt(r#"x!{
     a,

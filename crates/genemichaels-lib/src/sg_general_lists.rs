@@ -201,7 +201,11 @@ pub(crate) fn append_bracketed_list_common<
         false,
         ",",
         exprs,
-        InlineListSuffix::<Expr>::Punct,
+        if out.macro_depth.get() == 0 {
+            InlineListSuffix::<Expr>::Punct
+        } else {
+            InlineListSuffix::VerbatimPunct
+        },
         suffix_start,
         suffix,
     );
@@ -221,7 +225,11 @@ pub(crate) fn append_bracketed_list_curly<
 ) {
     append_bracketed_list(out, base_indent, sg, prefix_start, " {", true, ",", exprs, match extra {
         Some(e) => InlineListSuffix::Extra(e),
-        None => InlineListSuffix::Punct,
+        None => if out.macro_depth.get() == 0 {
+            InlineListSuffix::Punct
+        } else {
+            InlineListSuffix::VerbatimPunct
+        },
     }, suffix_start, "}")
 }
 
@@ -270,16 +278,9 @@ pub(crate) fn new_sg_bracketed_list_common<
     suffix_start: LineColumn,
     suffix: &str,
 ) -> SplitGroupIdx {
-    new_sg_bracketed_list(
-        out,
-        base_indent,
-        prefix_start,
-        prefix,
-        false,
-        ",",
-        exprs,
-        InlineListSuffix::<Expr>::Punct,
-        suffix_start,
-        suffix,
-    )
+    new_sg_bracketed_list(out, base_indent, prefix_start, prefix, false, ",", exprs, if out.macro_depth.get() == 0 {
+        InlineListSuffix::<Expr>::Punct
+    } else {
+        InlineListSuffix::VerbatimPunct
+    }, suffix_start, suffix)
 }

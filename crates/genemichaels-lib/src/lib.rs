@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use {
     loga::{
         ea,
@@ -122,6 +123,26 @@ pub struct MakeSegsState {
     segs: Vec<Segment>,
     whitespaces: BTreeMap<HashLineColumn, Vec<Whitespace>>,
     config: FormatConfig,
+    // MakeSegsState should be cloned at each call level with flags overwritable, but
+    // it's a huge amount of work and only applies to this field for now. So instead
+    // manage externally (for now).
+    /// Positive if processing within a macro, used to control macro tweaks.
+    macro_depth: Rc<Cell<usize>>,
+}
+
+pub struct IncMacroDepth(Rc<Cell<usize>>);
+
+impl IncMacroDepth {
+    fn new(s: &MakeSegsState) -> Self {
+        s.macro_depth.update(|x| x + 1);
+        return Self(s.macro_depth.clone());
+    }
+}
+
+impl Drop for IncMacroDepth {
+    fn drop(&mut self) {
+        self.0.update(|x| x - 1);
+    }
 }
 
 pub(crate) fn check_split_brace_threshold(out: &MakeSegsState, count: usize) -> bool {
@@ -571,6 +592,7 @@ pub fn format_ast(
         segs: vec![],
         whitespaces,
         config: config.clone(),
+        macro_depth: Default::default(),
     };
     let base_indent = Alignment(Rc::new(RefCell::new(Alignment_ {
         parent: None,
