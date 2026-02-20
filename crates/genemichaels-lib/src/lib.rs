@@ -98,8 +98,8 @@ pub(crate) struct SegmentLine {
 
 #[derive(Debug)]
 pub(crate) enum SegmentContent {
-    /// `preserve_leading_whitespace`: when true, the renderer will not trim
-    /// leading whitespace from this segment even at `seg_i == 1`.
+    /// `preserve_leading_whitespace`: when true, the renderer will not trim leading
+    /// whitespace from this segment even at `seg_i == 1`.
     Text(String, bool),
     Whitespace((Alignment, Vec<Whitespace>)),
     Break(Alignment, bool),
@@ -539,7 +539,7 @@ fn render_indent(config: &FormatConfig, current_indent: IndentLevel) -> String {
     }
 }
 
-#[derive(Debug, Copy, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct FormatConfig {
     pub max_width: usize,
@@ -554,6 +554,9 @@ pub struct FormatConfig {
     /// Indent with spaces or tabs.
     pub indent_unit: IndentUnit,
     pub explicit_markdown_comments: bool,
+    /// Additional macro names (comma-separated) whose bodies should be kept verbatim
+    /// and not reformatted, like `quote!`.
+    pub verbatim_macro_names: String,
 }
 
 impl Default for FormatConfig {
@@ -570,6 +573,7 @@ impl Default for FormatConfig {
             indent_spaces: 4,
             indent_unit: IndentUnit::Spaces,
             explicit_markdown_comments: false,
+            verbatim_macro_names: String::new(),
         }
     }
 }

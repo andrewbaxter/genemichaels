@@ -337,11 +337,30 @@ pub(crate) fn append_macro_bracketed(
     }
 }
 
-fn is_quote_macro(path: &syn::Path) -> bool {
+fn is_quote_macro(path: &syn::Path, config: &crate::FormatConfig) -> bool {
     match path.segments.last() {
         Some(seg) => {
             let name = seg.ident.to_string();
-            name == "quote" || name == "quote_spanned"
+            if matches!(
+                name.as_str(),
+                // quote, genco, proc-quote, safe-quote, template-quote, squote, proc_macro::quote
+                "quote" | 
+                    // quote, proc-quote, safe-quote, template-quote
+                    "quote_spanned" | 
+                    // genco
+                    "quote_in" | 
+                    // quote_into
+                    "quote_into" | 
+                    // template-quote
+                    "quote_configured" | 
+                    // ts_quote
+                    "ts_quote" | 
+                    // quote-alias
+                    "quote_alias"
+            ) {
+                return true;
+            }
+            config.verbatim_macro_names.split(',').any(|n| n.trim() == name)
         },
         None => false,
     }
@@ -362,7 +381,7 @@ pub(crate) fn new_sg_macro(
     mac: &Macro,
     semi: bool,
 ) -> SplitGroupIdx {
-    if is_quote_macro(&mac.path) && out.source.is_some() {
+    if is_quote_macro(&mac.path, &out.config) && out.source.is_some() {
         let mut sg = new_sg(out);
 
         // Extract verbatim text for the entire macro invocation (path + ! + body) from
@@ -381,28 +400,31 @@ pub(crate) fn new_sg_macro(
             // Single-line macro (e.g. `quote!(expr)`), emit as one segment
             sg.seg(out, verbatim);
         } else {
-            // Multi-line macro: emit first line, then re-indent subsequent lines.
-            // Compute the indentation of the source line containing the macro
-            // invocation (i.e. leading whitespace count), NOT the column of the path
-            // itself (which may be further right if there's code before it on the line).
+            // Multi-line macro: emit first line, then re-indent subsequent lines. Compute the
+            // indentation of the source line containing the macro invocation (i.e. leading
+            // whitespace count), NOT the column of the path itself (which may be further
+            // right if there's code before it on the line).
             let source = out.source.as_ref().unwrap();
             let line_start = out.line_lookup[path_start.line - 1];
-            let orig_indent = source[line_start ..].chars().take_while(|c| *c == ' ' || *c == '\t').count();
+            let orig_indent = source[line_start..].chars().take_while(|c| *c == ' ' || *c == '\t').count();
             sg.seg(out, lines[0]);
-            for (i, line) in lines[1 ..].iter().enumerate() {
+            for (i, line) in lines[1..].iter().enumerate() {
                 let is_last = i == lines.len() - 2;
+
                 // Skip empty trailing line (from trailing newline)
                 if is_last && line.is_empty() {
                     break;
                 }
                 sg.split_always(out, base_indent.clone(), false);
+
                 // Empty/whitespace-only lines: just emit the break (no indent on blank lines)
                 if line.trim().is_empty() {
                     continue;
                 }
+
                 // Strip up to `orig_indent` chars of leading whitespace
                 let stripped = if line.len() > orig_indent {
-                    &line[orig_indent ..]
+                    &line[orig_indent..]
                 } else {
                     line.trim_start()
                 };

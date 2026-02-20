@@ -683,8 +683,8 @@ fn rt_quote_macro_unicode() {
 
 #[test]
 fn rt_quote_macro_reindent() {
-    // Input where quote! is at a deeper indent than where the formatter will place it. The
-    // formatter should re-indent the body lines to match the new position.
+    // Input where quote! is at a deeper indent than where the formatter will place
+    // it. The formatter should re-indent the body lines to match the new position.
     let input = r#"fn main() {
     let x = if true {
             quote! {
@@ -708,4 +708,35 @@ fn rt_quote_macro_reindent() {
     }).unwrap();
     assert!(res.lost_comments.is_empty(), "Comments remain: {:?}", res.lost_comments);
     pretty_assertions::assert_str_eq!(expected, res.rendered);
+}
+
+#[test]
+fn rt_verbatim_macro_names_config() {
+    // A custom macro name supplied via `verbatim_macro_names` should be kept
+    // verbatim, just like the built-in quote macros.
+    let input = r#"fn main() {
+    my_dsl! {
+        hello world
+    };
+}
+"#;
+
+    // Without the config option the macro body would be reformatted.
+    let res_default = format_str(input, &FormatConfig {
+        max_width: 120,
+        keep_max_blank_lines: 0,
+        ..Default::default()
+    }).unwrap();
+
+    // With the config option the macro body should be kept verbatim.
+    let res_verbatim = format_str(input, &FormatConfig {
+        max_width: 120,
+        keep_max_blank_lines: 0,
+        verbatim_macro_names: "my_dsl".to_string(),
+        ..Default::default()
+    }).unwrap();
+    pretty_assertions::assert_str_eq!(input, res_verbatim.rendered);
+
+    // Sanity check: without the option the output differs (the macro was reformatted).
+    assert_ne!(input, res_default.rendered, "Expected default formatting to differ from verbatim");
 }
