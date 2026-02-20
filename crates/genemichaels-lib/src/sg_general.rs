@@ -376,7 +376,39 @@ pub(crate) fn new_sg_macro(
         let start = out.source_offset(path_start);
         let end = out.source_offset(close_span.end());
         let verbatim = out.source.as_ref().unwrap()[start .. end].to_string();
-        sg.seg(out, verbatim);
+        let lines: Vec<&str> = verbatim.split('\n').collect();
+        if lines.len() <= 1 {
+            // Single-line macro (e.g. `quote!(expr)`), emit as one segment
+            sg.seg(out, verbatim);
+        } else {
+            // Multi-line macro: emit first line, then re-indent subsequent lines.
+            // Compute the indentation of the source line containing the macro
+            // invocation (i.e. leading whitespace count), NOT the column of the path
+            // itself (which may be further right if there's code before it on the line).
+            let source = out.source.as_ref().unwrap();
+            let line_start = out.line_lookup[path_start.line - 1];
+            let orig_indent = source[line_start ..].chars().take_while(|c| *c == ' ' || *c == '\t').count();
+            sg.seg(out, lines[0]);
+            for (i, line) in lines[1 ..].iter().enumerate() {
+                let is_last = i == lines.len() - 2;
+                // Skip empty trailing line (from trailing newline)
+                if is_last && line.is_empty() {
+                    break;
+                }
+                sg.split_always(out, base_indent.clone(), false);
+                // Empty/whitespace-only lines: just emit the break (no indent on blank lines)
+                if line.trim().is_empty() {
+                    continue;
+                }
+                // Strip up to `orig_indent` chars of leading whitespace
+                let stripped = if line.len() > orig_indent {
+                    &line[orig_indent ..]
+                } else {
+                    line.trim_start()
+                };
+                sg.seg_verbatim(out, stripped);
+            }
+        }
 
         // Drain whitespace entries within the macro span to avoid lost_comments false
         // positives

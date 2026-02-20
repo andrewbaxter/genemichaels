@@ -680,3 +680,32 @@ fn rt_quote_macro_unicode() {
 }
 "#);
 }
+
+#[test]
+fn rt_quote_macro_reindent() {
+    // Input where quote! is at a deeper indent than where the formatter will place it. The
+    // formatter should re-indent the body lines to match the new position.
+    let input = r#"fn main() {
+    let x = if true {
+            quote! {
+                #[serde(rename = #rename)]
+            }
+    };
+}
+"#;
+    let expected = r#"fn main() {
+    let x = if true {
+        quote! {
+            #[serde(rename = #rename)]
+        }
+    };
+}
+"#;
+    let res = format_str(input, &FormatConfig {
+        max_width: 120,
+        keep_max_blank_lines: 0,
+        ..Default::default()
+    }).unwrap();
+    assert!(res.lost_comments.is_empty(), "Comments remain: {:?}", res.lost_comments);
+    pretty_assertions::assert_str_eq!(expected, res.rendered);
+}

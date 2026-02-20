@@ -98,7 +98,9 @@ pub(crate) struct SegmentLine {
 
 #[derive(Debug)]
 pub(crate) enum SegmentContent {
-    Text(String),
+    /// `preserve_leading_whitespace`: when true, the renderer will not trim
+    /// leading whitespace from this segment even at `seg_i == 1`.
+    Text(String, bool),
     Whitespace((Alignment, Vec<Whitespace>)),
     Break(Alignment, bool),
 }
@@ -181,7 +183,7 @@ pub(crate) fn line_length(out: &MakeSegsState, lines: &Lines, line_i: LineIdx) -
     for seg_i in &lines.owned_lines.get(line_i.0).unwrap().segs {
         let seg = out.segs.get(seg_i.0).unwrap();
         match &seg.content {
-            SegmentContent::Text(t) => {
+            SegmentContent::Text(t, _) => {
                 // Only count characters up to the first newline (for verbatim multiline segments)
                 match t.find('\n') {
                     Some(pos) => len += t[..pos].chars().count(),
@@ -380,7 +382,16 @@ impl SplitGroupBuilder {
             node: self.node,
             line: None,
             mode: SegmentMode::All,
-            content: SegmentContent::Text(text.to_string()),
+            content: SegmentContent::Text(text.to_string(), false),
+        });
+    }
+
+    pub(crate) fn seg_verbatim(&mut self, out: &mut MakeSegsState, text: impl ToString) {
+        self.add(out, Segment {
+            node: self.node,
+            line: None,
+            mode: SegmentMode::All,
+            content: SegmentContent::Text(text.to_string(), true),
         });
     }
 
@@ -389,7 +400,7 @@ impl SplitGroupBuilder {
             node: self.node,
             line: None,
             mode: SegmentMode::Split,
-            content: SegmentContent::Text(text.to_string()),
+            content: SegmentContent::Text(text.to_string(), false),
         });
     }
 
@@ -398,7 +409,7 @@ impl SplitGroupBuilder {
             node: self.node,
             line: None,
             mode: SegmentMode::Unsplit,
-            content: SegmentContent::Text(text.to_string()),
+            content: SegmentContent::Text(text.to_string(), false),
         });
     }
 
@@ -837,8 +848,8 @@ fn format_ast_with_source(
             for (seg_i, seg_mem_i) in segs.iter().enumerate() {
                 let seg = out.segs.get(seg_mem_i.0).unwrap();
                 match &seg.content {
-                    SegmentContent::Text(t) => {
-                        let t = if seg_i == 1 && line_i > 0 {
+                    SegmentContent::Text(t, preserve_leading_whitespace) => {
+                        let t = if seg_i == 1 && line_i > 0 && !preserve_leading_whitespace {
                             // Work around comments splitting lines at weird places (seg_i_i 0 == break,
                             // except on first line)
                             t.trim_start()
