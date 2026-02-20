@@ -381,7 +381,7 @@ pub(crate) fn new_sg_macro(
     mac: &Macro,
     semi: bool,
 ) -> SplitGroupIdx {
-    if is_quote_macro(&mac.path, &out.config) && out.source.is_some() {
+    if is_quote_macro(&mac.path, &out.config) && out.source_map.is_some() {
         let mut sg = new_sg(out);
 
         // Extract verbatim text for the entire macro invocation (path + ! + body) from
@@ -392,9 +392,10 @@ pub(crate) fn new_sg_macro(
             syn::MacroDelimiter::Brace(x) => x.span.close(),
             syn::MacroDelimiter::Bracket(x) => x.span.close(),
         };
-        let start = out.source_offset(path_start);
-        let end = out.source_offset(close_span.end());
-        let verbatim = out.source.as_ref().unwrap()[start .. end].to_string();
+        let sm = out.source_map.as_ref().unwrap();
+        let start = sm.source_offset(path_start);
+        let end = sm.source_offset(close_span.end());
+        let verbatim = sm.source[start .. end].to_string();
         let lines: Vec<&str> = verbatim.split('\n').collect();
         if lines.len() <= 1 {
             // Single-line macro (e.g. `quote!(expr)`), emit as one segment
@@ -404,9 +405,15 @@ pub(crate) fn new_sg_macro(
             // indentation of the source line containing the macro invocation (i.e. leading
             // whitespace count), NOT the column of the path itself (which may be further
             // right if there's code before it on the line).
-            let source = out.source.as_ref().unwrap();
-            let line_start = out.line_lookup[path_start.line - 1];
-            let orig_indent = source[line_start..].chars().take_while(|c| *c == ' ' || *c == '\t').count();
+            let sm = out.source_map.as_ref().unwrap();
+            let line_start = sm.line_lookup[path_start.line - 1];
+            let ws_chars = sm.source[line_start..].chars().take_while(|c| *c == ' ' || *c == '\t').count();
+            let orig_indent_bytes: usize =
+                sm.source[line_start..]
+                    .char_indices()
+                    .nth(ws_chars)
+                    .map(|(i, _)| i)
+                    .unwrap_or(sm.source.len() - line_start);
             sg.seg(out, lines[0]);
             for (i, line) in lines[1..].iter().enumerate() {
                 let is_last = i == lines.len() - 2;
@@ -422,9 +429,9 @@ pub(crate) fn new_sg_macro(
                     continue;
                 }
 
-                // Strip up to `orig_indent` chars of leading whitespace
-                let stripped = if line.len() > orig_indent {
-                    &line[orig_indent..]
+                // Strip up to `orig_indent_bytes` bytes of leading whitespace
+                let stripped = if line.len() > orig_indent_bytes {
+                    &line[orig_indent_bytes..]
                 } else {
                     line.trim_start()
                 };

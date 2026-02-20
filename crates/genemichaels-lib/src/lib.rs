@@ -132,29 +132,35 @@ pub struct MakeSegsState {
     // manage externally (for now).
     /// Positive if processing within a macro, used to control macro tweaks.
     macro_depth: Rc<Cell<usize>>,
-    /// Original source text, used for verbatim output of quote macros.
-    source: Option<String>,
-    /// Byte offset of each line start in source, for span-to-offset conversion.
-    line_lookup: Vec<usize>,
+    /// Original source text and line-offset lookup, used for verbatim output of
+    /// quote macros. Present only when formatting from source text (not from AST alone).
+    source_map: Option<SourceMap>,
 }
 
-impl MakeSegsState {
+/// Pairs the original source text with a precomputed line-start byte-offset table,
+/// used to convert `proc_macro2::LineColumn` spans into byte offsets.
+pub(crate) struct SourceMap {
+    pub(crate) source: String,
+    /// Byte offset of each line start (0-indexed by line number − 1).
+    pub(crate) line_lookup: Vec<usize>,
+}
+
+impl SourceMap {
     pub(crate) fn source_offset(&self, loc: LineColumn) -> usize {
         if loc.line == 0 {
             return 0usize;
         }
         let line_start_offset = *self.line_lookup.get(loc.line - 1).unwrap();
-        let source = self.source.as_ref().unwrap();
 
         // loc.column is a 0-indexed character offset (not byte offset) in proc_macro2's
         // fallback tokenizer, so we must convert by walking characters to compute the
         // byte offset.
         let byte_offset: usize =
-            source[line_start_offset..]
+            self.source[line_start_offset..]
                 .char_indices()
                 .nth(loc.column)
                 .map(|(i, _)| i)
-                .unwrap_or(source.len() - line_start_offset);
+                .unwrap_or(self.source.len() - line_start_offset);
         line_start_offset + byte_offset
     }
 }
@@ -629,8 +635,10 @@ pub fn format_str(source: &str, config: &FormatConfig) -> Result<FormatRes, loga
             )?,
             config,
             whitespaces,
-            Some(source.to_string()),
-            line_lookup,
+            Some(SourceMap {
+                source: source.to_string(),
+                line_lookup,
+            }),
         )?;
     if let Some(shebang) = shebang {
         return Ok(FormatRes {
@@ -648,15 +656,14 @@ pub fn format_ast(
     config: &FormatConfig,
     whitespaces: BTreeMap<HashLineColumn, Vec<Whitespace>>,
 ) -> Result<FormatRes, loga::Error> {
-    format_ast_with_source(ast, config, whitespaces, None, vec![])
+    format_ast_with_source(ast, config, whitespaces, None)
 }
 
 fn format_ast_with_source(
     ast: impl Formattable,
     config: &FormatConfig,
     whitespaces: BTreeMap<HashLineColumn, Vec<Whitespace>>,
-    source: Option<String>,
-    line_lookup: Vec<usize>,
+    source_map: Option<SourceMap>,
 ) -> Result<FormatRes, loga::Error> {
     // Build text
     let mut out = MakeSegsState {
@@ -665,8 +672,7 @@ fn format_ast_with_source(
         whitespaces,
         config: config.clone(),
         macro_depth: Default::default(),
-        source,
-        line_lookup,
+        source_map,
     };
     let base_indent = Alignment(Rc::new(RefCell::new(Alignment_ {
         parent: None,
