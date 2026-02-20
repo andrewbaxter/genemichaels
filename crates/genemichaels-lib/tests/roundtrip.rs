@@ -658,3 +658,25 @@ fn rt_quote_spanned_macro() {
 }
 "#);
 }
+
+#[test]
+fn rt_quote_macro_nested() {
+    rt(r#"fn main() {
+    let tokens = quote::quote!{
+        let inner = quote::quote!{
+            #[derive(Debug)]
+            struct #name { }
+        };
+    };
+}
+"#);
+}
+
+#[test]
+fn rt_quote_macro_unicode() {
+    rt(r#"fn main() {
+    let héllo = "world";
+    let tokens = quote::quote!(fn résumé() -> String { #héllo });
+}
+"#);
+}

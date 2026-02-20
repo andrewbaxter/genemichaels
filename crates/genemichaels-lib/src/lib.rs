@@ -141,9 +141,19 @@ impl MakeSegsState {
         if loc.line == 0 {
             return 0usize;
         }
-        let source = self.source.as_ref().unwrap();
         let line_start_offset = *self.line_lookup.get(loc.line - 1).unwrap();
-        line_start_offset + source[line_start_offset..].chars().take(loc.column).map(char::len_utf8).sum::<usize>()
+        let source = self.source.as_ref().unwrap();
+
+        // loc.column is a 0-indexed character offset (not byte offset) in proc_macro2's
+        // fallback tokenizer, so we must convert by walking characters to compute the
+        // byte offset.
+        let byte_offset: usize =
+            source[line_start_offset..]
+                .char_indices()
+                .nth(loc.column)
+                .map(|(i, _)| i)
+                .unwrap_or(source.len() - line_start_offset);
+        line_start_offset + byte_offset
     }
 }
 
