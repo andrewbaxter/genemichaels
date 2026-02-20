@@ -337,12 +337,55 @@ pub(crate) fn append_macro_bracketed(
     }
 }
 
+fn is_quote_macro(path: &syn::Path) -> bool {
+    match path.segments.last() {
+        Some(seg) => {
+            let name = seg.ident.to_string();
+            name == "quote" || name == "quote_spanned"
+        },
+        None => false,
+    }
+}
+
+fn drain_whitespaces_in_range(out: &mut MakeSegsState, start: LineColumn, end: LineColumn) {
+    let start_key = HashLineColumn(start);
+    let end_key = HashLineColumn(end);
+    let keys: Vec<HashLineColumn> = out.whitespaces.range(start_key ..= end_key).map(|(k, _)| *k).collect();
+    for key in keys {
+        out.whitespaces.remove(&key);
+    }
+}
+
 pub(crate) fn new_sg_macro(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
     mac: &Macro,
     semi: bool,
 ) -> SplitGroupIdx {
+    if is_quote_macro(&mac.path) && out.source.is_some() {
+        let mut sg = new_sg(out);
+
+        // Extract verbatim text for the entire macro invocation (path + ! + body) from
+        // source
+        let path_start = mac.path.segments.first().unwrap().ident.span().start();
+        let close_span = match &mac.delimiter {
+            syn::MacroDelimiter::Paren(x) => x.span.close(),
+            syn::MacroDelimiter::Brace(x) => x.span.close(),
+            syn::MacroDelimiter::Bracket(x) => x.span.close(),
+        };
+        let start = out.source_offset(path_start);
+        let end = out.source_offset(close_span.end());
+        let verbatim = out.source.as_ref().unwrap()[start .. end].to_string();
+        sg.seg(out, verbatim);
+
+        // Drain whitespace entries within the macro span to avoid lost_comments false
+        // positives
+        drain_whitespaces_in_range(out, path_start, close_span.end());
+        if semi {
+            sg.seg(out, ";");
+        }
+        return sg.build(out);
+    }
     let mut sg = new_sg(out);
     sg.child(build_path(out, base_indent, &mac.path));
     sg.seg(out, "!");

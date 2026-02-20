@@ -130,6 +130,21 @@ pub struct MakeSegsState {
     // manage externally (for now).
     /// Positive if processing within a macro, used to control macro tweaks.
     macro_depth: Rc<Cell<usize>>,
+    /// Original source text, used for verbatim output of quote macros.
+    source: Option<String>,
+    /// Byte offset of each line start in source, for span-to-offset conversion.
+    line_lookup: Vec<usize>,
+}
+
+impl MakeSegsState {
+    pub(crate) fn source_offset(&self, loc: LineColumn) -> usize {
+        if loc.line == 0 {
+            return 0usize;
+        }
+        let source = self.source.as_ref().unwrap();
+        let line_start_offset = *self.line_lookup.get(loc.line - 1).unwrap();
+        line_start_offset + source[line_start_offset..].chars().take(loc.column).map(char::len_utf8).sum::<usize>()
+    }
 }
 
 pub struct IncMacroDepth(Rc<Cell<usize>>);
@@ -156,7 +171,13 @@ pub(crate) fn line_length(out: &MakeSegsState, lines: &Lines, line_i: LineIdx) -
     for seg_i in &lines.owned_lines.get(line_i.0).unwrap().segs {
         let seg = out.segs.get(seg_i.0).unwrap();
         match &seg.content {
-            SegmentContent::Text(t) => len += t.chars().count(),
+            SegmentContent::Text(t) => {
+                // Only count characters up to the first newline (for verbatim multiline segments)
+                match t.find('\n') {
+                    Some(pos) => len += t[..pos].chars().count(),
+                    None => len += t.chars().count(),
+                }
+            },
             SegmentContent::Break(b, _) => {
                 if out.nodes.get(seg.node.0).unwrap().split {
                     len += out.config.indent_spaces * b.get().0;
@@ -559,8 +580,20 @@ pub fn format_str(source: &str, config: &FormatConfig) -> Result<FormatRes, loga
     }
     let source = source1;
     let (whitespaces, tokens) = extract_whitespaces(config.keep_max_blank_lines, source)?;
+    let line_lookup = {
+        let mut lookup = vec![];
+        let mut offset = 0usize;
+        loop {
+            lookup.push(offset);
+            offset += match source[offset..].find('\n') {
+                Some(r) => r,
+                None => break,
+            } + 1;
+        }
+        lookup
+    };
     let out =
-        format_ast(
+        format_ast_with_source(
             syn::parse2::<File>(
                 tokens,
             ).map_err(
@@ -571,6 +604,8 @@ pub fn format_str(source: &str, config: &FormatConfig) -> Result<FormatRes, loga
             )?,
             config,
             whitespaces,
+            Some(source.to_string()),
+            line_lookup,
         )?;
     if let Some(shebang) = shebang {
         return Ok(FormatRes {
@@ -588,6 +623,16 @@ pub fn format_ast(
     config: &FormatConfig,
     whitespaces: BTreeMap<HashLineColumn, Vec<Whitespace>>,
 ) -> Result<FormatRes, loga::Error> {
+    format_ast_with_source(ast, config, whitespaces, None, vec![])
+}
+
+fn format_ast_with_source(
+    ast: impl Formattable,
+    config: &FormatConfig,
+    whitespaces: BTreeMap<HashLineColumn, Vec<Whitespace>>,
+    source: Option<String>,
+    line_lookup: Vec<usize>,
+) -> Result<FormatRes, loga::Error> {
     // Build text
     let mut out = MakeSegsState {
         nodes: vec![],
@@ -595,6 +640,8 @@ pub fn format_ast(
         whitespaces,
         config: config.clone(),
         macro_depth: Default::default(),
+        source,
+        line_lookup,
     };
     let base_indent = Alignment(Rc::new(RefCell::new(Alignment_ {
         parent: None,
