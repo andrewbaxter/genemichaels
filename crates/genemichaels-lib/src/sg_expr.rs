@@ -140,11 +140,15 @@ fn new_sg_dotted(out: &mut MakeSegsState, base_indent: &Alignment, root: Dotted)
     fn build_child(out: &mut MakeSegsState, base_indent: &Alignment, child: &Dotted) -> SplitGroupIdx {
         match child {
             Dotted::Await(x) => {
-                new_sg_lit(out, Some((base_indent, x.dot_token.span.start())), ".await")
+                new_sg_lit(
+                    out,
+                    Some((base_indent, vec![x.dot_token.span.start(), x.await_token.span.start()])),
+                    ".await",
+                )
             },
             Dotted::Field(e) => new_sg_lit(
                 out,
-                Some((base_indent, e.dot_token.span.start())),
+                Some((base_indent, vec![e.dot_token.span.start(), e.member.span().start()])),
                 format!(".{}", match &e.member {
                     syn::Member::Named(n) => n.to_string(),
                     syn::Member::Unnamed(u) => u.index.to_string(),
@@ -154,7 +158,11 @@ fn new_sg_dotted(out: &mut MakeSegsState, base_indent: &Alignment, root: Dotted)
                 let mut sg = new_sg(out);
                 sg.child({
                     let build_base = |out: &mut MakeSegsState, _base_indent: &Alignment| {
-                        new_sg_lit(out, Some((base_indent, e.dot_token.span.start())), format!(".{}", e.method))
+                        new_sg_lit(
+                            out,
+                            Some((base_indent, vec![e.dot_token.span.start(), e.method.span().start()])),
+                            format!(".{}", e.method),
+                        )
                     };
                     if let Some(tf) = &e.turbofish {
                         let mut sg = new_sg(out);
@@ -752,7 +760,7 @@ impl Formattable for &Expr {
                         syn::RangeLimits::Closed(x) => ("..=", x.spans[0].start()),
                     };
                     match (&e.start, &e.end) {
-                        (None, None) => new_sg_lit(out, Some((base_indent, tok_loc)), tok),
+                        (None, None) => new_sg_lit(out, Some((base_indent, vec![tok_loc])), tok),
                         (None, Some(r)) => {
                             let mut sg = new_sg(out);
                             append_whitespace(out, base_indent, &mut sg, tok_loc);
@@ -789,7 +797,7 @@ impl Formattable for &Expr {
                         base_indent,
                         e.and_token.span.start(),
                         false,
-                        e.mutability.map(|_| BuildRefMutability::Mut),
+                        e.mutability.as_ref().map(|m| (&m.span, BuildRefMutability::Mut)),
                         e.expr.as_ref(),
                     )
                 },
@@ -1045,9 +1053,9 @@ impl Formattable for &Expr {
                 &e.attrs,
                 self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    build_ref(out, base_indent, e.and_token.span.start(), true, Some(match e.mutability {
-                        syn::PointerMutability::Const(_) => BuildRefMutability::Const,
-                        syn::PointerMutability::Mut(_) => BuildRefMutability::Mut,
+                    build_ref(out, base_indent, e.and_token.span.start(), true, Some(match &e.mutability {
+                        syn::PointerMutability::Const(m) => (&m.span, BuildRefMutability::Const),
+                        syn::PointerMutability::Mut(m) => (&m.span, BuildRefMutability::Mut),
                     }), e.expr.as_ref())
                 },
             ),

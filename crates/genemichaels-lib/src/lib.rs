@@ -421,12 +421,14 @@ pub(crate) fn new_sg(out: &mut MakeSegsState) -> SplitGroupBuilder {
 
 pub(crate) fn new_sg_lit(
     out: &mut MakeSegsState,
-    start: Option<(&Alignment, LineColumn)>,
+    start: Option<(&Alignment, Vec<LineColumn>)>,
     text: impl ToString,
 ) -> SplitGroupIdx {
     let mut sg = new_sg(out);
-    if let Some(loc) = start {
-        append_whitespace(out, loc.0, &mut sg, loc.1);
+    if let Some((base_indent, starts)) = start {
+        for loc in starts {
+            append_whitespace(out, base_indent, &mut sg, loc);
+        }
     }
     sg.seg(out, text.to_string());
     sg.build(out)
@@ -465,7 +467,7 @@ impl<F: Fn(&mut MakeSegsState, &Alignment) -> SplitGroupIdx> Formattable for F {
 
 impl Formattable for Ident {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
-        new_sg_lit(out, Some((base_indent, self.span().start())), self)
+        new_sg_lit(out, Some((base_indent, vec![self.span().start()])), self)
     }
 
     fn has_attrs(&self) -> bool {

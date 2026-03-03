@@ -67,7 +67,11 @@ impl Formattable for &Pat {
                     }
                     if let Some(at) = &x.subpat {
                         new_sg_binary(out, base_indent, |out: &mut MakeSegsState, base_indent: &Alignment| {
-                            new_sg_lit(out, start.map(|s| (base_indent, s)), &prefix)
+                            new_sg_lit(out, if let Some(s) = start {
+                                Some((base_indent, vec![s]))
+                            } else {
+                                None
+                            }, &prefix)
                         }, at.0.span.start(), " @", |out: &mut MakeSegsState, base_indent: &Alignment| {
                             loop {
                                 let Pat::Tuple(t) = at.1.as_ref() else {
@@ -120,7 +124,11 @@ impl Formattable for &Pat {
                             at.1.make_segs(out, base_indent)
                         })
                     } else {
-                        new_sg_lit(out, start.map(|s| (base_indent, s)), prefix)
+                        new_sg_lit(out, if let Some(s) = start {
+                            Some((base_indent, vec![s]))
+                        } else {
+                            None
+                        }, prefix)
                     }
                 },
             ),
@@ -187,7 +195,7 @@ impl Formattable for &Pat {
                         syn::RangeLimits::Closed(x) => ("..=", x.spans[0].start()),
                     };
                     match (&e.start, &e.end) {
-                        (None, None) => new_sg_lit(out, Some((base_indent, tok_loc)), tok),
+                        (None, None) => new_sg_lit(out, Some((base_indent, vec![tok_loc])), tok),
                         (None, Some(r)) => {
                             let mut sg = new_sg(out);
                             append_whitespace(out, base_indent, &mut sg, tok_loc);
@@ -224,7 +232,7 @@ impl Formattable for &Pat {
                         base_indent,
                         x.and_token.span.start(),
                         false,
-                        x.mutability.map(|_| BuildRefMutability::Mut),
+                        x.mutability.as_ref().map(|x| (&x.span, BuildRefMutability::Mut)),
                         x.pat.as_ref(),
                     )
                 },
@@ -235,7 +243,7 @@ impl Formattable for &Pat {
                 &x.attrs,
                 self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    new_sg_lit(out, Some((base_indent, x.dot2_token.spans[0].start())), "..")
+                    new_sg_lit(out, Some((base_indent, vec![x.dot2_token.spans[0].start()])), "..")
                 },
             ),
             Pat::Slice(x) => new_sg_outer_attrs(
@@ -277,7 +285,7 @@ impl Formattable for &Pat {
                         &x.fields,
                         x.rest.as_ref().map(|d| {
                             |out: &mut MakeSegsState, base_indent: &Alignment| {
-                                new_sg_lit(out, Some((base_indent, d.dot2_token.spans[0].start())), "..")
+                                new_sg_lit(out, Some((base_indent, vec![d.dot2_token.spans[0].start()])), "..")
                             }
                         }),
                         x.brace_token.span.close().start(),
@@ -342,7 +350,7 @@ impl Formattable for &Pat {
                 &x.attrs,
                 self.span(),
                 |out: &mut MakeSegsState, _base_indent: &Alignment| {
-                    new_sg_lit(out, Some((base_indent, x.underscore_token.span.start())), "_")
+                    new_sg_lit(out, Some((base_indent, vec![x.underscore_token.span.start()])), "_")
                 },
             ),
             Pat::Const(e) => new_sg_outer_attrs(

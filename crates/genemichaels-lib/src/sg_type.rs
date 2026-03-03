@@ -22,7 +22,10 @@ use {
             new_sg_bracketed_list_common,
         },
     },
-    proc_macro2::LineColumn,
+    proc_macro2::{
+        LineColumn,
+        Span,
+    },
     quote::ToTokens,
     std::fmt::Write,
     syn::{
@@ -182,7 +185,7 @@ pub(crate) fn build_ref(
     base_indent: &Alignment,
     start: LineColumn,
     raw: bool,
-    mutability: Option<BuildRefMutability>,
+    mutability: Option<(&Span, BuildRefMutability)>,
     expr: impl Formattable,
 ) -> SplitGroupIdx {
     let mut sg = new_sg(out);
@@ -193,10 +196,12 @@ pub(crate) fn build_ref(
     }
     if let Some(m) = mutability {
         match m {
-            BuildRefMutability::Const => {
+            (m, BuildRefMutability::Const) => {
+                append_whitespace(out, base_indent, &mut sg, m.start());
                 sg.seg(out, "const ");
             },
-            BuildRefMutability::Mut => {
+            (m, BuildRefMutability::Mut) => {
+                append_whitespace(out, base_indent, &mut sg, m.start());
                 sg.seg(out, "mut ");
             },
         }
@@ -424,7 +429,10 @@ impl Formattable for TypeParamBound {
                 }
                 match t.modifier {
                     syn::TraitBoundModifier::None => { },
-                    syn::TraitBoundModifier::Maybe(_) => sg.seg(out, "?"),
+                    syn::TraitBoundModifier::Maybe(m) => {
+                        append_whitespace(out, base_indent, &mut sg, m.span.start());
+                        sg.seg(out, "?");
+                    },
                 }
                 if let Some(hot) = &t.lifetimes {
                     append_whitespace(out, base_indent, &mut sg, hot.for_token.span.start());
@@ -523,7 +531,7 @@ impl Formattable for LifetimeParam {
 
 impl Formattable for syn::Lifetime {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
-        new_sg_lit(out, Some((base_indent, self.apostrophe.start())), self)
+        new_sg_lit(out, Some((base_indent, vec![self.apostrophe.start()])), self)
     }
 
     fn has_attrs(&self) -> bool {
@@ -602,7 +610,7 @@ impl Formattable for &Type {
                         &x.inputs,
                         match &x.variadic {
                             Some(v) => InlineListSuffix::Extra(|out: &mut MakeSegsState, _base_indent: &Alignment| {
-                                new_sg_lit(out, Some((base_indent, v.dots.spans[0].start())), "...")
+                                new_sg_lit(out, Some((base_indent, vec![v.dots.spans[0].start()])), "...")
                             }),
                             None => if out.macro_depth.get() == 0 {
                                 InlineListSuffix::Punct
@@ -634,9 +642,9 @@ impl Formattable for &Type {
                 });
                 node.build(out)
             },
-            Type::Infer(x) => new_sg_lit(out, Some((base_indent, x.underscore_token.span.start())), "_"),
+            Type::Infer(x) => new_sg_lit(out, Some((base_indent, vec![x.underscore_token.span.start()])), "_"),
             Type::Macro(x) => new_sg_macro(out, base_indent, &x.mac, false),
-            Type::Never(x) => new_sg_lit(out, Some((base_indent, x.bang_token.span.start())), "!"),
+            Type::Never(x) => new_sg_lit(out, Some((base_indent, vec![x.bang_token.span.start()])), "!"),
             Type::Paren(x) => {
                 let mut node = new_sg(out);
                 node.seg(out, "(");

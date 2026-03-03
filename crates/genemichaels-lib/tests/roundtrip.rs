@@ -260,6 +260,14 @@ struct S;
 }
 
 #[test]
+fn rt_comments_sig_return() {
+    rt(r#"fn main()
+// test
+-> () { }
+"#);
+}
+
+#[test]
 fn rt_generic_nested_constraint() {
     rt(r#"trait X: Y<Error: Debug> { }
 "#);

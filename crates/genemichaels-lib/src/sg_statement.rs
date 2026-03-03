@@ -124,7 +124,7 @@ fn new_sg_sig(out: &mut MakeSegsState, base_indent: &Alignment, sig: &Signature)
             &sig.inputs,
             if let Some(v) = &sig.variadic {
                 InlineListSuffix::Extra(|out: &mut MakeSegsState, base_indent: &Alignment| {
-                    new_sg_lit(out, Some((base_indent, v.dots.spans[0].start())), "...")
+                    new_sg_lit(out, Some((base_indent, vec![v.dots.spans[0].start()])), "...")
                 })
             } else {
                 if out.macro_depth.get() == 0 {
@@ -139,7 +139,8 @@ fn new_sg_sig(out: &mut MakeSegsState, base_indent: &Alignment, sig: &Signature)
     );
     match &sig.output {
         ReturnType::Default => { },
-        ReturnType::Type(_, t) => {
+        ReturnType::Type(arrow, t) => {
+            append_whitespace(out, base_indent, &mut sg, arrow.span().start());
             sg.seg(out, " -> ");
             sg.child(t.make_segs(out, base_indent));
         },
@@ -1241,7 +1242,8 @@ impl Formattable for &UseTree {
                 append_whitespace(out, base_indent, &mut sg, x.rename.span().start());
                 sg.seg(out, format!("{} as {}", x.ident, x.rename));
             },
-            syn::UseTree::Glob(_) => {
+            syn::UseTree::Glob(g) => {
+                append_whitespace(out, base_indent, &mut sg, g.star_token.span().start());
                 sg.seg(out, "*");
             },
             syn::UseTree::Group(x) => {
