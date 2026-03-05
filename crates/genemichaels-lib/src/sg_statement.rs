@@ -842,6 +842,9 @@ impl Formattable for Item {
                 &x.attrs,
                 self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
+                    if x.ident.is_none() {
+                        return new_sg_macro(out, base_indent, &x.mac, x.semi_token.is_some());
+                    }
                     let mut sg = new_sg(out);
                     sg.child(build_path(out, base_indent, &x.mac.path));
                     sg.seg(out, "!");

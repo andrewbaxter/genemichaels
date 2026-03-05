@@ -740,3 +740,32 @@ fn rt_verbatim_macro_names_config() {
     // Sanity check: without the option the output differs (the macro was reformatted).
     assert_ne!(input, res_default.rendered, "Expected default formatting to differ from verbatim");
 }
+
+#[test]
+fn rt_verbatim_macro_names_item_position() {
+    // Item-position macros (top-level, outside any function) must also be kept
+    // verbatim when listed in `verbatim_macro_names`.
+    let input = r#"my_dsl! {
+    table person {
+        id: i64 [primary_key],
+        name: Option<String>,
+    }
+}
+"#;
+
+    let res_verbatim = format_str(input, &FormatConfig {
+        max_width: 120,
+        keep_max_blank_lines: 0,
+        verbatim_macro_names: "my_dsl".to_string(),
+        ..Default::default()
+    }).unwrap();
+    pretty_assertions::assert_str_eq!(input, res_verbatim.rendered);
+
+    // Sanity check: without the option the output differs.
+    let res_default = format_str(input, &FormatConfig {
+        max_width: 120,
+        keep_max_blank_lines: 0,
+        ..Default::default()
+    }).unwrap();
+    assert_ne!(input, res_default.rendered, "Expected default formatting to differ from verbatim");
+}
