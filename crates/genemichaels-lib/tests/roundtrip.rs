@@ -60,8 +60,7 @@ fn rt_struct1() {
 
 #[test]
 fn rt_struct_generic1() {
-    rt(
-        r#"struct DefaultTupleStruct<A, B, C>(
+    rt(r#"struct DefaultTupleStruct<A, B, C>(
     A,
     #[serde(default)]
     B,
@@ -70,8 +69,7 @@ fn rt_struct_generic1() {
 )
 where
     C: MyDefault;
-"#,
-    );
+"#);
 }
 
 #[test]
@@ -133,14 +131,12 @@ fn rt_tuple_unit3() {
 
 #[test]
 fn rt_pat_field1() {
-    rt(
-        r#"fn main() {
+    rt(r#"fn main() {
     match x {
         Expr::MethodCall(ExprMethodCall { args, receiver: func, .. }) => { },
     }
 }
-"#,
-    )
+"#)
 }
 
 #[test]
@@ -214,14 +210,12 @@ static _x: i32 = 4i32;
 
 #[test]
 fn rt_comments_unbreakable_links1() {
-    rt(
-        r#"//! This is a very long line that will get wrapped right around check_store
+    rt(r#"//! This is a very long line that will get wrapped right around check_store
 //! [`check_store()`].
 //!
 //! [`check_store()`]: a::b::c
 fn main() { }
-"#,
-    );
+"#);
 }
 
 #[test]
@@ -353,8 +347,7 @@ fn rt_comment_before_label1() {
 #[test]
 fn rt_comment_x() {
     // https://github.com/andrewbaxter/genemichaels/issues/89
-    rt(
-        r#"fn get_valid_selection(get_actual_edit_transaction: impl Fn(
+    rt(r#"fn get_valid_selection(get_actual_edit_transaction: impl Fn(
     // current
     &Selection,
     // next
@@ -362,8 +355,7 @@ fn rt_comment_x() {
 ) -> anyhow::Result<EditTransaction>) -> anyhow::Result<Either<Selection, EditTransaction>> {
     todo!()
 }
-"#,
-    );
+"#);
 }
 
 #[test]
@@ -394,8 +386,7 @@ fn rt_comments_macro_comment() {
 
 #[test]
 fn rt_trait1() {
-    rt(
-        r#"pub trait MyTrait<T, D>: Sized
+    rt(r#"pub trait MyTrait<T, D>: Sized
 where
     T: MyTrait2,
     D: MyTrait3 {
@@ -403,8 +394,7 @@ where
     #[allow(clippy::needless_lifetimes)]
     fn another_method<'a>(&'a self) -> ReturnValue<T, D>;
 }
-"#,
-    );
+"#);
 }
 
 #[test]
@@ -425,12 +415,10 @@ where
 
 #[test]
 fn rt_empty_parens1() {
-    rt(
-        r#"fn main() {
+    rt(r#"fn main() {
     call_123456789_123456789_12346789_123456789_123456789_123456789_123456789_123456789_123456789_123456789_123456789();
 }
-"#,
-    );
+"#);
 }
 
 #[test]
@@ -527,8 +515,7 @@ fn main() { }
 
 #[test]
 fn rt_dontskip_modattrs() {
-    rt(
-        r#"#![allow(
+    rt(r#"#![allow(
     clippy::too_many_arguments,
     clippy::field_reassign_with_default,
     clippy::never_loop,
@@ -536,14 +523,12 @@ fn rt_dontskip_modattrs() {
 )]
 
 fn main() { }
-"#,
-    );
+"#);
 }
 
 #[test]
 fn rt_rustfmt_skip_all() {
-    rt(
-        r#"#![rustfmt::skip]
+    rt(r#"#![rustfmt::skip]
            fn main() {
     struct SomeStrangeIndentation {
  abcd: i32,
@@ -551,14 +536,12 @@ fn rt_rustfmt_skip_all() {
                (
                   )>}
 }
-"#,
-    );
+"#);
 }
 
 #[test]
 fn rt_rustfmt_skip_all_with_comments() {
-    rt(
-        r#"#![rustfmt::skip]
+    rt(r#"#![rustfmt::skip]
            fn main() {
     struct SomeStrangeIndentation {
  abcd: i32,
@@ -567,14 +550,12 @@ fn rt_rustfmt_skip_all_with_comments() {
                (
                   )>}
 }
-"#,
-    );
+"#);
 }
 
 #[test]
 fn rt_rustfmt_skip_subtree() {
-    rt(
-        r#"fn main() {
+    rt(r#"fn main() {
     #[rustfmt::skip]
     struct SomeStrangeIndentation {
  abcd: i32,
@@ -582,14 +563,12 @@ fn rt_rustfmt_skip_subtree() {
                (
                   )>}
 }
-"#,
-    );
+"#);
 }
 
 #[test]
 fn rt_rustfmt_skip_subtree_comment() {
-    rt(
-        r#"fn main() {
+    rt(r#"fn main() {
     #[rustfmt::skip]
     // Start comment
     struct SomeStrangeIndentation {
@@ -600,14 +579,12 @@ fn rt_rustfmt_skip_subtree_comment() {
                   )>}
     // End line end comment
 }
-"#,
-    );
+"#);
 }
 
 #[test]
 fn rt_rustfmt_skip_subtree_comment_array() {
-    rt(
-        r#"fn main() {
+    rt(r#"fn main() {
     #[rustfmt::skip]
     let src_attribs = [
         // EGL_WIDTH
@@ -626,14 +603,12 @@ fn rt_rustfmt_skip_subtree_comment_array() {
         egl::EGL_NONE,
      ];
 }
-"#,
-    );
+"#);
 }
 
 #[test]
 fn rttabs_struct_generic1() {
-    rt_tabs(
-        r#"struct DefaultTupleStruct<A, B, C>(
+    rt_tabs(r#"struct DefaultTupleStruct<A, B, C>(
 	A,
 	#[serde(default)]
 	B,
@@ -642,8 +617,7 @@ fn rttabs_struct_generic1() {
 )
 where
 	C: MyDefault;
-"#,
-    );
+"#);
 }
 
 #[test]
@@ -652,4 +626,154 @@ fn rt_const_ref() {
     (*&raw const X).x(text);
 }
 "#);
+}
+
+#[test]
+fn rt_quote_macro() {
+    rt(r#"fn main() {
+    let tokens = quote::quote!{
+        use openrpc_runtime::{self, jsonrpsee};
+
+        impl #name {
+            pub fn new<T: Into<String>>(value: T) -> Self {
+                Self(value.into())
+            }
+        }
+
+        // A comment inside quote
+        fn generated() -> Vec<u8> {
+            vec![1, 2, 3]
+        }
+    };
+}
+"#);
+}
+
+#[test]
+fn rt_quote_macro_paren() {
+    rt(r#"fn main() {
+    let tokens = quote::quote!(some_fn(#arg1, #arg2));
+}
+"#);
+}
+
+#[test]
+fn rt_quote_spanned_macro() {
+    rt(r#"fn main() {
+    let tokens = quote::quote_spanned!{span=>
+        #ident
+    };
+}
+"#);
+}
+
+#[test]
+fn rt_quote_macro_nested() {
+    rt(r#"fn main() {
+    let tokens = quote::quote!{
+        let inner = quote::quote!{
+            #[derive(Debug)]
+            struct #name { }
+        };
+    };
+}
+"#);
+}
+
+#[test]
+fn rt_quote_macro_unicode() {
+    rt(r#"fn main() {
+    let héllo = "world";
+    let tokens = quote::quote!(fn résumé() -> String { #héllo });
+}
+"#);
+}
+
+#[test]
+fn rt_quote_macro_reindent() {
+    // Input where quote! is at a deeper indent than where the formatter will place
+    // it. The formatter should re-indent the body lines to match the new position.
+    let input = r#"fn main() {
+    let x = if true {
+            quote! {
+                #[serde(rename = #rename)]
+            }
+    };
+}
+"#;
+    let expected = r#"fn main() {
+    let x = if true {
+        quote! {
+            #[serde(rename = #rename)]
+        }
+    };
+}
+"#;
+    let res = format_str(input, &FormatConfig {
+        max_width: 120,
+        keep_max_blank_lines: 0,
+        ..Default::default()
+    }).unwrap();
+    assert!(res.lost_comments.is_empty(), "Comments remain: {:?}", res.lost_comments);
+    pretty_assertions::assert_str_eq!(expected, res.rendered);
+}
+
+#[test]
+fn rt_verbatim_macro_names_config() {
+    // A custom macro name supplied via `verbatim_macro_names` should be kept
+    // verbatim, just like the built-in quote macros.
+    let input = r#"fn main() {
+    my_dsl! {
+        hello world
+    };
+}
+"#;
+
+    // Without the config option the macro body would be reformatted.
+    let res_default = format_str(input, &FormatConfig {
+        max_width: 120,
+        keep_max_blank_lines: 0,
+        ..Default::default()
+    }).unwrap();
+
+    // With the config option the macro body should be kept verbatim.
+    let res_verbatim = format_str(input, &FormatConfig {
+        max_width: 120,
+        keep_max_blank_lines: 0,
+        verbatim_macro_names: "my_dsl".to_string(),
+        ..Default::default()
+    }).unwrap();
+    pretty_assertions::assert_str_eq!(input, res_verbatim.rendered);
+
+    // Sanity check: without the option the output differs (the macro was reformatted).
+    assert_ne!(input, res_default.rendered, "Expected default formatting to differ from verbatim");
+}
+
+#[test]
+fn rt_verbatim_macro_names_item_position() {
+    // Item-position macros (top-level, outside any function) must also be kept
+    // verbatim when listed in `verbatim_macro_names`.
+    let input = r#"my_dsl! {
+    table person {
+        id: i64 [primary_key],
+        name: Option<String>,
+    }
+}
+"#;
+
+    let res_verbatim = format_str(input, &FormatConfig {
+        max_width: 120,
+        keep_max_blank_lines: 0,
+        verbatim_macro_names: "my_dsl".to_string(),
+        ..Default::default()
+    }).unwrap();
+    pretty_assertions::assert_str_eq!(input, res_verbatim.rendered);
+
+    // Sanity check: without the option the output differs.
+    let res_default = format_str(input, &FormatConfig {
+        max_width: 120,
+        keep_max_blank_lines: 0,
+        ..Default::default()
+    }).unwrap();
+    assert_ne!(input, res_default.rendered, "Expected default formatting to differ from verbatim");
 }

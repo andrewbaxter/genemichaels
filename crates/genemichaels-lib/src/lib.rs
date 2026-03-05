@@ -98,7 +98,9 @@ pub(crate) struct SegmentLine {
 
 #[derive(Debug)]
 pub(crate) enum SegmentContent {
-    Text(String),
+    /// `preserve_leading_whitespace`: when true, the renderer will not trim leading
+    /// whitespace from this segment even at `seg_i == 1`.
+    Text(String, bool),
     Whitespace((Alignment, Vec<Whitespace>)),
     Break(Alignment, bool),
 }
@@ -130,6 +132,37 @@ pub struct MakeSegsState {
     // manage externally (for now).
     /// Positive if processing within a macro, used to control macro tweaks.
     macro_depth: Rc<Cell<usize>>,
+    /// Original source text and line-offset lookup, used for verbatim output of
+    /// quote macros. Present only when formatting from source text (not from AST alone).
+    source_map: Option<SourceMap>,
+}
+
+/// Pairs the original source text with a precomputed line-start byte-offset table,
+/// used to convert `proc_macro2::LineColumn` spans into byte offsets.
+pub(crate) struct SourceMap {
+    pub(crate) source: String,
+    /// Byte offset of each line start (0-indexed by line number − 1).
+    pub(crate) line_lookup: Vec<usize>,
+}
+
+impl SourceMap {
+    pub(crate) fn source_offset(&self, loc: LineColumn) -> usize {
+        if loc.line == 0 {
+            return 0usize;
+        }
+        let line_start_offset = *self.line_lookup.get(loc.line - 1).unwrap();
+
+        // loc.column is a 0-indexed character offset (not byte offset) in proc_macro2's
+        // fallback tokenizer, so we must convert by walking characters to compute the
+        // byte offset.
+        let byte_offset: usize =
+            self.source[line_start_offset..]
+                .char_indices()
+                .nth(loc.column)
+                .map(|(i, _)| i)
+                .unwrap_or(self.source.len() - line_start_offset);
+        line_start_offset + byte_offset
+    }
 }
 
 pub struct IncMacroDepth(Rc<Cell<usize>>);
@@ -156,7 +189,13 @@ pub(crate) fn line_length(out: &MakeSegsState, lines: &Lines, line_i: LineIdx) -
     for seg_i in &lines.owned_lines.get(line_i.0).unwrap().segs {
         let seg = out.segs.get(seg_i.0).unwrap();
         match &seg.content {
-            SegmentContent::Text(t) => len += t.chars().count(),
+            SegmentContent::Text(t, _) => {
+                // Only count characters up to the first newline (for verbatim multiline segments)
+                match t.find('\n') {
+                    Some(pos) => len += t[..pos].chars().count(),
+                    None => len += t.chars().count(),
+                }
+            },
             SegmentContent::Break(b, _) => {
                 if out.nodes.get(seg.node.0).unwrap().split {
                     len += out.config.indent_spaces * b.get().0;
@@ -349,7 +388,16 @@ impl SplitGroupBuilder {
             node: self.node,
             line: None,
             mode: SegmentMode::All,
-            content: SegmentContent::Text(text.to_string()),
+            content: SegmentContent::Text(text.to_string(), false),
+        });
+    }
+
+    pub(crate) fn seg_verbatim(&mut self, out: &mut MakeSegsState, text: impl ToString) {
+        self.add(out, Segment {
+            node: self.node,
+            line: None,
+            mode: SegmentMode::All,
+            content: SegmentContent::Text(text.to_string(), true),
         });
     }
 
@@ -358,7 +406,7 @@ impl SplitGroupBuilder {
             node: self.node,
             line: None,
             mode: SegmentMode::Split,
-            content: SegmentContent::Text(text.to_string()),
+            content: SegmentContent::Text(text.to_string(), false),
         });
     }
 
@@ -367,7 +415,7 @@ impl SplitGroupBuilder {
             node: self.node,
             line: None,
             mode: SegmentMode::Unsplit,
-            content: SegmentContent::Text(text.to_string()),
+            content: SegmentContent::Text(text.to_string(), false),
         });
     }
 
@@ -499,7 +547,7 @@ fn render_indent(config: &FormatConfig, current_indent: IndentLevel) -> String {
     }
 }
 
-#[derive(Debug, Copy, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct FormatConfig {
     pub max_width: usize,
@@ -514,6 +562,9 @@ pub struct FormatConfig {
     /// Indent with spaces or tabs.
     pub indent_unit: IndentUnit,
     pub explicit_markdown_comments: bool,
+    /// Additional macro names (comma-separated) whose bodies should be kept verbatim
+    /// and not reformatted, like `quote!`.
+    pub verbatim_macro_names: String,
 }
 
 impl Default for FormatConfig {
@@ -530,6 +581,7 @@ impl Default for FormatConfig {
             indent_spaces: 4,
             indent_unit: IndentUnit::Spaces,
             explicit_markdown_comments: false,
+            verbatim_macro_names: String::new(),
         }
     }
 }
@@ -561,8 +613,20 @@ pub fn format_str(source: &str, config: &FormatConfig) -> Result<FormatRes, loga
     }
     let source = source1;
     let (whitespaces, tokens) = extract_whitespaces(config.keep_max_blank_lines, source)?;
+    let line_lookup = {
+        let mut lookup = vec![];
+        let mut offset = 0usize;
+        loop {
+            lookup.push(offset);
+            offset += match source[offset..].find('\n') {
+                Some(r) => r,
+                None => break,
+            } + 1;
+        }
+        lookup
+    };
     let out =
-        format_ast(
+        format_ast_with_source(
             syn::parse2::<File>(
                 tokens,
             ).map_err(
@@ -573,6 +637,10 @@ pub fn format_str(source: &str, config: &FormatConfig) -> Result<FormatRes, loga
             )?,
             config,
             whitespaces,
+            Some(SourceMap {
+                source: source.to_string(),
+                line_lookup,
+            }),
         )?;
     if let Some(shebang) = shebang {
         return Ok(FormatRes {
@@ -590,6 +658,15 @@ pub fn format_ast(
     config: &FormatConfig,
     whitespaces: BTreeMap<HashLineColumn, Vec<Whitespace>>,
 ) -> Result<FormatRes, loga::Error> {
+    format_ast_with_source(ast, config, whitespaces, None)
+}
+
+fn format_ast_with_source(
+    ast: impl Formattable,
+    config: &FormatConfig,
+    whitespaces: BTreeMap<HashLineColumn, Vec<Whitespace>>,
+    source_map: Option<SourceMap>,
+) -> Result<FormatRes, loga::Error> {
     // Build text
     let mut out = MakeSegsState {
         nodes: vec![],
@@ -597,6 +674,7 @@ pub fn format_ast(
         whitespaces,
         config: config.clone(),
         macro_depth: Default::default(),
+        source_map,
     };
     let base_indent = Alignment(Rc::new(RefCell::new(Alignment_ {
         parent: None,
@@ -782,8 +860,8 @@ pub fn format_ast(
             for (seg_i, seg_mem_i) in segs.iter().enumerate() {
                 let seg = out.segs.get(seg_mem_i.0).unwrap();
                 match &seg.content {
-                    SegmentContent::Text(t) => {
-                        let t = if seg_i == 1 && line_i > 0 {
+                    SegmentContent::Text(t, preserve_leading_whitespace) => {
+                        let t = if seg_i == 1 && line_i > 0 && !preserve_leading_whitespace {
                             // Work around comments splitting lines at weird places (seg_i_i 0 == break,
                             // except on first line)
                             t.trim_start()
