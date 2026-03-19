@@ -426,45 +426,43 @@ struct LineState_ {
     base_prefix_len: VisualLen,
     first_prefix: Option<String>,
     prefix: String,
-    explicit_wrap: bool,
     max_width: VisualLen,
     rel_max_width: Option<VisualLen>,
-    backward_break: Option<(usize, bool)>,
+    backward_break: Option<usize>,
+    unbreakable: bool,
 }
 
 impl LineState_ {
-    fn flush_always(&mut self, state: &mut State, out: &mut String, explicit_wrap: bool, wrapping: bool) {
-        out.push_str(format!("{}{}{}{}", if state.need_nl {
-            "\n"
-        } else {
-            ""
-        }, match &self.first_prefix.take() {
-            Some(t) => t,
-            None => &*self.prefix,
-        }, &state.line_buffer, if wrapping && explicit_wrap {
-            " \\"
-        } else {
-            ""
-        }).trim_end());
+    fn flush_always(&mut self, state: &mut State, out: &mut String) {
+        out.push_str(format!(
+            //. .
+            "{}{}{}",
+            if state.need_nl {
+                "\n"
+            } else {
+                ""
+            },
+            match &self.first_prefix.take() {
+                Some(t) => t,
+                None => &*self.prefix,
+            },
+            &state.line_buffer,
+        ).trim_end());
         state.line_buffer.clear();
         state.need_nl = true;
         self.backward_break = None;
     }
 
-    fn flush(&mut self, state: &mut State, out: &mut String, explicit_wrap: bool, wrapping: bool) {
+    fn flush(&mut self, state: &mut State, out: &mut String) {
         if !state.line_buffer.trim().is_empty() {
-            self.flush_always(state, out, explicit_wrap, wrapping);
+            self.flush_always(state, out);
         }
     }
 
     fn calc_max_width(&self) -> VisualLen {
         match self.rel_max_width {
             Some(w) => unicode_len(&self.prefix) + w,
-            None => self.max_width - if self.explicit_wrap {
-                VisualLen(2)
-            } else {
-                VisualLen(0)
-            },
+            None => self.max_width,
         }
     }
 
@@ -490,16 +488,15 @@ impl LineState {
         prefix: String,
         max_width: VisualLen,
         rel_max_width: Option<VisualLen>,
-        explicit_wrap: bool,
     ) -> LineState {
         LineState(Rc::new(RefCell::new(LineState_ {
             base_prefix_len: base_prefix_len,
             first_prefix,
             prefix,
-            explicit_wrap,
             max_width,
             rel_max_width,
             backward_break: None,
+            unbreakable: false,
         })))
     }
 
@@ -513,14 +510,14 @@ impl LineState {
             base_prefix_len: s.base_prefix_len,
             first_prefix: s.first_prefix.take(),
             prefix: s.prefix.clone(),
-            explicit_wrap: s.explicit_wrap,
             max_width: s.max_width,
             rel_max_width: s.rel_max_width,
             backward_break: None,
+            unbreakable: false,
         })))
     }
 
-    fn clone_indent(&self, first_prefix: Option<String>, prefix: String, explicit_wrap: bool) -> LineState {
+    fn clone_indent(&self, first_prefix: Option<String>, prefix: String) -> LineState {
         let mut s = self.0.as_ref().borrow_mut();
         LineState(Rc::new(RefCell::new(LineState_ {
             base_prefix_len: s.base_prefix_len,
@@ -531,15 +528,37 @@ impl LineState {
                 (Some(p1), Some(p2)) => Some(format!("{}{}", p1, p2)),
             },
             prefix: format!("{}{}", s.prefix, prefix),
-            explicit_wrap: s.explicit_wrap || explicit_wrap,
             max_width: s.max_width,
             rel_max_width: s.rel_max_width,
             backward_break: None,
+            unbreakable: false,
+        })))
+    }
+
+    fn clone_unbreakable(&self, first_prefix: Option<String>) -> LineState {
+        let mut s = self.0.as_ref().borrow_mut();
+        LineState(Rc::new(RefCell::new(LineState_ {
+            base_prefix_len: s.base_prefix_len,
+            first_prefix: match (s.first_prefix.take(), first_prefix) {
+                (None, None) => None,
+                (None, Some(p)) => Some(format!("{}{}", s.prefix, p)),
+                (Some(p), None) => Some(p),
+                (Some(p1), Some(p2)) => Some(format!("{}{}", p1, p2)),
+            },
+            prefix: s.prefix.clone(),
+            max_width: s.max_width,
+            rel_max_width: s.rel_max_width,
+            backward_break: None,
+            unbreakable: true,
         })))
     }
 
     fn write(&self, state: &mut State, out: &mut String, text: &str, breaks: &[usize]) {
         let mut s = self.0.as_ref().borrow_mut();
+        if s.unbreakable {
+            state.line_buffer.push_str(text);
+            return;
+        }
         let max_len = s.calc_max_width();
 
         struct FoundWritableLen<'a> {
@@ -591,7 +610,7 @@ impl LineState {
         /// Write new text following a break, storing the new break point with it
         fn write_forward(state: &mut State, s: &mut LineState_, text: &str, b: Option<usize>) {
             if let Some(b) = b {
-                s.backward_break = Some((state.line_buffer.len() + b, s.explicit_wrap));
+                s.backward_break = Some(state.line_buffer.len() + b);
             }
             state.line_buffer.push_str(&text);
         }
@@ -611,7 +630,7 @@ impl LineState {
                 if first {
                     first = false;
                 } else {
-                    s.flush(state, out, s.explicit_wrap, true);
+                    s.flush(state, out);
                 }
                 let found = find_writable_len(s.calc_current_len(state), max_len, &text, breaks_offset, breaks);
                 if found.writable > 0 {
@@ -644,11 +663,11 @@ impl LineState {
                 found.writable,
                 found.previous_break.map(|b| b.1).unwrap_or(breaks),
             );
-        } else if let Some((at, explicit_wrap)) = s.backward_break.take() {
+        } else if let Some(at) = s.backward_break.take() {
             // Couldn't split forward but there's a retroactive split point in previously
             // written segments
             let prefix = state.line_buffer.split_off(at);
-            s.flush(state, out, explicit_wrap, true);
+            s.flush(state, out);
             state.line_buffer.push_str(&prefix);
             write_forward_breaks(state, &mut s, out, max_len, true, text.to_string(), 0, breaks);
         } else if let Some((b, breaks)) = found.next_break {
@@ -658,7 +677,6 @@ impl LineState {
             write_forward_breaks(state, &mut s, out, max_len, false, (&text[b..]).to_string(), b, breaks);
         } else {
             state.line_buffer.push_str(text);
-            return;
         }
     }
 
@@ -671,7 +689,7 @@ impl LineState {
     }
 
     fn flush_always(&self, state: &mut State, out: &mut String) {
-        self.0.as_ref().borrow_mut().flush_always(state, out, false, false);
+        self.0.as_ref().borrow_mut().flush_always(state, out);
     }
 
     fn write_newline(&self, state: &mut State, out: &mut String) {
@@ -679,7 +697,7 @@ impl LineState {
         if !state.line_buffer.is_empty() {
             panic!();
         }
-        s.flush_always(state, out, false, false);
+        s.flush_always(state, out);
     }
 }
 
@@ -712,7 +730,7 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
             }
         },
         Node::Blockquote(x) => {
-            let line = line.clone_indent(None, "> ".into(), false);
+            let line = line.clone_indent(None, "> ".into());
             for (i, child) in x.children.iter().enumerate() {
                 if i > 0 {
                     line.write_newline(state, out);
@@ -732,7 +750,7 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
                         recurse_write(
                             state,
                             out,
-                            line.clone_indent(Some(format!("{}. ", *i as usize + j)), "   ".into(), false),
+                            line.clone_indent(Some(format!("{}. ", *i as usize + j)), "   ".into()),
                             child,
                             false,
                         );
@@ -743,13 +761,7 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
                         if i > 0 {
                             line.write_newline(state, out);
                         }
-                        recurse_write(
-                            state,
-                            out,
-                            line.clone_indent(Some("* ".into()), "  ".into(), false),
-                            child,
-                            false,
-                        );
+                        recurse_write(state, out, line.clone_indent(Some("* ".into()), "  ".into()), child, false);
                     }
                 },
             };
@@ -777,14 +789,14 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
             line.flush_always(state, out);
         },
         Node::Heading(x) => {
-            let line = line.clone_indent(Some(format!("{} ", "#".repeat(x.depth as usize))), "  ".into(), true);
+            let line = line.clone_unbreakable(Some(format!("{} ", "#".repeat(x.depth as usize))));
             for child in &x.children {
                 recurse_write(state, out, line.clone_inline(), child, true);
             }
             line.flush_always(state, out);
         },
         Node::FootnoteDefinition(x) => {
-            let line = line.clone_indent(Some(format!("[^{}]: ", x.identifier)), "   ".into(), false);
+            let line = line.clone_indent(Some(format!("[^{}]: ", x.identifier)), "   ".into());
             for child in &x.children {
                 recurse_write(state, out, line.clone_inline(), child, true);
             }
@@ -1014,7 +1026,6 @@ pub fn format_md(
                 prefix.to_string(),
                 VisualLen(max_width),
                 rel_max_width.map(VisualLen),
-                false,
             ),
             &ast,
             false,

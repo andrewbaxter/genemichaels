@@ -184,6 +184,35 @@ fn rt_macro_star_equal_gt() {
 }
 
 #[test]
+fn rt_comments_md_long_h1() {
+    rt(
+        r#" 
+// # This is a very very very unusually very very long comment that should wrap even longer and longer
+"#,
+    );
+}
+
+#[test]
+fn rt_comments_md_long_h2() {
+    rt(
+        r#" 
+// ## This is a very very very unusually very very long comment that should wrap even longer and longer
+"#,
+    );
+}
+#[test]
+fn rt_comments_md_long_p() {
+    rt(
+        r#" 
+// This is a very very very unusually very very long comment that should wrap even
+// longer and longer but make sure it wraps the same way every time
+//
+// This should be a separate paragraph
+"#,
+    );
+}
+
+#[test]
 fn rt_comments_end() {
     rt(r#"const X: i32 = 7;
 // This is where the file ends.
