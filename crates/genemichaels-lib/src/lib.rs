@@ -36,6 +36,7 @@ pub(crate) mod sg_statement;
 pub(crate) mod sg_type;
 pub(crate) mod sg_root;
 pub(crate) mod sg_general_lists;
+pub(crate) mod normalize_imports;
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub enum CommentMode {
@@ -46,7 +47,7 @@ pub enum CommentMode {
     Verbatim,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Comment {
     pub mode: CommentMode,
     pub lines: String,
@@ -55,13 +56,13 @@ pub struct Comment {
     pub orig_start_offset: usize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum WhitespaceMode {
     BlankLines(usize),
     Comment(Comment),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Whitespace {
     // The loc of the AST node this whitespace is associated with. Special loc (0, 1)
     // == end of file.
@@ -124,6 +125,7 @@ pub struct MakeSegsState {
     nodes: Vec<SplitGroup>,
     segs: Vec<Segment>,
     whitespaces: BTreeMap<HashLineColumn, Vec<Whitespace>>,
+    pub(crate) cloned_whitespaces: BTreeMap<HashLineColumn, usize>,
     config: FormatConfig,
     // MakeSegsState should be cloned at each call level with flags overwritable, but
     // it's a huge amount of work and only applies to this field for now. So instead
@@ -499,6 +501,14 @@ fn render_indent(config: &FormatConfig, current_indent: IndentLevel) -> String {
     }
 }
 
+#[derive(Debug, Copy, Clone, Deserialize, Serialize, PartialEq, Default)]
+pub enum ImportNormalizationMode {
+    #[default]
+    None,
+    Combine,
+    Split,
+}
+
 #[derive(Debug, Copy, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct FormatConfig {
@@ -514,6 +524,7 @@ pub struct FormatConfig {
     /// Indent with spaces or tabs.
     pub indent_unit: IndentUnit,
     pub explicit_markdown_comments: bool,
+    pub import_normalization: ImportNormalizationMode,
 }
 
 impl Default for FormatConfig {
@@ -530,6 +541,7 @@ impl Default for FormatConfig {
             indent_spaces: 4,
             indent_unit: IndentUnit::Spaces,
             explicit_markdown_comments: false,
+            import_normalization: ImportNormalizationMode::None,
         }
     }
 }
@@ -560,20 +572,29 @@ pub fn format_str(source: &str, config: &FormatConfig) -> Result<FormatRes, loga
         shebang_line_off = 0;
     }
     let source = source1;
-    let (whitespaces, tokens) = extract_whitespaces(config.keep_max_blank_lines, source)?;
-    let out =
-        format_ast(
-            syn::parse2::<File>(
-                tokens,
-            ).map_err(
-                |e| loga::err_with(
-                    "Syn error parsing Rust code",
-                    ea!(line = e.span().start().line + shebang_line_off, column = e.span().start().column, err = e),
-                ),
-            )?,
+    let (mut whitespaces, tokens) = extract_whitespaces(config.keep_max_blank_lines, source)?;
+    let mut ast = syn::parse2::<File>(
+        tokens,
+    ).map_err(
+        |e| loga::err_with(
+            "Syn error parsing Rust code",
+            ea!(line = e.span().start().line + shebang_line_off, column = e.span().start().column, err = e),
+        ),
+    )?;
+    
+    let mut cloned_whitespaces = BTreeMap::new();
+    if config.import_normalization != ImportNormalizationMode::None {
+        use syn::visit_mut::VisitMut;
+        let mut normalizer = normalize_imports::ImportNormalizer {
             config,
-            whitespaces,
-        )?;
+            whitespaces: &mut whitespaces,
+            cloned: &mut cloned_whitespaces,
+        };
+        normalizer.visit_file_mut(&mut ast);
+    }
+    
+    let mut out = format_ast(ast, config, whitespaces, cloned_whitespaces)?;
+
     if let Some(shebang) = shebang {
         return Ok(FormatRes {
             rendered: format!("{}{}", shebang, out.rendered),
@@ -589,12 +610,14 @@ pub fn format_ast(
     ast: impl Formattable,
     config: &FormatConfig,
     whitespaces: BTreeMap<HashLineColumn, Vec<Whitespace>>,
+    cloned_whitespaces: BTreeMap<HashLineColumn, usize>,
 ) -> Result<FormatRes, loga::Error> {
     // Build text
     let mut out = MakeSegsState {
         nodes: vec![],
         segs: vec![],
         whitespaces,
+        cloned_whitespaces,
         config: config.clone(),
         macro_depth: Default::default(),
     };

@@ -11,7 +11,7 @@ readme = "./readme.md"
 markdown = { version = "=1.0.0-alpha.21" }
 proc-macro2 = { version = "1", features = ["span-locations"] }
 quote = "1"
-syn = { workspace = true }
+syn = { version = "2", features = ["full", "visit-mut", "clone-impls", "fold", "extra-traits"] }
 cargo-manifest = "0.19"
 derive_more = { version = "2", features = ["full"] }
 loga = { workspace = true }

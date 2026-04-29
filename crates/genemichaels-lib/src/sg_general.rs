@@ -636,7 +636,20 @@ pub(crate) fn append_whitespace(
     sg: &mut SplitGroupBuilder,
     loc: LineColumn,
 ) {
-    let whitespace = match out.whitespaces.remove(&HashLineColumn(loc)) {
+    let hl = HashLineColumn(loc);
+    let mut consume = true;
+    if let Some(count) = out.cloned_whitespaces.get_mut(&hl) {
+        if *count > 0 {
+            *count -= 1;
+            consume = false;
+        }
+    }
+    let whitespace = if consume {
+        out.whitespaces.remove(&hl)
+    } else {
+        out.whitespaces.get(&hl).map(|x| x.clone())
+    };
+    let whitespace = match whitespace {
         Some(c) => c,
         None => return,
     };
