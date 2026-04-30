@@ -188,17 +188,74 @@ use std::collections::{
 #[test]
 fn ow_import_normalization_combine_sub_diff() {
     owc(
-        r#"
-use std::
+        r#"use std::
     // Needed for X
     collections::BTreeMap;
 use std::collections::BTreeSet;
 "#,
-        r#"
-use std::
+        r#"use std::{
     // Needed for X
-    collections::BTreeMap;
+    collections::BTreeMap,
+    collections::BTreeSet,
+};
+"#,
+        &FormatConfig {
+            import_normalization: genemichaels_lib::ImportNormalizationMode::Combine,
+            ..Default::default()
+        },
+    );
+}
+
+#[test]
+fn ow_import_normalization_combine_sub_diff2() {
+    owc(
+        r#"use std::{
+    // Needed for X
+    collections::BTreeMap,
+    collections::CTreeMap
+};
 use std::collections::BTreeSet;
+"#,
+        r#"use std::{
+    // Needed for X
+    collections::BTreeMap,
+    collections::{
+        BTreeSet,
+        CTreeMap,
+    },
+};
+"#,
+        &FormatConfig {
+            import_normalization: genemichaels_lib::ImportNormalizationMode::Combine,
+            ..Default::default()
+        },
+    );
+}
+
+#[test]
+fn ow_import_normalization_combine_sub_diff3() {
+    owc(
+        r#"use std::{
+    // Needed for X
+    collections::{
+        m::BTreeMap,
+        m::CTreeMap,
+    },
+    collections::CTreeMap
+};
+use std::collections::BTreeSet;
+"#,
+        r#"use std::{
+    // Needed for X
+    collections::m::{
+        BTreeMap,
+        CTreeMap,
+    },
+    collections::{
+        BTreeSet,
+        CTreeMap,
+    },
+};
 "#,
         &FormatConfig {
             import_normalization: genemichaels_lib::ImportNormalizationMode::Combine,
@@ -210,13 +267,11 @@ use std::collections::BTreeSet;
 #[test]
 fn ow_import_normalization_combine_mixed() {
     owc(
-        r#"
-use std::collections::BTreeMap;
+        r#"use std::collections::BTreeMap;
 pub mod x { type A = i32; }
 use x::A;
 "#,
-        r#"
-use std::collections::BTreeMap;
+        r#"use std::collections::BTreeMap;
 
 pub mod x {
     type A = i32;

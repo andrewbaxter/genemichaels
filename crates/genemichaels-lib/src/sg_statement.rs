@@ -1231,7 +1231,7 @@ impl Formattable for &UseTree {
             syn::UseTree::Path(x) => {
                 append_whitespace(out, base_indent, &mut sg, x.ident.span().start());
                 sg.seg(out, &format!("{}::", x.ident));
-                sg.child(x.tree.make_segs(out, base_indent));
+                sg.child(x.tree.make_segs(out, &base_indent.indent()));
             },
             syn::UseTree::Name(x) => {
                 append_whitespace(out, base_indent, &mut sg, x.ident.span().start());
