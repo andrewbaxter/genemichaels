@@ -200,6 +200,7 @@ fn rt_comments_md_long_h2() {
 "#,
     );
 }
+
 #[test]
 fn rt_comments_md_long_p() {
     rt(

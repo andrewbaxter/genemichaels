@@ -284,7 +284,7 @@ pub(crate) fn new_sg_outer_attrs(
                     .map(|x| *x.0)
                     .collect::<Vec<_>>();
             for k in remove_whitespaces_keys {
-                let ws = out.whitespaces.remove(&k).unwrap();
+                let (_, ws) = out.whitespaces.remove(&k).unwrap();
 
                 // Line end comments after the end of the unformatted span will get lost since
                 // they should be included by span formatting. This checks if they've been missed
@@ -637,21 +637,18 @@ pub(crate) fn append_whitespace(
     loc: LineColumn,
 ) {
     let hl = HashLineColumn(loc);
-    let mut consume = true;
-    if let Some(count) = out.cloned_whitespaces.get_mut(&hl) {
-        if *count > 0 {
-            *count -= 1;
-            consume = false;
-        }
-    }
-    let whitespace = if consume {
-        out.whitespaces.remove(&hl)
-    } else {
-        out.whitespaces.get(&hl).map(|x| x.clone())
-    };
-    let whitespace = match whitespace {
-        Some(c) => c,
-        None => return,
+    let whitespace = match out.whitespaces.entry(hl) {
+        std::collections::btree_map::Entry::Occupied(mut e) => {
+            if e.get().0 > 0 {
+                e.get_mut().0 -= 1;
+                e.get().1.clone()
+            } else {
+                e.remove().1
+            }
+        },
+        std::collections::btree_map::Entry::Vacant(_) => {
+            return;
+        },
     };
     let whitespace: Vec<Whitespace> = whitespace.into_iter().filter_map(|w| {
         match w.mode {

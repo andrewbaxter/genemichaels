@@ -125,3 +125,108 @@ fn ow_rustfmt_skip_end_line_end_comment_keep() {
         },
     );
 }
+
+#[test]
+fn ow_import_normalization_none() {
+    owc(
+        r#"use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Debug;
+"#,
+        r#"use std::collections::{
+    BTreeMap,
+    BTreeSet,
+};
+use std::fmt::Debug;
+"#,
+        &FormatConfig {
+            import_normalization: genemichaels_lib::ImportNormalizationMode::None,
+            ..Default::default()
+        },
+    );
+}
+
+#[test]
+fn ow_import_normalization_split() {
+    owc(
+        r#"// Comment 1
+use std::collections::{BTreeSet, BTreeMap};
+"#,
+        r#"// Comment 1
+use std::collections::BTreeMap;
+
+// Comment 1
+use std::collections::BTreeSet;
+"#,
+        &FormatConfig {
+            import_normalization: genemichaels_lib::ImportNormalizationMode::Split,
+            ..Default::default()
+        },
+    );
+}
+
+#[test]
+fn ow_import_normalization_combine() {
+    owc(
+        r#"// Comment 1
+use std::collections::BTreeMap;
+// Comment 1
+use std::collections::BTreeSet;
+"#,
+        r#"// Comment 1
+use std::collections::{
+    BTreeMap,
+    BTreeSet,
+};
+"#,
+        &FormatConfig {
+            import_normalization: genemichaels_lib::ImportNormalizationMode::Combine,
+            ..Default::default()
+        },
+    );
+}
+
+#[test]
+fn ow_import_normalization_combine_sub_diff() {
+    owc(
+        r#"
+use std::
+    // Needed for X
+    collections::BTreeMap;
+use std::collections::BTreeSet;
+"#,
+        r#"
+use std::
+    // Needed for X
+    collections::BTreeMap;
+use std::collections::BTreeSet;
+"#,
+        &FormatConfig {
+            import_normalization: genemichaels_lib::ImportNormalizationMode::Combine,
+            ..Default::default()
+        },
+    );
+}
+
+#[test]
+fn ow_import_normalization_combine_mixed() {
+    owc(
+        r#"
+use std::collections::BTreeMap;
+pub mod x { type A = i32; }
+use x::A;
+"#,
+        r#"
+use std::collections::BTreeMap;
+
+pub mod x {
+    type A = i32;
+}
+
+use x::A;
+"#,
+        &FormatConfig {
+            import_normalization: genemichaels_lib::ImportNormalizationMode::Combine,
+            ..Default::default()
+        },
+    );
+}

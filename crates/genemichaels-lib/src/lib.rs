@@ -124,8 +124,7 @@ struct Lines {
 pub struct MakeSegsState {
     nodes: Vec<SplitGroup>,
     segs: Vec<Segment>,
-    whitespaces: BTreeMap<HashLineColumn, Vec<Whitespace>>,
-    pub(crate) cloned_whitespaces: BTreeMap<HashLineColumn, usize>,
+    whitespaces: BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)>,
     config: FormatConfig,
     // MakeSegsState should be cloned at each call level with flags overwritable, but
     // it's a huge amount of work and only applies to this field for now. So instead
@@ -455,6 +454,14 @@ pub(crate) trait FormattableStmt: ToTokens + Formattable {
 pub trait Formattable {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx;
     fn has_attrs(&self) -> bool;
+
+    fn normalize_imports(
+        &mut self,
+        _config: &FormatConfig,
+        _whitespaces: &mut BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)>,
+    ) {
+
+    }
 }
 
 impl<F: Fn(&mut MakeSegsState, &Alignment) -> SplitGroupIdx> Formattable for F {
@@ -572,29 +579,20 @@ pub fn format_str(source: &str, config: &FormatConfig) -> Result<FormatRes, loga
         shebang_line_off = 0;
     }
     let source = source1;
-    let (mut whitespaces, tokens) = extract_whitespaces(config.keep_max_blank_lines, source)?;
-    let mut ast = syn::parse2::<File>(
-        tokens,
-    ).map_err(
-        |e| loga::err_with(
-            "Syn error parsing Rust code",
-            ea!(line = e.span().start().line + shebang_line_off, column = e.span().start().column, err = e),
-        ),
-    )?;
-    
-    let mut cloned_whitespaces = BTreeMap::new();
-    if config.import_normalization != ImportNormalizationMode::None {
-        use syn::visit_mut::VisitMut;
-        let mut normalizer = normalize_imports::ImportNormalizer {
+    let (whitespaces, tokens) = extract_whitespaces(config.keep_max_blank_lines, source)?;
+    let out =
+        format_ast(
+            syn::parse2::<File>(
+                tokens,
+            ).map_err(
+                |e| loga::err_with(
+                    "Syn error parsing Rust code",
+                    ea!(line = e.span().start().line + shebang_line_off, column = e.span().start().column, err = e),
+                ),
+            )?,
             config,
-            whitespaces: &mut whitespaces,
-            cloned: &mut cloned_whitespaces,
-        };
-        normalizer.visit_file_mut(&mut ast);
-    }
-    
-    let mut out = format_ast(ast, config, whitespaces, cloned_whitespaces)?;
-
+            whitespaces,
+        )?;
     if let Some(shebang) = shebang {
         return Ok(FormatRes {
             rendered: format!("{}{}", shebang, out.rendered),
@@ -607,17 +605,19 @@ pub fn format_str(source: &str, config: &FormatConfig) -> Result<FormatRes, loga
 }
 
 pub fn format_ast(
-    ast: impl Formattable,
+    mut ast: impl Formattable,
     config: &FormatConfig,
     whitespaces: BTreeMap<HashLineColumn, Vec<Whitespace>>,
-    cloned_whitespaces: BTreeMap<HashLineColumn, usize>,
 ) -> Result<FormatRes, loga::Error> {
+    let mut whitespaces: BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)> =
+        whitespaces.into_iter().map(|(k, v)| (k, (0, v))).collect();
+    ast.normalize_imports(config, &mut whitespaces);
+
     // Build text
     let mut out = MakeSegsState {
         nodes: vec![],
         segs: vec![],
         whitespaces,
-        cloned_whitespaces,
         config: config.clone(),
         macro_depth: Default::default(),
     };
@@ -928,7 +928,7 @@ pub fn format_ast(
     }
     Ok(FormatRes {
         rendered: rendered,
-        lost_comments: out.whitespaces,
+        lost_comments: out.whitespaces.into_iter().map(|(k, (_, v))| (k, v)).collect(),
         warnings: warnings,
     })
 }
