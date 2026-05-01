@@ -263,6 +263,36 @@ use std::collections::BTreeSet;
         },
     );
 }
+#[test]
+fn ow_import_normalization_combine_sub_diff4() {
+    owc(
+        r#"
+use a::{
+    b::X,
+    c,
+    b::Y,
+};
+use d::Y;
+use a::b::Z;
+"#,
+        r#"use {
+    a::{
+        b::{
+            X,
+            Y,
+            Z,
+        },
+        c,
+    },
+    d::Y,
+};
+"#,
+        &FormatConfig {
+            import_normalization: genemichaels_lib::ImportNormalizationMode::Combine,
+            ..Default::default()
+        },
+    );
+}
 
 #[test]
 fn ow_import_normalization_combine_mixed() {
