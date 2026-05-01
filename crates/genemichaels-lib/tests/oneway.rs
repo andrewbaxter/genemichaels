@@ -165,6 +165,45 @@ use std::collections::BTreeSet;
 }
 
 #[test]
+fn ow_import_normalization_split_mismatched_cmp() {
+    owc(r#"// Comment B
+use b;
+// Comment A
+use a;
+"#, r#"// Comment A
+use a;
+
+// Comment B
+use b;
+"#, &FormatConfig {
+        import_normalization: genemichaels_lib::ImportNormalizationMode::Split,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_import_normalization_combine_mismatched_cmp() {
+    owc(
+        r#"// Comment B
+use b;
+// Comment A
+use a;
+"#,
+        r#"use {
+    // Comment A
+    a,
+    // Comment B
+    b,
+};
+"#,
+        &FormatConfig {
+            import_normalization: genemichaels_lib::ImportNormalizationMode::Combine,
+            ..Default::default()
+        },
+    );
+}
+
+#[test]
 fn ow_import_normalization_combine() {
     owc(
         r#"// Comment 1
@@ -172,10 +211,11 @@ use std::collections::BTreeMap;
 // Comment 1
 use std::collections::BTreeSet;
 "#,
-        r#"// Comment 1
-use std::collections::{
-    BTreeMap,
-    BTreeSet,
+        r#"use {
+    // Comment 1
+    std::collections::BTreeMap,
+    // Comment 1
+    std::collections::BTreeSet,
 };
 "#,
         &FormatConfig {
@@ -263,6 +303,7 @@ use std::collections::BTreeSet;
         },
     );
 }
+
 #[test]
 fn ow_import_normalization_combine_sub_diff4() {
     owc(
