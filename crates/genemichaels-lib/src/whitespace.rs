@@ -4,6 +4,7 @@ use {
         CommentMode,
         Whitespace,
         WhitespaceMode,
+        FormatConfig,
     },
     loga::ea,
     markdown::mdast::Node,
@@ -419,6 +420,7 @@ pub fn extract_whitespaces(
 struct State {
     line_buffer: String,
     need_nl: bool,
+    config: FormatConfig,
 }
 
 #[derive(Debug)]
@@ -776,12 +778,41 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
         },
         // block->inline elements (flush after)
         Node::Code(x) => {
+            let mut content = None;
+            if let Some(lang) = &x.lang {
+                if lang == "rust" {
+                    let current_prefix_len = line.0.borrow().prefix.chars().count();
+                    let base_prefix_len = line.0.borrow().base_prefix_len.0;
+                    let rel_max_width = line.0.borrow().rel_max_width.map(|v| v.0);
+                    let overall_max_width = line.0.borrow().max_width.0;
+                    let nested_max_width = if let Some(rel) = rel_max_width {
+                        let markdown_indent = current_prefix_len - base_prefix_len;
+                        rel.saturating_sub(markdown_indent)
+                    } else {
+                        overall_max_width.saturating_sub(current_prefix_len)
+                    };
+
+                    // Minimum max width
+                    let nested_max_width = std::cmp::max(nested_max_width, 40);
+                    let mut nested_config = state.config.clone();
+                    nested_config.max_width = nested_max_width;
+                    match crate::format_str(&x.value, &nested_config) {
+                        Ok(res) => {
+                            content = Some(res.rendered);
+                        },
+                        Err(_) => {
+                            // Fallback to original
+                        },
+                    }
+                }
+            }
             line.write_unbreakable(state, out, &format!("```{}", match &x.lang {
                 None => "",
                 Some(x) => x,
             }));
             line.flush_always(state, out);
-            for l in x.value.as_str().lines() {
+            let content = content.unwrap_or_else(|| x.value.clone());
+            for l in content.as_str().lines() {
                 line.write_unbreakable(state, out, l);
                 line.flush_always(state, out);
             }
@@ -999,8 +1030,7 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
 
 pub fn format_md(
     true_out: &mut String,
-    max_width: usize,
-    rel_max_width: Option<usize>,
+    config: &FormatConfig,
     prefix: &str,
     source: &str,
 ) -> Result<(), loga::Error> {
@@ -1012,6 +1042,7 @@ pub fn format_md(
         let mut state = State {
             line_buffer: String::new(),
             need_nl: false,
+            config: config.clone(),
         };
         let ast = markdown::to_mdast(source, &markdown::ParseOptions {
             constructs: markdown::Constructs { ..Default::default() },
@@ -1024,8 +1055,8 @@ pub fn format_md(
                 unicode_len(&prefix),
                 None,
                 prefix.to_string(),
-                VisualLen(max_width),
-                rel_max_width.map(VisualLen),
+                VisualLen(config.max_width),
+                config.comment_width.map(VisualLen),
             ),
             &ast,
             false,

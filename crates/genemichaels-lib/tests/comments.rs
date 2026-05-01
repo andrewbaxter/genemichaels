@@ -137,21 +137,33 @@ fn main() {
 #[test]
 fn format_simple_wrapping1() {
     let mut res = String::new();
-    format_md(&mut res, 10, None, "", "this is very long text").unwrap();
+    format_md(&mut res, &genemichaels_lib::FormatConfig {
+        max_width: 10,
+        comment_width: None,
+        ..Default::default()
+    }, "", "this is very long text").unwrap();
     assert_eq!(res, "this is\nvery long\ntext");
 }
 
 #[test]
 fn format_split_link1() {
     let mut res = String::new();
-    format_md(&mut res, 1000, None, "__", "![this is\na broken](https://example.com)").unwrap();
+    format_md(&mut res, &genemichaels_lib::FormatConfig {
+        max_width: 1000,
+        comment_width: None,
+        ..Default::default()
+    }, "__", "![this is\na broken](https://example.com)").unwrap();
     assert_eq!(res, "__![this is a broken](https://example.com)");
 }
 
 #[test]
 fn format_split_link2() {
     let mut res = String::new();
-    format_md(&mut res, 1000, None, "__", "[abcdabcde
+    format_md(&mut res, &genemichaels_lib::FormatConfig {
+        max_width: 1000,
+        comment_width: None,
+        ..Default::default()
+    }, "__", "[abcdabcde
 abcdabc](https://example.com)
 ").unwrap();
     assert_eq!(res, "__[abcdabcde abcdabc](https://example.com)");
@@ -160,20 +172,32 @@ abcdabc](https://example.com)
 #[test]
 fn format_split_punct_cross_inline1() {
     let mut res = String::new();
-    format_md(&mut res, 10, None, "__", "abcd `abc`.").unwrap();
+    format_md(&mut res, &genemichaels_lib::FormatConfig {
+        max_width: 10,
+        comment_width: None,
+        ..Default::default()
+    }, "__", "abcd `abc`.").unwrap();
     assert_eq!(res, "__abcd\n__`abc`.");
 }
 
 #[test]
 fn format_rel_width1() {
     let mut res = String::new();
-    format_md(&mut res, 0, Some(10), "// ", "a b c d e f").unwrap();
+    format_md(&mut res, &genemichaels_lib::FormatConfig {
+        max_width: 0,
+        comment_width: Some(10),
+        ..Default::default()
+    }, "// ", "a b c d e f").unwrap();
     assert_eq!(res, "// a b c d e\n// f");
 }
 
 #[test]
 fn format_overflow_use_next_break1() {
     let mut res = String::new();
-    format_md(&mut res, 0, Some(10), "// ", "`abcd abcd` a b c d").unwrap();
+    format_md(&mut res, &genemichaels_lib::FormatConfig {
+        max_width: 0,
+        comment_width: Some(10),
+        ..Default::default()
+    }, "// ", "`abcd abcd` a b c d").unwrap();
     assert_eq!(res, "// `abcd abcd`\n// a b c d");
 }

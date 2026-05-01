@@ -462,3 +462,20 @@ use std::
         },
     );
 }
+
+#[test]
+fn ow_format_rust_in_comment() {
+    ow(
+        r#"/// ```rust
+/// fn  foo(  )  {
+/// }
+/// ```
+fn main() {}
+"#,
+        r#"/// ```rust
+/// fn foo() { }
+/// ```
+fn main() { }
+"#,
+    );
+}

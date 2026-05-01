@@ -887,8 +887,7 @@ pub fn format_ast(
                                         _ => {
                                             match format_md(
                                                 &mut rendered,
-                                                config.max_width,
-                                                config.comment_width,
+                                                config,
                                                 &prefix,
                                                 &comment.lines,
                                             ) {
