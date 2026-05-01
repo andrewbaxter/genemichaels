@@ -9,149 +9,81 @@ use crate::{
 };
 use crate::whitespace::HashLineColumn;
 use syn::{
+    Block,
+    File,
+    Ident,
     Item,
+    ItemMod,
     ItemUse,
     Stmt,
-    UseTree,
-    UsePath,
     UseName,
-    UseRename,
-    UseGlob,
-    File,
-    ItemMod,
-    Block,
+    UsePath,
+    UseTree,
 };
 use syn::visit_mut::VisitMut;
 use quote::ToTokens;
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
-enum CmpTree {
-    Name(syn::Ident),
-    Rename(syn::Ident, syn::Ident),
-    Glob(String),
-}
-
-#[derive(Clone)]
-struct FlatUseCombine {
-    path: Vec<syn::UsePath>,
-    leaf: syn::UseTree,
-}
-
-fn flatten_tree_combine(tree: UseTree, current_path: &mut Vec<syn::UsePath>, out: &mut Vec<FlatUseCombine>) {
-    match tree {
-        UseTree::Path(p) => {
-            let inner = *p.tree.clone();
-            let mut p_shallow = p.clone();
-            p_shallow.tree =
-                Box::new(
-                    UseTree::Name(UseName { ident: syn::Ident::new("dummy", proc_macro2::Span::call_site()) }),
-                );
-            current_path.push(p_shallow);
-            flatten_tree_combine(inner, current_path, out);
-            current_path.pop();
-        },
-        UseTree::Group(g) => {
-            for item in g.items {
-                flatten_tree_combine(item, current_path, out);
-            }
-        },
-        _ => {
-            out.push(FlatUseCombine {
-                path: current_path.clone(),
-                leaf: tree,
-            });
-        },
+fn cmp_use_tree(a: &syn::UseTree, b: &syn::UseTree) -> std::cmp::Ordering {
+    fn get_rank(tree: &syn::UseTree) -> u8 {
+        match tree {
+            syn::UseTree::Name(_) | syn::UseTree::Path(_) | syn::UseTree::Rename(_) => 0,
+            syn::UseTree::Group(_) => 1,
+            syn::UseTree::Glob(_) => 2,
+        }
     }
-}
 
-fn cmp_tree_node(tree: &syn::UseTree) -> CmpTree {
-    match tree {
-        syn::UseTree::Name(n) => CmpTree::Name(n.ident.clone()),
-        syn::UseTree::Rename(r) => CmpTree::Rename(r.ident.clone(), r.rename.clone()),
-        syn::UseTree::Glob(_) => CmpTree::Glob("*".to_string()),
-        syn::UseTree::Path(p) => CmpTree::Name(p.ident.clone()),
-        syn::UseTree::Group(_) => CmpTree::Glob("".to_string()),
+    fn get_sub_primary_ident(tree: &syn::UseTree) -> &Ident {
+        match tree {
+            UseTree::Path(t) => &t.ident,
+            UseTree::Name(t) => &t.ident,
+            UseTree::Rename(t) => &t.ident,
+            UseTree::Glob(_) => unreachable!(),
+            UseTree::Group(_) => unreachable!(),
+        }
     }
-}
 
-fn group_flat_uses(
-    flats: Vec<FlatUseCombine>,
-    depth: usize,
-    whitespaces: &BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)>,
-) -> Vec<syn::UseTree> {
-    let mut leaves = Vec::new();
-    let mut mergeable: BTreeMap<String, (syn::UsePath, Vec<FlatUseCombine>)> = BTreeMap::new();
-    let mut unmergeable: BTreeMap<HashLineColumn, (syn::UsePath, Vec<FlatUseCombine>)> = BTreeMap::new();
-    for flat in flats {
-        if depth < flat.path.len() {
-            let p = &flat.path[depth];
+    fn get_subrank(tree: &syn::UseTree) -> u8 {
+        match tree {
+            syn::UseTree::Name(_) => 0,
+            syn::UseTree::Path(_) => 1,
+            syn::UseTree::Rename(_) => 2,
+            syn::UseTree::Group(_) => unreachable!(),
+            syn::UseTree::Glob(_) => unreachable!(),
+        }
+    }
 
-            fn has_comments(
-                span: proc_macro2::Span,
-                whitespaces: &BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)>,
-            ) -> bool {
-                if let Some((_, ws)) = whitespaces.get(&HashLineColumn(span.start())) {
-                    for w in ws.iter() {
-                        if matches!(w.mode, WhitespaceMode::Comment(_)) {
-                            return true;
-                        }
-                    }
-                }
-                false
-            }
-
-            let has_comment =
-                has_comments(p.ident.span(), whitespaces) || has_comments(p.colon2_token.spans[0], whitespaces);
-            if has_comment {
-                unmergeable
-                    .entry(HashLineColumn(p.ident.span().start()))
-                    .or_insert_with(|| (p.clone(), Vec::new()))
-                    .1
-                    .push(flat);
+    let rank_a = get_rank(a);
+    let rank_b = get_rank(b);
+    if rank_a != rank_b {
+        return rank_a.cmp(&rank_b);
+    }
+    match (a, b) {
+        (syn::UseTree::Name(n_a), b) => match n_a.ident.cmp(get_sub_primary_ident(b)) {
+            std::cmp::Ordering::Equal => get_subrank(a).cmp(&get_subrank(b)),
+            notequal => notequal,
+        },
+        (syn::UseTree::Path(p_a), b) => match p_a.ident.cmp(get_sub_primary_ident(b)) {
+            std::cmp::Ordering::Equal => get_subrank(a).cmp(&get_subrank(b)),
+            notequal => notequal,
+        },
+        (syn::UseTree::Rename(r_a), b) => match r_a.ident.cmp(get_sub_primary_ident(b)) {
+            std::cmp::Ordering::Equal => if let syn::UseTree::Rename(r_b) = b {
+                r_a.rename.cmp(&r_b.rename)
             } else {
-                let key = p.ident.to_string();
-                mergeable.entry(key).or_insert_with(|| (p.clone(), Vec::new())).1.push(flat);
-            }
-        } else {
-            leaves.push(flat);
-        }
+                get_subrank(a).cmp(&get_subrank(b))
+            },
+            notequal => notequal,
+        },
+        (syn::UseTree::Group(_), syn::UseTree::Group(_)) => std::cmp::Ordering::Equal,
+        (syn::UseTree::Glob(_), syn::UseTree::Glob(_)) => std::cmp::Ordering::Equal,
+        _ => unreachable!(),
     }
-    let mut items = Vec::new();
-    leaves.sort_by(|a, b| cmp_tree_node(&a.leaf).cmp(&cmp_tree_node(&b.leaf)));
-    for leaf in leaves {
-        items.push(leaf.leaf);
-    }
-    let mut children_trees = Vec::new();
-    let mut groups = Vec::new();
-    for (_, group) in unmergeable {
-        groups.push(group);
-    }
-    for (_, group) in mergeable {
-        groups.push(group);
-    }
-    for (mut path_node, group_flats) in groups {
-        let mut child_trees = group_flat_uses(group_flats, depth + 1, whitespaces);
-        if child_trees.len() == 1 {
-            path_node.tree = Box::new(child_trees.pop().unwrap());
-            children_trees.push(syn::UseTree::Path(path_node));
-        } else {
-            let group = syn::UseGroup {
-                brace_token: Default::default(),
-                items: child_trees.into_iter().collect(),
-            };
-            path_node.tree = Box::new(syn::UseTree::Group(group));
-            children_trees.push(syn::UseTree::Path(path_node));
-        }
-    }
-    children_trees.sort_by(|a, b| cmp_tree_node(a).cmp(&cmp_tree_node(b)));
-    items.extend(children_trees);
-    items
 }
 
-fn attrs_and_comments_key(
+fn cmp_key_for_import_node(
     item: &ItemUse,
     whitespaces: &BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)>,
-) -> String {
+) -> (String, String, String) {
     let mut key = String::new();
     for attr in &item.attrs {
         key.push_str(&attr.to_token_stream().to_string());
@@ -167,9 +99,7 @@ fn attrs_and_comments_key(
         }
         s
     };
-    key.push_str(&get_ws(item.use_token.span));
-    key.push_str(&get_ws(item.semi_token.span));
-    key
+    return (key, get_ws(item.use_token.span).to_string(), get_ws(item.semi_token.span).to_string());
 }
 
 fn process_item_uses(
@@ -178,20 +108,17 @@ fn process_item_uses(
     config: &FormatConfig,
     whitespaces: &mut BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)>,
 ) {
-    if imports.is_empty() {
-        return;
-    }
     match config.import_normalization {
         ImportNormalizationMode::None => {
             new_items.extend(imports.drain(..));
         },
         ImportNormalizationMode::Combine => {
+            // Group consecutive groupable items
             let mut subgroups: Vec<Vec<ItemUse>> = Vec::new();
             for item in imports.drain(..) {
                 if let Some(last_subgroup) = subgroups.last_mut() {
-                    let key1 = attrs_and_comments_key(&last_subgroup[0], whitespaces);
-                    let key2 = attrs_and_comments_key(&item, whitespaces);
-                    if key1 == key2 {
+                    if cmp_key_for_import_node(&last_subgroup[0], whitespaces) ==
+                        cmp_key_for_import_node(&item, whitespaces) {
                         last_subgroup.push(item);
                     } else {
                         subgroups.push(vec![item]);
@@ -200,6 +127,122 @@ fn process_item_uses(
                     subgroups.push(vec![item]);
                 }
             }
+
+            #[derive(Clone)]
+            struct FlatUseCombine {
+                path: Vec<syn::UsePath>,
+                leaf: syn::UseTree,
+            }
+
+            fn flatten_tree_combine(
+                tree: UseTree,
+                current_path: &mut Vec<syn::UsePath>,
+                out: &mut Vec<FlatUseCombine>,
+            ) {
+                match tree {
+                    UseTree::Path(p) => {
+                        let inner = *p.tree.clone();
+                        let mut p_shallow = p.clone();
+                        p_shallow.tree =
+                            Box::new(
+                                UseTree::Name(
+                                    UseName { ident: syn::Ident::new("dummy", proc_macro2::Span::call_site()) },
+                                ),
+                            );
+                        current_path.push(p_shallow);
+                        flatten_tree_combine(inner, current_path, out);
+                        current_path.pop();
+                    },
+                    UseTree::Group(g) => {
+                        for item in g.items {
+                            flatten_tree_combine(item, current_path, out);
+                        }
+                    },
+                    _ => {
+                        out.push(FlatUseCombine {
+                            path: current_path.clone(),
+                            leaf: tree,
+                        });
+                    },
+                }
+            }
+
+            fn group_flat_uses(
+                flats: Vec<FlatUseCombine>,
+                depth: usize,
+                whitespaces: &BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)>,
+            ) -> Vec<syn::UseTree> {
+                let mut leaves = Vec::new();
+                let mut mergeable: BTreeMap<String, (syn::UsePath, Vec<FlatUseCombine>)> = BTreeMap::new();
+                let mut unmergeable: BTreeMap<HashLineColumn, (syn::UsePath, Vec<FlatUseCombine>)> =
+                    BTreeMap::new();
+                for flat in flats {
+                    if depth < flat.path.len() {
+                        let p = &flat.path[depth];
+
+                        fn has_comments(
+                            span: proc_macro2::Span,
+                            whitespaces: &BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)>,
+                        ) -> bool {
+                            if let Some((_, ws)) = whitespaces.get(&HashLineColumn(span.start())) {
+                                for w in ws.iter() {
+                                    if matches!(w.mode, WhitespaceMode::Comment(_)) {
+                                        return true;
+                                    }
+                                }
+                            }
+                            false
+                        }
+
+                        let has_comment =
+                            has_comments(p.ident.span(), whitespaces) ||
+                                has_comments(p.colon2_token.spans[0], whitespaces);
+                        if has_comment {
+                            unmergeable
+                                .entry(HashLineColumn(p.ident.span().start()))
+                                .or_insert_with(|| (p.clone(), Vec::new()))
+                                .1
+                                .push(flat);
+                        } else {
+                            let key = p.ident.to_string();
+                            mergeable.entry(key).or_insert_with(|| (p.clone(), Vec::new())).1.push(flat);
+                        }
+                    } else {
+                        leaves.push(flat);
+                    }
+                }
+                let mut items = Vec::new();
+                leaves.sort_by(|a, b| cmp_use_tree(&a.leaf, &b.leaf));
+                for leaf in leaves {
+                    items.push(leaf.leaf);
+                }
+                let mut children_trees = Vec::new();
+                let mut groups = Vec::new();
+                for (_, group) in unmergeable {
+                    groups.push(group);
+                }
+                for (_, group) in mergeable {
+                    groups.push(group);
+                }
+                for (mut path_node, group_flats) in groups {
+                    let mut child_trees = group_flat_uses(group_flats, depth + 1, whitespaces);
+                    if child_trees.len() == 1 {
+                        path_node.tree = Box::new(child_trees.pop().unwrap());
+                        children_trees.push(syn::UseTree::Path(path_node));
+                    } else {
+                        let group = syn::UseGroup {
+                            brace_token: Default::default(),
+                            items: child_trees.into_iter().collect(),
+                        };
+                        path_node.tree = Box::new(syn::UseTree::Group(group));
+                        children_trees.push(syn::UseTree::Path(path_node));
+                    }
+                }
+                items.extend(children_trees);
+                items.sort_by(|a, b| cmp_use_tree(a, b));
+                items
+            }
+
             for mut subgroup in subgroups {
                 if subgroup.len() == 1 {
                     new_items.push(subgroup.pop().unwrap());
@@ -238,27 +281,48 @@ fn process_item_uses(
                     whitespaces.remove(&HashLineColumn(item.use_token.span.start()));
                     whitespaces.remove(&HashLineColumn(item.semi_token.span.start()));
                 }
-                let r = new_trees.len();
-                if r > 1 {
-                    whitespaces
-                        .entry(HashLineColumn(template.use_token.span.start()))
-                        .and_modify(|e| e.0 += r - 1);
-                    whitespaces
-                        .entry(HashLineColumn(template.semi_token.span.start()))
-                        .and_modify(|e| e.0 += r - 1);
-                }
-                for tree in new_trees {
+                if new_trees.len() == 1 {
                     let mut new_item = template.clone();
-                    new_item.tree = tree;
+                    new_item.tree = new_trees.into_iter().next().unwrap();
+                    new_items.push(new_item);
+                } else if !new_trees.is_empty() {
+                    let mut new_item = template.clone();
+                    new_item.tree = syn::UseTree::Group(syn::UseGroup {
+                        brace_token: Default::default(),
+                        items: new_trees.into_iter().collect(),
+                    });
                     new_items.push(new_item);
                 }
             }
         },
         ImportNormalizationMode::Split => {
-            #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+            #[derive(Clone)]
             struct FlatUse {
                 path: Vec<syn::Ident>,
-                leaf: CmpTree,
+                leaf: syn::UseTree,
+            }
+
+            impl PartialEq for FlatUse {
+                fn eq(&self, other: &Self) -> bool {
+                    self.cmp(other) == std::cmp::Ordering::Equal
+                }
+            }
+
+            impl Eq for FlatUse { }
+
+            impl PartialOrd for FlatUse {
+                fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+                    Some(self.cmp(other))
+                }
+            }
+
+            impl Ord for FlatUse {
+                fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+                    match self.path.cmp(&other.path) {
+                        std::cmp::Ordering::Equal => cmp_use_tree(&self.leaf, &other.leaf),
+                        o => o,
+                    }
+                }
             }
 
             fn flatten_tree(tree: UseTree, current_path: &mut Vec<syn::Ident>, out: &mut Vec<FlatUse>) {
@@ -271,19 +335,19 @@ fn process_item_uses(
                     UseTree::Name(n) => {
                         out.push(FlatUse {
                             path: current_path.clone(),
-                            leaf: CmpTree::Name(n.ident),
+                            leaf: UseTree::Name(n),
                         });
                     },
                     UseTree::Rename(r) => {
                         out.push(FlatUse {
                             path: current_path.clone(),
-                            leaf: CmpTree::Rename(r.ident, r.rename),
+                            leaf: UseTree::Rename(r),
                         });
                     },
-                    UseTree::Glob(_) => {
+                    UseTree::Glob(g) => {
                         out.push(FlatUse {
                             path: current_path.clone(),
-                            leaf: CmpTree::Glob("*".to_string()),
+                            leaf: UseTree::Glob(g),
                         });
                     },
                     UseTree::Group(g) => {
@@ -294,36 +358,46 @@ fn process_item_uses(
                 }
             }
 
+            let mut subgroups: Vec<Vec<ItemUse>> = Vec::new();
             for item in imports.drain(..) {
-                // Split the import leaves into individual imports.
-                let mut flat = Vec::new();
-                flatten_tree(item.tree.clone(), &mut Vec::new(), &mut flat);
-                let n = flat.len();
-                if n > 1 {
+                if let Some(last_subgroup) = subgroups.last_mut() {
+                    if cmp_key_for_import_node(&last_subgroup[0], whitespaces) ==
+                        cmp_key_for_import_node(&item, whitespaces) {
+                        last_subgroup.push(item);
+                    } else {
+                        subgroups.push(vec![item]);
+                    }
+                } else {
+                    subgroups.push(vec![item]);
+                }
+            }
+            for subgroup in subgroups {
+                let mut all_flats = Vec::new();
+                for item in subgroup {
+                    let mut flats = Vec::new();
+                    flatten_tree(item.tree.clone(), &mut Vec::new(), &mut flats);
+                    let n = flats.len();
+
+                    // Removing the old item (whitespace use), replacing it with n new uses
                     whitespaces.entry(HashLineColumn(item.use_token.span.start())).and_modify(|e| e.0 += n - 1);
                     whitespaces.entry(HashLineColumn(item.semi_token.span.start())).and_modify(|e| e.0 += n - 1);
-                }
-                {
-                    let tree: &UseTree = &item.tree;
-                    for token in tree.to_token_stream() {
-                        whitespaces.remove(&HashLineColumn(token.span().start()));
+                    {
+                        let tree: &UseTree = &item.tree;
+                        for token in tree.to_token_stream() {
+                            whitespaces.remove(&HashLineColumn(token.span().start()));
+                        }
+                    };
+                    for f in flats {
+                        all_flats.push((f, item.clone()));
                     }
-                };
+                }
 
                 // Sort
-                flat.sort();
+                all_flats.sort_by(|(f_a, _), (f_b, _)| f_a.cmp(f_b));
 
                 // Re-constitute the split items into actual syn ast nodes
-                for f in flat {
-                    let mut tree = match f.leaf {
-                        CmpTree::Name(ident) => UseTree::Name(UseName { ident }),
-                        CmpTree::Rename(ident, rename) => UseTree::Rename(UseRename {
-                            ident,
-                            rename,
-                            as_token: Default::default(),
-                        }),
-                        CmpTree::Glob(_) => UseTree::Glob(UseGlob { star_token: Default::default() }),
-                    };
+                for (f, item) in all_flats {
+                    let mut tree = f.leaf;
                     for ident in f.path.into_iter().rev() {
                         tree = UseTree::Path(UsePath {
                             ident,
@@ -331,7 +405,7 @@ fn process_item_uses(
                             tree: Box::new(tree),
                         });
                     }
-                    let mut new_item = item.clone();
+                    let mut new_item = item;
                     new_item.tree = tree;
                     new_items.push(new_item);
                 }
