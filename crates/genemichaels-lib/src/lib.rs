@@ -610,8 +610,17 @@ pub fn format_ast(
     whitespaces: BTreeMap<HashLineColumn, Vec<Whitespace>>,
 ) -> Result<FormatRes, loga::Error> {
     let mut whitespaces: BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)> =
-        whitespaces.into_iter().map(|(k, v)| (k, (0, v))).collect();
+        whitespaces.into_iter().map(|(k, v)| (k, (1, v))).collect();
     ast.normalize_imports(config, &mut whitespaces);
+
+    // Ensure any orphaned whitespace from import normalization (e.g. removed commas)
+    // is preserved in order to alert for formatting bugs (i.e. import normalization
+    // removed a symbol and didn't transpose the associated whitespace).
+    for (_, (count, _)) in whitespaces.iter_mut() {
+        if *count == 0 {
+            *count = 1;
+        }
+    }
 
     // Build text
     let mut out = MakeSegsState {

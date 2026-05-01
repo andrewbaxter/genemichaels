@@ -639,7 +639,7 @@ pub(crate) fn append_whitespace(
     let hl = HashLineColumn(loc);
     let whitespace = match out.whitespaces.entry(hl) {
         std::collections::btree_map::Entry::Occupied(mut e) => {
-            if e.get().0 > 0 {
+            if e.get().0 > 1 {
                 e.get_mut().0 -= 1;
                 e.get().1.clone()
             } else {

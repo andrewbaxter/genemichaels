@@ -377,11 +377,29 @@ fn process_item_uses(
                 for l in leaves {
                     all_leaves.push((l, item.clone()));
                 }
+
+                // Replacing original item
                 whitespaces.entry(HashLineColumn(item.use_token.span.start())).and_modify(|e| e.0 -= 1);
                 whitespaces.entry(HashLineColumn(item.semi_token.span.start())).and_modify(|e| e.0 -= 1);
-                for token in item.tree.to_token_stream() {
-                    whitespaces.remove(&HashLineColumn(token.span().start()));
+
+                fn decrement_tree_ws(
+                    ts: proc_macro2::TokenStream,
+                    whitespaces: &mut BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)>,
+                ) {
+                    for token in ts {
+                        let hl = HashLineColumn(token.span().start());
+                        if let Some(ws) = whitespaces.get_mut(&hl) {
+                            if ws.0 > 0 {
+                                ws.0 -= 1;
+                            }
+                        }
+                        if let proc_macro2::TokenTree::Group(g) = token {
+                            decrement_tree_ws(g.stream(), whitespaces);
+                        }
+                    }
                 }
+
+                decrement_tree_ws(item.tree.to_token_stream(), whitespaces);
             }
 
             // Sort
@@ -398,9 +416,24 @@ fn process_item_uses(
                     });
                 }
                 let mut new_item = root_item;
+                new_item.tree = tree;
                 whitespaces.entry(HashLineColumn(new_item.use_token.span.start())).and_modify(|e| e.0 += 1);
                 whitespaces.entry(HashLineColumn(new_item.semi_token.span.start())).and_modify(|e| e.0 += 1);
-                new_item.tree = tree;
+
+                fn increment_tree_ws(
+                    ts: proc_macro2::TokenStream,
+                    whitespaces: &mut BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)>,
+                ) {
+                    for token in ts {
+                        let hl = HashLineColumn(token.span().start());
+                        whitespaces.entry(hl).and_modify(|e| e.0 += 1);
+                        if let proc_macro2::TokenTree::Group(g) = token {
+                            increment_tree_ws(g.stream(), whitespaces);
+                        }
+                    }
+                }
+
+                increment_tree_ws(new_item.tree.to_token_stream(), whitespaces);
                 new_items.push(new_item);
             }
         },

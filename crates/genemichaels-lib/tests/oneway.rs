@@ -437,3 +437,28 @@ use x::A;
         },
     );
 }
+
+#[test]
+fn ow_import_normalization_split_comment() {
+    owc(
+        r#"use std::{
+    // comment
+    collections::{
+        BTreeMap,
+        CTreeMap,
+    },
+};
+"#,
+        r#"use std::
+    // comment
+    collections::BTreeMap;
+use std::
+    // comment
+    collections::CTreeMap;
+"#,
+        &FormatConfig {
+            import_normalization: genemichaels_lib::ImportNormalizationMode::Split,
+            ..Default::default()
+        },
+    );
+}
