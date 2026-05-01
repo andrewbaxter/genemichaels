@@ -166,20 +166,6 @@ fn process_item_uses(
                 }
                 let template = subgroup[0].clone();
 
-                fn collect_spans(ts: proc_macro2::TokenStream, out: &mut std::collections::HashSet<HashLineColumn>) {
-                    for tt in ts {
-                        out.insert(HashLineColumn(tt.span().start()));
-                        if let proc_macro2::TokenTree::Group(g) = tt {
-                            collect_spans(g.stream(), out);
-                        }
-                    }
-                }
-
-                let mut original_tokens = std::collections::HashSet::new();
-                for item in &subgroup {
-                    collect_spans(item.tree.to_token_stream(), &mut original_tokens);
-                }
-
                 // Identify/split apart all leaf imports
                 #[derive(Clone)]
                 struct ImportLeaf {
@@ -288,17 +274,6 @@ fn process_item_uses(
 
                 let new_trees = group_leaves(all_leaves, 0, whitespaces);
 
-                // Remove no longer referenced whitespace
-                let mut new_tokens = std::collections::HashSet::new();
-                for tree in &new_trees {
-                    collect_spans(tree.to_token_stream(), &mut new_tokens);
-                }
-                for span_start in original_tokens {
-                    if !new_tokens.contains(&span_start) {
-                        whitespaces.remove(&span_start);
-                    }
-                }
-
                 // If one tree, place directly, otherwise group
                 if new_trees.len() == 1 {
                     let mut new_item = template.clone();
@@ -380,16 +355,16 @@ fn process_item_uses(
 
             let mut all_leaves = Vec::new();
             for item in imports.drain(..) {
-                let mut flats = Vec::new();
-                collect_leaves(item.tree.clone(), &mut Vec::new(), &mut flats);
-                let n = flats.len();
+                let mut leaves = Vec::new();
+                collect_leaves(item.tree.clone(), &mut Vec::new(), &mut leaves);
+                let n = leaves.len();
                 whitespaces.entry(HashLineColumn(item.use_token.span.start())).and_modify(|e| e.0 += n - 1);
                 whitespaces.entry(HashLineColumn(item.semi_token.span.start())).and_modify(|e| e.0 += n - 1);
                 for token in item.tree.to_token_stream() {
                     whitespaces.remove(&HashLineColumn(token.span().start()));
                 }
-                for f in flats {
-                    all_leaves.push((f, item.clone()));
+                for l in leaves {
+                    all_leaves.push((l, item.clone()));
                 }
             }
 
