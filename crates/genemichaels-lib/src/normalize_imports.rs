@@ -93,8 +93,13 @@ fn cmp_key_for_import_node(
         let mut s = String::new();
         if let Some((_, ws)) = whitespaces.get(&HashLineColumn(span.start())) {
             for w in ws.iter() {
-                if let WhitespaceMode::Comment(c) = &w.mode {
-                    s.push_str(&c.lines);
+                match &w.mode {
+                    WhitespaceMode::Comment(c) => {
+                        s.push_str(&c.lines);
+                    },
+                    WhitespaceMode::BlankLines(l) => {
+                        s.push_str(&l.to_string());
+                    },
                 }
             }
         }
@@ -138,26 +143,24 @@ fn process_item_uses(
                     new_items.push(subgroup.pop().unwrap());
                     continue;
                 }
-                for item in &subgroup {
+                for item in subgroup.iter() {
                     let tree_start = HashLineColumn(item.tree.span().start());
                     for span in [item.use_token.span, item.semi_token.span] {
                         let hl = HashLineColumn(span.start());
                         if hl == tree_start {
                             continue;
                         }
-                        let mut comments = Vec::new();
+                        let mut move_whitespace = Vec::new();
                         if let Some(ws) = whitespaces.get_mut(&hl) {
-                            let mut i = 0;
-                            while i < ws.1.len() {
-                                if matches!(ws.1[i].mode, WhitespaceMode::Comment(_)) {
-                                    comments.push(ws.1.remove(i));
-                                } else {
-                                    i += 1;
-                                }
-                            }
+                            move_whitespace.append(&mut ws.1);
                         }
-                        if !comments.is_empty() {
-                            whitespaces.entry(tree_start).or_insert((0, Vec::new())).1.extend(comments);
+                        if !move_whitespace.is_empty() {
+                            whitespaces.entry(tree_start).or_insert((0, Vec::new())).1.extend(move_whitespace);
+                        }
+                        if let Some(ws) = whitespaces.get(&hl) {
+                            if ws.1.is_empty() {
+                                whitespaces.remove(&hl);
+                            }
                         }
                     }
                 }
@@ -234,23 +237,19 @@ fn process_item_uses(
                         if depth == source_leaf.path.len() {
                             items.push(source_leaf.leaf);
                         } else {
-                            fn has_comments(
+                            fn has_whitespace(
                                 span: proc_macro2::Span,
                                 whitespaces: &BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)>,
                             ) -> bool {
                                 if let Some((_, ws)) = whitespaces.get(&HashLineColumn(span.start())) {
-                                    for w in ws.iter() {
-                                        if matches!(w.mode, WhitespaceMode::Comment(_)) {
-                                            return true;
-                                        }
-                                    }
+                                    return !ws.is_empty();
                                 }
                                 false
                             }
 
                             let p = &source_leaf.path[depth];
-                            if has_comments(p.ident.span(), whitespaces) ||
-                                has_comments(p.colon2_token.spans[0], whitespaces) {
+                            if has_whitespace(p.ident.span(), whitespaces) ||
+                                has_whitespace(p.colon2_token.spans[0], whitespaces) {
                                 nested_unmergeable
                                     .entry(HashLineColumn(p.ident.span().start()))
                                     .or_insert_with(|| (p.clone(), Vec::new()))
@@ -296,26 +295,7 @@ fn process_item_uses(
                 }
                 for span_start in original_tokens {
                     if !new_tokens.contains(&span_start) {
-                        if let Some(ws) = whitespaces.get(&span_start) {
-                            if ws.1.iter().any(|w| matches!(w.mode, WhitespaceMode::Comment(_))) {
-                                continue;
-                            }
-                        }
                         whitespaces.remove(&span_start);
-                    }
-                }
-                for item in subgroup.iter().skip(1) {
-                    let use_hl = HashLineColumn(item.use_token.span.start());
-                    if let Some(ws) = whitespaces.get(&use_hl) {
-                        if ws.1.is_empty() {
-                            whitespaces.remove(&use_hl);
-                        }
-                    }
-                    let semi_hl = HashLineColumn(item.semi_token.span.start());
-                    if let Some(ws) = whitespaces.get(&semi_hl) {
-                        if ws.1.is_empty() {
-                            whitespaces.remove(&semi_hl);
-                        }
                     }
                 }
 
@@ -405,18 +385,9 @@ fn process_item_uses(
                 let n = flats.len();
                 whitespaces.entry(HashLineColumn(item.use_token.span.start())).and_modify(|e| e.0 += n - 1);
                 whitespaces.entry(HashLineColumn(item.semi_token.span.start())).and_modify(|e| e.0 += n - 1);
-                {
-                    let tree: &UseTree = &item.tree;
-                    for token in tree.to_token_stream() {
-                        let hl = HashLineColumn(token.span().start());
-                        if let Some(ws) = whitespaces.get(&hl) {
-                            if ws.1.iter().any(|w| matches!(w.mode, WhitespaceMode::Comment(_))) {
-                                continue;
-                            }
-                        }
-                        whitespaces.remove(&hl);
-                    }
-                };
+                for token in item.tree.to_token_stream() {
+                    whitespaces.remove(&HashLineColumn(token.span().start()));
+                }
                 for f in flats {
                     all_leaves.push((f, item.clone()));
                 }
