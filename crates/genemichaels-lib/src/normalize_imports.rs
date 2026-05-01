@@ -85,10 +85,6 @@ fn cmp_key_for_import_node(
     item: &ItemUse,
     whitespaces: &BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)>,
 ) -> (String, String, String) {
-    let mut key = String::new();
-    for attr in &item.attrs {
-        key.push_str(&attr.to_token_stream().to_string());
-    }
     let get_ws = |span: proc_macro2::Span| {
         let mut s = String::new();
         if let Some((_, ws)) = whitespaces.get(&HashLineColumn(span.start())) {
@@ -105,6 +101,34 @@ fn cmp_key_for_import_node(
         }
         s
     };
+
+    fn get_ts_ws(
+        ts: proc_macro2::TokenStream,
+        whitespaces: &BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)>,
+        get_ws: &impl Fn(proc_macro2::Span) -> String,
+    ) -> String {
+        let mut s = String::new();
+        for tt in ts {
+            match tt {
+                proc_macro2::TokenTree::Group(g) => {
+                    s.push_str(&get_ws(g.span_open()));
+                    s.push_str(&get_ts_ws(g.stream(), whitespaces, get_ws));
+                    s.push_str(&get_ws(g.span_close()));
+                },
+                _ => {
+                    s.push_str(&get_ws(tt.span()));
+                },
+            }
+        }
+        s
+    }
+
+    let mut key = String::new();
+    key.push_str(&item.vis.to_token_stream().to_string());
+    for attr in &item.attrs {
+        key.push_str(&attr.to_token_stream().to_string());
+        key.push_str(&get_ts_ws(attr.to_token_stream(), whitespaces, &get_ws));
+    }
     return (key, get_ws(item.use_token.span).to_string(), get_ws(item.semi_token.span).to_string());
 }
 
@@ -124,8 +148,8 @@ fn process_item_uses(
             let mut groups: Vec<Vec<ItemUse>> = Vec::new();
             for item in imports.drain(..) {
                 if let Some(last_group) = groups.last_mut() {
-                    if cmp_key_for_import_node(&last_group[0], whitespaces).0 ==
-                        cmp_key_for_import_node(&item, whitespaces).0 {
+                    if cmp_key_for_import_node(&last_group[0], whitespaces) ==
+                        cmp_key_for_import_node(&item, whitespaces) {
                         // Same attrs, combine
                         last_group.push(item);
                     } else {
@@ -143,6 +167,8 @@ fn process_item_uses(
                     new_items.push(subgroup.pop().unwrap());
                     continue;
                 }
+
+                // Move the `use`/`;` whitespace onto the first child to avoid losing it
                 for item in subgroup.iter() {
                     let tree_start = HashLineColumn(item.tree.span().start());
                     for span in [item.use_token.span, item.semi_token.span] {
@@ -150,17 +176,8 @@ fn process_item_uses(
                         if hl == tree_start {
                             continue;
                         }
-                        let mut move_whitespace = Vec::new();
-                        if let Some(ws) = whitespaces.get_mut(&hl) {
-                            move_whitespace.append(&mut ws.1);
-                        }
-                        if !move_whitespace.is_empty() {
-                            whitespaces.entry(tree_start).or_insert((0, Vec::new())).1.extend(move_whitespace);
-                        }
-                        if let Some(ws) = whitespaces.get(&hl) {
-                            if ws.1.is_empty() {
-                                whitespaces.remove(&hl);
-                            }
+                        if let Some(ws) = whitespaces.remove(&hl) {
+                            whitespaces.entry(tree_start).or_insert((0, Vec::new())).1.extend(ws.1);
                         }
                     }
                 }
@@ -357,14 +374,13 @@ fn process_item_uses(
             for item in imports.drain(..) {
                 let mut leaves = Vec::new();
                 collect_leaves(item.tree.clone(), &mut Vec::new(), &mut leaves);
-                let n = leaves.len();
-                whitespaces.entry(HashLineColumn(item.use_token.span.start())).and_modify(|e| e.0 += n - 1);
-                whitespaces.entry(HashLineColumn(item.semi_token.span.start())).and_modify(|e| e.0 += n - 1);
-                for token in item.tree.to_token_stream() {
-                    whitespaces.remove(&HashLineColumn(token.span().start()));
-                }
                 for l in leaves {
                     all_leaves.push((l, item.clone()));
+                }
+                whitespaces.entry(HashLineColumn(item.use_token.span.start())).and_modify(|e| e.0 -= 1);
+                whitespaces.entry(HashLineColumn(item.semi_token.span.start())).and_modify(|e| e.0 -= 1);
+                for token in item.tree.to_token_stream() {
+                    whitespaces.remove(&HashLineColumn(token.span().start()));
                 }
             }
 
@@ -372,16 +388,18 @@ fn process_item_uses(
             all_leaves.sort_by(|(f_a, _), (f_b, _)| f_a.cmp(f_b));
 
             // Re-constitute the split items into actual syn ast nodes
-            for (f, item) in all_leaves {
+            for (f, root_item) in all_leaves {
                 let mut tree = f.leaf;
                 for ident in f.path.into_iter().rev() {
                     tree = UseTree::Path(UsePath {
-                        ident,
+                        ident: ident,
                         colon2_token: Default::default(),
                         tree: Box::new(tree),
                     });
                 }
-                let mut new_item = item;
+                let mut new_item = root_item;
+                whitespaces.entry(HashLineColumn(new_item.use_token.span.start())).and_modify(|e| e.0 += 1);
+                whitespaces.entry(HashLineColumn(new_item.semi_token.span.start())).and_modify(|e| e.0 += 1);
                 new_item.tree = tree;
                 new_items.push(new_item);
             }

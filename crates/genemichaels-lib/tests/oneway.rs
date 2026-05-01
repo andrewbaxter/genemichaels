@@ -165,6 +165,87 @@ use std::collections::BTreeSet;
 }
 
 #[test]
+fn ow_import_normalization_combine_vis_diff() {
+    owc(r#"pub use a;
+use b;
+"#, r#"pub use a;
+use b;
+"#, &FormatConfig {
+        import_normalization: genemichaels_lib::ImportNormalizationMode::Combine,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_import_normalization_combine_attr_whitespace_no_combine() {
+    owc(
+        r#"// Comment A
+#[cfg(feature = "x")]
+use a;
+// Comment B
+#[cfg(feature = "x")]
+use b;
+"#,
+        r#"// Comment A
+#[cfg(feature = "x")]
+use a;
+
+// Comment B
+#[cfg(feature = "x")]
+use b;
+"#,
+        &FormatConfig {
+            import_normalization: genemichaels_lib::ImportNormalizationMode::Combine,
+            ..Default::default()
+        },
+    );
+}
+
+#[test]
+fn ow_import_normalization_combine_attr_whitespace_loss() {
+    owc(
+        r#"// Comment A
+#[cfg(feature = "x")]
+use a;
+// Comment B
+#[cfg(feature = "x")]
+use b;
+"#,
+        r#"// Comment A
+#[cfg(feature = "x")]
+use {
+    a,
+    b,
+};
+"#,
+        &FormatConfig {
+            import_normalization: genemichaels_lib::ImportNormalizationMode::Combine,
+            ..Default::default()
+        },
+    );
+}
+
+#[test]
+fn ow_import_normalization_split_attr_whitespace_loss() {
+    owc(
+        r#"// Leading comment
+#[cfg(feature = "a")]
+use {a, b};
+"#,
+        r#"// Leading comment
+#[cfg(feature = "a")]
+use a;
+#[cfg(feature = "a")]
+use b;
+"#,
+        &FormatConfig {
+            import_normalization: genemichaels_lib::ImportNormalizationMode::Split,
+            ..Default::default()
+        },
+    );
+}
+
+#[test]
 fn ow_import_normalization_split_mismatched_cmp() {
     owc(r#"// Comment B
 use b;
