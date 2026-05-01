@@ -1,28 +1,28 @@
-use std::collections::BTreeMap;
-use crate::{
-    FormatConfig,
-    ImportNormalizationMode,
+use {
+    crate::{
+        FormatConfig,
+        ImportNormalizationMode,
+        Whitespace,
+        WhitespaceMode,
+        whitespace::HashLineColumn,
+    },
+    quote::ToTokens,
+    std::collections::BTreeMap,
+    syn::{
+        Block,
+        File,
+        Ident,
+        Item,
+        ItemMod,
+        ItemUse,
+        Stmt,
+        UseName,
+        UsePath,
+        UseTree,
+        spanned::Spanned,
+        visit_mut::VisitMut,
+    },
 };
-use crate::{
-    Whitespace,
-    WhitespaceMode,
-};
-use crate::whitespace::HashLineColumn;
-use syn::{
-    Block,
-    File,
-    Ident,
-    Item,
-    ItemMod,
-    ItemUse,
-    Stmt,
-    UseName,
-    UsePath,
-    UseTree,
-};
-use syn::spanned::Spanned;
-use syn::visit_mut::VisitMut;
-use quote::ToTokens;
 
 fn cmp_use_tree(a: &syn::UseTree, b: &syn::UseTree) -> std::cmp::Ordering {
     fn get_rank(tree: &syn::UseTree) -> u8 {

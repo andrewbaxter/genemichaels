@@ -509,6 +509,7 @@ fn render_indent(config: &FormatConfig, current_indent: IndentLevel) -> String {
 }
 
 #[derive(Debug, Copy, Clone, Deserialize, Serialize, PartialEq, Default)]
+#[serde(rename_all = "snake_case")]
 pub enum ImportNormalizationMode {
     #[default]
     None,
@@ -885,12 +886,7 @@ pub fn format_ast(
                                             true
                                         },
                                         _ => {
-                                            match format_md(
-                                                &mut rendered,
-                                                config,
-                                                &prefix,
-                                                &comment.lines,
-                                            ) {
+                                            match format_md(&mut rendered, config, &prefix, &comment.lines) {
                                                 Err(e) => {
                                                     let err =
                                                         loga::err_with(
