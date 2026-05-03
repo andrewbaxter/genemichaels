@@ -37,7 +37,7 @@ to use it with reckless abandon.
 
 ## Configuration
 
-Gene Michaels can be configured with a configuration file named `.genemichaels.json` in the current directory or any parent directory, or named `genemichaels.json` in your user configuration directory (ex: `~/.config/genemichaels.json`). If for some reason it doesn't find your config file you can double check it by running `genemichaels` with `strace`.
+Gene Michaels can be configured with a configuration file named `genemichaels.json` (or `.genemichaels.json`) in the current directory or any parent directory or in your user configuration directory (ex: `~/.config/genemichaels.json`). If for some reason it doesn't find your config file you can double check it by running `genemichaels` with `strace`.
 
 The configuration file is json, but it will strip lines starting with `//` first if you want to add comments.
 

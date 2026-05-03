@@ -41,6 +41,7 @@ use {
 
 const CARGO_TOML: &str = "Cargo.toml";
 const CONFIG_JSON: &str = ".genemichaels.json";
+const CONFIG_JSON2: &str = "genemichaels.json";
 
 #[derive(Aargvark)]
 enum Logging {
@@ -174,6 +175,9 @@ fn main() {
                     if let Some(c) = maybe_load_almost_jsonc(&at.join(CONFIG_JSON))? {
                         break 'found_config c;
                     }
+                    if let Some(c) = maybe_load_almost_jsonc(&at.join(CONFIG_JSON2))? {
+                        break 'found_config c;
+                    }
                     let Some(next_at) = at.parent() else {
                         break;
                     };
@@ -183,6 +187,9 @@ fn main() {
             // Try global config directory
             if let Some(d) = dirs::config_dir() {
                 if let Some(c) = maybe_load_almost_jsonc(&d.join(CONFIG_JSON))? {
+                    break 'found_config c;
+                }
+                if let Some(c) = maybe_load_almost_jsonc(&d.join(CONFIG_JSON2))? {
                     break 'found_config c;
                 }
             }
