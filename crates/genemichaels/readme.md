@@ -73,7 +73,18 @@ Here is the default config - all values shown are defaults and can be omitted.
   // `//` (plain line-comments) won't be treated implicitly as markdown. In this case you can
   // use `//?` for explicitly markdown-formatted line-comments (these comments will work
   // regardless of the setting)
-  "explicit_markdown_comments": false
+  "explicit_markdown_comments": false,
+  // Normalize imports. By default, imports are untouched. With "combine" mode, all imports are
+  // combined into one `use {}` statement and sorted. With "split" mode all imports are split into
+  // individual `use x::y::z;` statements and sorted.
+  "import_normalization": "none",
+  // Define external formatters with names here, which will then be used to format strings with
+  // `#[rustfmt::external("name")]` as well as comment markdown blocks with "name" as the language.
+  //
+  // Entries are an array of arguments. If one argument is `{}` it will be replaced with the path
+  // to a file containing the text to format. Otherwise, the text to format will be provided on the
+  // command line. Formatted text is read from stdout.
+  "external_formatters": {},
 }
 ```
 

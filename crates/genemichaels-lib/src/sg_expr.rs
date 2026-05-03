@@ -34,6 +34,8 @@ use {
             build_ref,
         },
     },
+    loga::ea,
+    proc_macro2::Literal,
     quote::ToTokens,
     syn::{
         Expr,
@@ -43,6 +45,8 @@ use {
         ExprMethodCall,
         ExprTry,
         FieldValue,
+        LitStr,
+        PathArguments,
         spanned::Spanned,
     },
 };
@@ -600,18 +604,162 @@ impl Formattable for &Expr {
                     sg.build(out)
                 },
             ),
-            Expr::Lit(e) => new_sg_outer_attrs(
-                out,
-                base_indent,
-                &e.attrs,
-                self.span(),
-                |out: &mut MakeSegsState, _base_indent: &Alignment| {
-                    let mut node = new_sg(out);
-                    append_whitespace(out, base_indent, &mut node, e.lit.span().start());
-                    node.seg(out, e.lit.to_token_stream());
-                    node.build(out)
-                },
-            ),
+            Expr::Lit(e) => {
+                // Detect #[rustfmt::external("name")] on string literals and apply an external
+                // formatter to the string content.
+                let external_formatted: Option<String> = 'ext: {
+                    let syn::Lit::Str(lit_str) = &e.lit else {
+                        break 'ext None;
+                    };
+
+                    // Find the rustfmt::external attribute
+                    let formatter_name = {
+                        let mut found = None;
+                        for attr in &e.attrs {
+                            if !matches!(attr.style, syn::AttrStyle::Outer) {
+                                continue;
+                            }
+                            let syn::Meta::List(m) = &attr.meta else {
+                                continue;
+                            };
+                            let segs = &m.path.segments;
+                            if segs.len() != 2 || segs[0].ident != "rustfmt" || segs[1].ident != "external" ||
+                                !matches!(segs[0].arguments, PathArguments::None) ||
+                                !matches!(segs[1].arguments, PathArguments::None) {
+                                continue;
+                            }
+                            let Ok(lit) = syn::parse2::<LitStr>(m.tokens.clone()) else {
+                                continue;
+                            };
+                            found = Some(lit.value());
+                            break;
+                        }
+                        let Some(name) = found else {
+                            break 'ext None;
+                        };
+                        name
+                    };
+
+                    // Look up the command for this formatter name
+                    let command = {
+                        let Some(cmd) = out.config.external_formatters.get(&formatter_name).cloned() else {
+                            out
+                                .warnings
+                                .push(
+                                    loga::err_with(
+                                        "External formatter referenced but not configured",
+                                        ea!(name = formatter_name),
+                                    ),
+                                );
+                            break 'ext None;
+                        };
+                        cmd
+                    };
+                    let source_text = lit_str.token().to_string();
+                    let is_raw = source_text.starts_with('r');
+                    let content = lit_str.value();
+                    let (prefix, to_format, suffix) = if is_raw {
+                        let lines = content.split('\n').collect::<Vec<_>>();
+                        let (content_lines, closing) =
+                            if lines.last().map(|l| l.trim().is_empty()).unwrap_or(false) {
+                                (&lines[..lines.len() - 1], Some(format!("\n{}", lines.last().unwrap())))
+                            } else {
+                                (&lines[..], None)
+                            };
+                        let min_indent =
+                            content_lines[1..]
+                                .iter()
+                                .filter(|l| !l.trim().is_empty())
+                                .map(|l| l.len() - l.trim_start_matches(' ').len())
+                                .min()
+                                .unwrap_or(0);
+                        let stripped_lines = {
+                            let mut out_lines = vec![*content_lines.first().unwrap_or(&"")];
+                            for l in &content_lines[1..] {
+                                if l.len() >= min_indent {
+                                    out_lines.push(&l[min_indent..]);
+                                } else {
+                                    out_lines.push(l);
+                                }
+                            }
+                            out_lines.join("\n")
+                        };
+                        (" ".repeat(min_indent), stripped_lines, closing.unwrap_or_default())
+                    } else {
+                        (String::new(), content.clone(), String::new())
+                    };
+
+                    // Run the external formatter
+                    let formatted = match crate::run_external_formatter(&command, &to_format) {
+                        Ok(f) => f,
+                        Err(e) => {
+                            out.warnings.push(e);
+                            break 'ext None;
+                        },
+                    };
+
+                    // For raw strings: restore the stripped indentation to all non-empty lines after
+                    // the first, then re-append the closing delimiter line.
+                    let restored = if is_raw {
+                        let with_prefix = if !prefix.is_empty() {
+                            formatted.split('\n').enumerate().map(|(i, l)| if i == 0 || l.is_empty() {
+                                l.to_string()
+                            } else {
+                                format!("{}{}", prefix, l)
+                            }).collect::<Vec<_>>().join("\n")
+                        } else {
+                            formatted
+                        };
+                        format!("{}{}", with_prefix, suffix)
+                    } else {
+                        formatted
+                    };
+
+                    // Reconstruct the literal with the formatted content
+                    let new_lit_text = if is_raw {
+                        // Find minimum # count so the delimiter doesn't appear in content
+                        let n_hashes = {
+                            let bytes = restored.as_bytes();
+                            let mut max = 0usize;
+                            let mut i = 0usize;
+                            while i < bytes.len() {
+                                if bytes[i] == b'"' {
+                                    let mut h = 0usize;
+                                    while i + 1 + h < bytes.len() && bytes[i + 1 + h] == b'#' {
+                                        h += 1;
+                                    }
+                                    if h > max {
+                                        max = h;
+                                    }
+                                }
+                                i += 1;
+                            }
+                            max + 1
+                        };
+                        let hashes = "#".repeat(n_hashes);
+                        format!("r{}\"{}\"{}", hashes, restored, hashes)
+                    } else {
+                        Literal::string(&restored).to_string()
+                    };
+                    Some(new_lit_text)
+                };
+                new_sg_outer_attrs(
+                    out,
+                    base_indent,
+                    &e.attrs,
+                    self.span(),
+                    |out: &mut MakeSegsState, _base_indent: &Alignment| {
+                        let mut node = new_sg(out);
+                        append_whitespace(out, base_indent, &mut node, e.lit.span().start());
+                        if let Some(text) = &external_formatted {
+                            node.seg(out, text.as_str());
+                        } else {
+                            node.seg(out, e.lit.to_token_stream());
+                        }
+                        node.build(out)
+                    },
+                )
+            },
             Expr::Loop(e) => new_sg_outer_attrs(
                 out,
                 base_indent,

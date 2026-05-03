@@ -2,6 +2,7 @@ use {
     loga::{
         ea,
         Error,
+        ResultContext,
     },
     proc_macro2::{
         Ident,
@@ -19,8 +20,15 @@ use {
             Cell,
             RefCell,
         },
+        fs,
+        io::Write,
+        process::{
+            Command,
+            Stdio,
+        },
         rc::Rc,
     },
+    tempfile::NamedTempFile,
     syn::File,
 };
 pub use whitespace::{
@@ -131,6 +139,7 @@ pub struct MakeSegsState {
     // manage externally (for now).
     /// Positive if processing within a macro, used to control macro tweaks.
     macro_depth: Rc<Cell<usize>>,
+    pub(crate) warnings: Vec<Error>,
 }
 
 pub struct IncMacroDepth(Rc<Cell<usize>>);
@@ -517,7 +526,7 @@ pub enum ImportNormalizationMode {
     Split,
 }
 
-#[derive(Debug, Copy, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct FormatConfig {
     pub max_width: usize,
@@ -533,6 +542,7 @@ pub struct FormatConfig {
     pub indent_unit: IndentUnit,
     pub explicit_markdown_comments: bool,
     pub import_normalization: ImportNormalizationMode,
+    pub external_formatters: BTreeMap<String, Vec<String>>,
 }
 
 impl Default for FormatConfig {
@@ -550,6 +560,7 @@ impl Default for FormatConfig {
             indent_unit: IndentUnit::Spaces,
             explicit_markdown_comments: false,
             import_normalization: ImportNormalizationMode::None,
+            external_formatters: BTreeMap::new(),
         }
     }
 }
@@ -561,6 +572,58 @@ pub struct FormatRes {
 }
 
 pub use whitespace::extract_whitespaces;
+
+pub(crate) fn run_external_formatter(command: &[String], content: &str) -> Result<String, loga::Error> {
+    let mut tmp_file: Option<NamedTempFile> = None;
+    let args = command[1..].iter().map(|a| -> Result<String, loga::Error> {
+        if a == "{}" {
+            let f = match tmp_file {
+                Some(ref f) => f,
+                None => {
+                    let mut f = NamedTempFile::new().context("Failed to create external formatter temp file")?;
+                    f.write_all(content.as_bytes()).context("Failed to write external formatter temp file")?;
+                    f.flush().context("Failed to flush external formatter temp file")?;
+                    tmp_file.insert(f)
+                },
+            };
+            return Ok(f.path().to_string_lossy().to_string());
+        } else {
+            return Ok(a.clone());
+        }
+    }).collect::<Result<Vec<_>, _>>()?;
+    if let Some(ref tmp_file) = tmp_file {
+        let status =
+            Command::new(&command[0])
+                .args(&args)
+                .status()
+                .context_with("Failed to run external formatter", ea!(cmd = command[0].as_str()))?;
+        if !status.success() {
+            return Err(loga::err_with("External formatter exited with error", ea!(cmd = &command[0])));
+        }
+        return fs::read_to_string(tmp_file.path()).context("Failed to read external formatter output");
+    } else {
+        let mut child =
+            Command::new(&command[0])
+                .args(&args)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .spawn()
+                .context_with("Failed to spawn external formatter", ea!(cmd = command[0].as_str()))?;
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(content.as_bytes())
+            .context("Failed to write to external formatter stdin")?;
+        let output = child.wait_with_output().context("Failed to get external formatter output")?;
+        if !output.status.success() {
+            return Err(loga::err_with("External formatter exited with error", ea!(cmd = &command[0])));
+        }
+        return String::from_utf8(output.stdout)
+            .map_err(loga::err)
+            .context("External formatter output is not valid UTF-8");
+    }
+}
 
 pub fn format_str(source: &str, config: &FormatConfig) -> Result<FormatRes, loga::Error> {
     let shebang;
@@ -630,6 +693,7 @@ pub fn format_ast(
         whitespaces,
         config: config.clone(),
         macro_depth: Default::default(),
+        warnings: vec![],
     };
     let base_indent = Alignment(Rc::new(RefCell::new(Alignment_ {
         parent: None,
@@ -930,9 +994,14 @@ pub fn format_ast(
         }
         line_i += 1;
     }
+    let mk_warnings = std::mem::take(&mut out.warnings);
     Ok(FormatRes {
         rendered: rendered,
         lost_comments: out.whitespaces.into_iter().map(|(k, (_, v))| (k, v)).collect(),
-        warnings: warnings,
+        warnings: {
+            let mut all_warnings = mk_warnings;
+            all_warnings.extend(warnings);
+            all_warnings
+        },
     })
 }

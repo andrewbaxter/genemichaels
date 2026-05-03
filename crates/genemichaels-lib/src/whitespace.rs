@@ -6,7 +6,10 @@ use {
         WhitespaceMode,
         FormatConfig,
     },
-    loga::ea,
+    loga::{
+        ea,
+        ResultContext,
+    },
     markdown::mdast::Node,
     proc_macro2::{
         Group,
@@ -804,6 +807,15 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
                             // Fallback to original
                         },
                     }
+                } else if let Some(command) = state.config.external_formatters.get(lang.as_str()).cloned() {
+                    match crate::run_external_formatter(&command, &x.value) {
+                        Ok(formatted) => {
+                            content = Some(formatted);
+                        },
+                        Err(_) => {
+                            // Fallback to original
+                        },
+                    }
                 }
             }
             line.write_unbreakable(state, out, &format!("```{}", match &x.lang {
@@ -1047,7 +1059,7 @@ pub fn format_md(
         let ast = markdown::to_mdast(source, &markdown::ParseOptions {
             constructs: markdown::Constructs { ..Default::default() },
             ..Default::default()
-        }).map_err(|e| loga::err_with("Error parsing markdown", ea!(err = e)))?;
+        }).map_err(loga::err).context("Error parsing markdown")?;
         recurse_write(
             &mut state,
             &mut out,

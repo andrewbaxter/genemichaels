@@ -120,6 +120,9 @@ fn process_file_contents(log: &Log, config: &FormatConfig, source: &str) -> Resu
             ),
         );
     }
+    for warn in res.warnings {
+        log.log_err(loga::WARN, warn);
+    }
     match syn::parse_file(&res.rendered) {
         Ok(_) => { },
         Err(e) => {

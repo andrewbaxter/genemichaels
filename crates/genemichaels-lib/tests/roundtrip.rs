@@ -5,6 +5,7 @@ use {
         format_str,
         FormatConfig,
     },
+    std::collections::BTreeMap,
 };
 
 fn rt(text: &str) {
@@ -681,5 +682,38 @@ fn rt_const_ref() {
     rt(r#"fn main() {
     (*&raw const X).x(text);
 }
+"#);
+}
+
+fn rt_fake(text: &str) {
+    let res = format_str(text, &FormatConfig {
+        max_width: 120,
+        external_formatters: BTreeMap::from([(
+            "fake".to_string(),
+            vec!["sed".to_string(), "s/./a/g".to_string()],
+        )]),
+        ..Default::default()
+    }).unwrap();
+    assert!(res.lost_comments.is_empty(), "Comments remain: {:?}", res.lost_comments);
+    pretty_assertions::assert_str_eq!(text, res.rendered);
+}
+
+#[test]
+fn rt_external_formatter_raw_string() {
+    rt_fake(r##"fn f() -> &'static str {
+    #[rustfmt::external("fake")]
+    r#"
+       aaaaa
+    "#
+}
+"##);
+}
+
+#[test]
+fn rt_external_formatter_comment_code_block() {
+    rt_fake(r#"/// ```fake
+/// aaaaa
+/// ```
+fn f() { }
 "#);
 }

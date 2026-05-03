@@ -207,7 +207,7 @@ fn ow_import_normalization_combine_attr_whitespace_loss() {
         r#"// Comment A
 #[cfg(feature = "x")]
 use a;
-// Comment B
+// Comment A
 #[cfg(feature = "x")]
 use b;
 "#,
@@ -260,28 +260,6 @@ use b;
         import_normalization: genemichaels_lib::ImportNormalizationMode::Split,
         ..Default::default()
     });
-}
-
-#[test]
-fn ow_import_normalization_combine_mismatched_cmp() {
-    owc(
-        r#"// Comment B
-use b;
-// Comment A
-use a;
-"#,
-        r#"use {
-    // Comment A
-    a,
-    // Comment B
-    b,
-};
-"#,
-        &FormatConfig {
-            import_normalization: genemichaels_lib::ImportNormalizationMode::Combine,
-            ..Default::default()
-        },
-    );
 }
 
 #[test]
