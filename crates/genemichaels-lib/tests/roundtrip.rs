@@ -704,13 +704,30 @@ fn rt_fake(text: &str) {
 
 #[test]
 fn rt_external_formatter_raw_string() {
-    rt_fake(r##"fn f() -> &'static str {
+    let res = format_str(r##"fn f() -> &'static str {
     #[rustfmt::external("fake")]
     r#"
        aaaaa
     "#
 }
-"##);
+"##, &FormatConfig {
+        max_width: 120,
+        external_formatters: BTreeMap::from([(
+            "fake".to_string(),
+            ExternalFormatterConfig {
+                commandline: vec!["sed".to_string(), "s/a/b/g".to_string()],
+                adjust_indent: false,
+            },
+        )]),
+        ..Default::default()
+    }).unwrap();
+    pretty_assertions::assert_str_eq!(r##"fn f() -> &'static str {
+    #[rustfmt::external("fake")]
+    r#"
+       bbbbb
+    "#
+}
+"##, res.rendered);
 }
 
 #[test]

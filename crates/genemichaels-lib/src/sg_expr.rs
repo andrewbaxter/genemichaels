@@ -689,12 +689,41 @@ impl Formattable for &Expr {
                         // the renderer re-indents at the correct column.
                         let content_start_col = lit_str.span().start().column + source_text.find('"').map(|i| i + 1).unwrap_or(1);
                         let stripped_content = {
+                            let mut first_line_start = None;
+                            for (i, line) in content.split('\n').enumerate() {
+                                if !line.trim().is_empty() {
+                                    if i == 0 {
+                                        first_line_start = Some(content_start_col + line.chars().take_while(|&c| c == ' ').count());
+                                    } else {
+                                        first_line_start = Some(line.chars().take_while(|&c| c == ' ').count());
+                                    }
+                                    break;
+                                }
+                            }
+                            let strip_amount = if let Some(first_start) = first_line_start {
+                                let mut min_indent = first_start;
+                                let mut found_first = false;
+                                for (i, line) in content.split('\n').enumerate() {
+                                    if !line.trim().is_empty() {
+                                        if !found_first {
+                                            found_first = true;
+                                            continue;
+                                        }
+                                        if i > 0 {
+                                            min_indent = min_indent.min(line.chars().take_while(|&c| c == ' ').count());
+                                        }
+                                    }
+                                }
+                                min_indent
+                            } else {
+                                content_start_col
+                            };
                             let mut result = String::new();
                             for (i, line) in content.split('\n').enumerate() {
                                 if i > 0 {
                                     result.push('\n');
                                     let leading_spaces =
-                                        line.chars().take_while(|&c| c == ' ').count().min(content_start_col);
+                                        line.chars().take_while(|&c| c == ' ').count().min(strip_amount);
                                     result.push_str(&line[leading_spaces..]);
                                 } else {
                                     result.push_str(line);

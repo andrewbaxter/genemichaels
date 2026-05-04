@@ -463,13 +463,13 @@ fn main() { }
 #[test]
 fn ow_external_formatter_adjust_indent_on() {
     let mut external_formatters = BTreeMap::new();
-    external_formatters.insert("cat".to_string(), ExternalFormatterConfig {
-        commandline: vec!["cat".to_string()],
+    external_formatters.insert("sed".to_string(), ExternalFormatterConfig {
+        commandline: vec!["sed".to_string(), "-e".to_string(), "s/^\\s+//".to_string()],
         adjust_indent: true,
     });
     owc(
         r##"fn main() {
-    let x = #[rustfmt::external("cat")]
+    let x = #[rustfmt::external("sed")]
     r#"
         line1
         line2
@@ -477,10 +477,10 @@ fn ow_external_formatter_adjust_indent_on() {
 }
 "##,
         r##"fn main() {
-    let x = #[rustfmt::external("cat")]
+    let x = #[rustfmt::external("sed")]
     r#"
-        line1
-        line2
+       line1
+       line2
        "#;
 }
 "##,
@@ -544,6 +544,62 @@ line2";
 "##,
         &FormatConfig {
             external_formatters,
+            ..Default::default()
+        },
+    );
+}
+
+#[test]
+fn ow_external_formatter_left_strip() {
+    let mut external_formatters = std::collections::BTreeMap::new();
+    external_formatters.insert("cat".to_string(), ExternalFormatterConfig {
+        commandline: vec!["cat".to_string()],
+        adjust_indent: true,
+    });
+    owc(
+        r##"fn main() {
+    let x = #[rustfmt::external("cat")]
+    r#"
+          line1
+        line2
+    "#;
+}
+"##,
+        r##"fn main() {
+    let x = #[rustfmt::external("cat")]
+    r#"
+         line1
+       line2
+       "#;
+}
+"##,
+        &FormatConfig {
+            external_formatters,
+            ..Default::default()
+        },
+    );
+}
+
+#[test]
+fn ow_raw_string_wrap() {
+    owc(
+        r##"fn main() {
+    let x = r#"
+        short
+        this is a very long line that should cause the entire let statement to wrap because it exceeds the maximum line length
+    "#;
+}
+"##,
+        r##"fn main() {
+    let x =
+        r#"
+        short
+        this is a very long line that should cause the entire let statement to wrap because it exceeds the maximum line length
+    "#;
+}
+"##,
+        &FormatConfig {
+            max_width: 80,
             ..Default::default()
         },
     );

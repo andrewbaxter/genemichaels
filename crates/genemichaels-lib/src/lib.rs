@@ -163,11 +163,23 @@ pub(crate) fn check_split_brace_threshold(out: &MakeSegsState, count: usize) -> 
 }
 
 pub(crate) fn line_length(out: &MakeSegsState, lines: &Lines, line_i: LineIdx) -> usize {
+    let mut max_len = 0;
     let mut len = 0;
     for seg_i in &lines.owned_lines.get(line_i.0).unwrap().segs {
         let seg = out.segs.get(seg_i.0).unwrap();
         match &seg.content {
-            SegmentContent::Text(t) => len += t.chars().count(),
+            SegmentContent::Text(t) => {
+                let mut first = true;
+                for line in t.split('\n') {
+                    if !first {
+                        max_len = max_len.max(len);
+                        len = line.chars().count();
+                    } else {
+                        len += line.chars().count();
+                        first = false;
+                    }
+                }
+            },
             SegmentContent::Break(b, _) => {
                 if out.nodes.get(seg.node.0).unwrap().split {
                     len += out.config.indent_spaces * b.get().0;
@@ -175,11 +187,25 @@ pub(crate) fn line_length(out: &MakeSegsState, lines: &Lines, line_i: LineIdx) -
             },
             SegmentContent::Whitespace(_) => { },
             SegmentContent::RawTextAdjustIndent(t) => {
-                len += t.split('\n').next().map(|l| l.chars().count()).unwrap_or(0);
+                let prefix_len = t.find('"').map(|i| i + 1).unwrap_or(0);
+                let start_len = len;
+                let mut first = true;
+                let mut local_max = 0;
+                for line in t.split('\n') {
+                    if !first {
+                        len = start_len + prefix_len + line.chars().count();
+                        local_max = local_max.max(len);
+                    } else {
+                        len += line.chars().count();
+                        local_max = local_max.max(len);
+                        first = false;
+                    }
+                }
+                len = local_max;
             },
         };
     }
-    len
+    max_len.max(len)
 }
 
 pub(crate) fn split_group(out: &mut MakeSegsState, lines: &mut Lines, sg_i: SplitGroupIdx) {
@@ -855,19 +881,30 @@ pub fn format_ast(
 
     recurse(&mut out, &mut lines, config, root);
 
-    // Render
-    let mut rendered = String::new();
-    let mut current_col: usize = 0;
-
-    macro_rules! push{
-        ($text: expr) => {
-            {
-                let s: & str = $text;
-                rendered.push_str(s);
-                current_col += s.chars().count();
-            }
-        };
+    struct Rendered {
+        text: String,
+        col: usize,
     }
+    impl Rendered {
+        fn push_str(&mut self, s: &str) {
+            self.text.push_str(s);
+            if let Some(nl) = s.rfind('\n') {
+                self.col = s[nl + 1..].chars().count();
+            } else {
+                self.col += s.chars().count();
+            }
+        }
+        fn push(&mut self, c: char) {
+            self.text.push(c);
+            if c == '\n' {
+                self.col = 0;
+            } else {
+                self.col += 1;
+            }
+        }
+    }
+    // Render
+    let mut rendered = Rendered { text: String::new(), col: 0 };
 
     let mut warnings = vec![];
     let lines = lines;
@@ -907,22 +944,22 @@ pub fn format_ast(
                         } else {
                             t
                         };
-                        push!(t);
+                        rendered.push_str(t);
                     },
                     SegmentContent::RawTextAdjustIndent(t) => {
                         // Find the prefix length (chars up to and including the opening `"`) so lines 1+
                         // align with the first line's content position.
                         let prefix_len = t.find('"').map(|i| i + 1).unwrap_or(0);
-                        let indent_col = current_col + prefix_len;
+                        let indent_col = rendered.col + prefix_len;
                         let mut text_lines = t.split('\n');
                         if let Some(first_line) = text_lines.next() {
-                            push!(first_line);
+                            rendered.push_str(first_line);
                         }
                         for line in text_lines {
                             rendered.push('\n');
                             let indent_str = " ".repeat(indent_col);
-                            push!(&indent_str);
-                            push!(line);
+                            rendered.push_str(&indent_str);
+                            rendered.push_str(line);
                         }
                     },
                     SegmentContent::Break(b, activate) => {
@@ -948,7 +985,7 @@ pub fn format_ast(
                         }
                         if segs.len() > 1 {
                             // if empty line (=just break), don't write indent
-                            push!(&render_indent(config, b.get()));
+                            rendered.push_str(&render_indent(config, b.get()));
                         }
                     },
                     SegmentContent::Whitespace((b, whitespaces)) => {
@@ -958,7 +995,6 @@ pub fn format_ast(
                                     if *count > 0 {
                                         for _ in 0 .. *count {
                                             rendered.push('\n');
-                                            current_col = 0;
                                         }
                                         continue;
                                     }
@@ -966,7 +1002,6 @@ pub fn format_ast(
                                 WhitespaceMode::Comment(comment) => {
                                     if comment_i > 0 {
                                         rendered.push('\n');
-                                        current_col = 0;
                                     }
                                     let prefix = format!(
                                         //. .
@@ -988,7 +1023,7 @@ pub fn format_ast(
                                             true
                                         },
                                         _ => {
-                                            match format_md(&mut rendered, config, &prefix, &comment.lines) {
+                                            match format_md(&mut rendered.text, config, &prefix, &comment.lines) {
                                                 Err(e) => {
                                                     let err =
                                                         loga::err_with(
@@ -1007,15 +1042,12 @@ pub fn format_ast(
                                                     true
                                                 },
                                                 Ok(_) => {
-                                                    // Update current_col after format_md
-                                                    match rendered.rfind('\n') {
-                                                        Some(nl_pos) => {
-                                                            current_col = rendered[nl_pos + 1..].chars().count();
-                                                        },
-                                                        None => {
-                                                            current_col = rendered.chars().count();
-                                                        },
-                                                    }
+                                                    let text = &rendered.text;
+                                                    rendered.col = if let Some(nl_pos) = text.rfind('\n') {
+                                                        text[nl_pos + 1..].chars().count()
+                                                    } else {
+                                                        text.chars().count()
+                                                    };
                                                     false
                                                 },
                                             }
@@ -1025,10 +1057,9 @@ pub fn format_ast(
                                         for (i, line) in comment.lines.lines().enumerate() {
                                             if i > 0 {
                                                 rendered.push('\n');
-                                                current_col = 0;
                                             }
                                             let line = line.strip_prefix(' ').unwrap_or(line);
-                                            push!(&format!("{}{}", prefix, line.trim_end()));
+                                            rendered.push_str(&format!("{}{}", prefix, line.trim_end()));
                                         }
                                     }
                                 },
@@ -1038,14 +1069,13 @@ pub fn format_ast(
                 }
             }
             rendered.push('\n');
-            current_col = 0;
             break;
         }
         line_i += 1;
     }
     let mk_warnings = std::mem::take(&mut out.warnings);
     Ok(FormatRes {
-        rendered: rendered,
+        rendered: rendered.text,
         lost_comments: out.whitespaces.into_iter().map(|(k, (_, v))| (k, v)).collect(),
         warnings: {
             let mut all_warnings = mk_warnings;
