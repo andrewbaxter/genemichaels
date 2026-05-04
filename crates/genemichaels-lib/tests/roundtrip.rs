@@ -2,6 +2,7 @@
 
 use {
     genemichaels_lib::{
+        ExternalFormatterConfig,
         format_str,
         FormatConfig,
     },
@@ -690,7 +691,10 @@ fn rt_fake(text: &str) {
         max_width: 120,
         external_formatters: BTreeMap::from([(
             "fake".to_string(),
-            vec!["sed".to_string(), "s/./a/g".to_string()],
+            ExternalFormatterConfig {
+                commandline: vec!["sed".to_string(), "s/./a/g".to_string()],
+                adjust_indent: false,
+            },
         )]),
         ..Default::default()
     }).unwrap();

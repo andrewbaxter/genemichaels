@@ -110,6 +110,7 @@ pub(crate) enum SegmentContent {
     Text(String),
     Whitespace((Alignment, Vec<Whitespace>)),
     Break(Alignment, bool),
+    RawTextAdjustIndent(String),
 }
 
 pub(crate) struct Segment {
@@ -173,6 +174,9 @@ pub(crate) fn line_length(out: &MakeSegsState, lines: &Lines, line_i: LineIdx) -
                 }
             },
             SegmentContent::Whitespace(_) => { },
+            SegmentContent::RawTextAdjustIndent(t) => {
+                len += t.split('\n').next().map(|l| l.chars().count()).unwrap_or(0);
+            },
         };
     }
     len
@@ -314,7 +318,7 @@ impl Alignment {
 }
 
 pub(crate) struct SplitGroupBuilder {
-    node: SplitGroupIdx,
+    pub(crate) node: SplitGroupIdx,
     initial_split: bool,
     reverse_children: bool,
     segs: Vec<SegmentIdx>,
@@ -526,6 +530,17 @@ pub enum ImportNormalizationMode {
     Split,
 }
 
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ExternalFormatterConfig {
+    pub commandline: Vec<String>,
+    #[serde(default = "default_true")]
+    pub adjust_indent: bool,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct FormatConfig {
@@ -542,7 +557,7 @@ pub struct FormatConfig {
     pub indent_unit: IndentUnit,
     pub explicit_markdown_comments: bool,
     pub import_normalization: ImportNormalizationMode,
-    pub external_formatters: BTreeMap<String, Vec<String>>,
+    pub external_formatters: BTreeMap<String, ExternalFormatterConfig>,
 }
 
 impl Default for FormatConfig {
@@ -842,10 +857,15 @@ pub fn format_ast(
 
     // Render
     let mut rendered = String::new();
+    let mut current_col: usize = 0;
 
     macro_rules! push{
         ($text: expr) => {
-            rendered.push_str($text);
+            {
+                let s: & str = $text;
+                rendered.push_str(s);
+                current_col += s.chars().count();
+            }
         };
     }
 
@@ -889,6 +909,22 @@ pub fn format_ast(
                         };
                         push!(t);
                     },
+                    SegmentContent::RawTextAdjustIndent(t) => {
+                        // Find the prefix length (chars up to and including the opening `"`) so lines 1+
+                        // align with the first line's content position.
+                        let prefix_len = t.find('"').map(|i| i + 1).unwrap_or(0);
+                        let indent_col = current_col + prefix_len;
+                        let mut text_lines = t.split('\n');
+                        if let Some(first_line) = text_lines.next() {
+                            push!(first_line);
+                        }
+                        for line in text_lines {
+                            rendered.push('\n');
+                            let indent_str = " ".repeat(indent_col);
+                            push!(&indent_str);
+                            push!(line);
+                        }
+                    },
                     SegmentContent::Break(b, activate) => {
                         let next_line_first_seg_comment =
                             lines
@@ -921,14 +957,16 @@ pub fn format_ast(
                                 WhitespaceMode::BlankLines(count) => {
                                     if *count > 0 {
                                         for _ in 0 .. *count {
-                                            push!("\n");
+                                            rendered.push('\n');
+                                            current_col = 0;
                                         }
                                         continue;
                                     }
                                 },
                                 WhitespaceMode::Comment(comment) => {
                                     if comment_i > 0 {
-                                        push!("\n");
+                                        rendered.push('\n');
+                                        current_col = 0;
                                     }
                                     let prefix = format!(
                                         //. .
@@ -969,6 +1007,15 @@ pub fn format_ast(
                                                     true
                                                 },
                                                 Ok(_) => {
+                                                    // Update current_col after format_md
+                                                    match rendered.rfind('\n') {
+                                                        Some(nl_pos) => {
+                                                            current_col = rendered[nl_pos + 1..].chars().count();
+                                                        },
+                                                        None => {
+                                                            current_col = rendered.chars().count();
+                                                        },
+                                                    }
                                                     false
                                                 },
                                             }
@@ -977,7 +1024,8 @@ pub fn format_ast(
                                     if verbatim {
                                         for (i, line) in comment.lines.lines().enumerate() {
                                             if i > 0 {
-                                                push!("\n");
+                                                rendered.push('\n');
+                                                current_col = 0;
                                             }
                                             let line = line.strip_prefix(' ').unwrap_or(line);
                                             push!(&format!("{}{}", prefix, line.trim_end()));
@@ -989,7 +1037,8 @@ pub fn format_ast(
                     },
                 }
             }
-            push!("\n");
+            rendered.push('\n');
+            current_col = 0;
             break;
         }
         line_i += 1;

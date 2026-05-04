@@ -1,8 +1,10 @@
 use {
     genemichaels_lib::{
         FormatConfig,
+        ExternalFormatterConfig,
         format_str,
     },
+    std::collections::BTreeMap,
 };
 
 fn owc(before: &str, want_after: &str, config: &FormatConfig) {
@@ -455,5 +457,94 @@ fn main() {}
 /// ```
 fn main() { }
 "#,
+    );
+}
+
+#[test]
+fn ow_external_formatter_adjust_indent_on() {
+    let mut external_formatters = BTreeMap::new();
+    external_formatters.insert("cat".to_string(), ExternalFormatterConfig {
+        commandline: vec!["cat".to_string()],
+        adjust_indent: true,
+    });
+    owc(
+        r##"fn main() {
+    let x = #[rustfmt::external("cat")]
+    r#"
+        line1
+        line2
+    "#;
+}
+"##,
+        r##"fn main() {
+    let x = #[rustfmt::external("cat")]
+    r#"
+        line1
+        line2
+       "#;
+}
+"##,
+        &FormatConfig {
+            external_formatters,
+            ..Default::default()
+        },
+    );
+}
+
+#[test]
+fn ow_external_formatter_adjust_indent_off() {
+    let mut external_formatters = BTreeMap::new();
+    external_formatters.insert("cat".to_string(), ExternalFormatterConfig {
+        commandline: vec!["cat".to_string()],
+        adjust_indent: false,
+    });
+    owc(
+        r##"fn main() {
+    let x = #[rustfmt::external("cat")]
+    r#"
+        line1
+        line2
+    "#;
+}
+"##,
+        r##"fn main() {
+    let x = #[rustfmt::external("cat")]
+    r#"
+        line1
+        line2
+    "#;
+}
+"##,
+        &FormatConfig {
+            external_formatters,
+            ..Default::default()
+        },
+    );
+}
+
+#[test]
+fn ow_external_formatter_to_raw() {
+    let mut external_formatters = BTreeMap::new();
+    external_formatters.insert("cat".to_string(), ExternalFormatterConfig {
+        commandline: vec!["cat".to_string()],
+        adjust_indent: true,
+    });
+    owc(
+        r#"fn main() {
+    let x = #[rustfmt::external("cat")]
+    "line1
+line2";
+}
+"#,
+        r##"fn main() {
+    let x = #[rustfmt::external("cat")]
+    r#"line1
+       line2"#;
+}
+"##,
+        &FormatConfig {
+            external_formatters,
+            ..Default::default()
+        },
     );
 }

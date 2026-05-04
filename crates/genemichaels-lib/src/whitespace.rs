@@ -807,8 +807,8 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
                             // Fallback to original
                         },
                     }
-                } else if let Some(command) = state.config.external_formatters.get(lang.as_str()).cloned() {
-                    match crate::run_external_formatter(&command, &x.value) {
+                } else if let Some(fmt_config) = state.config.external_formatters.get(lang.as_str()).cloned() {
+                    match crate::run_external_formatter(&fmt_config.commandline, &x.value) {
                         Ok(formatted) => {
                             content = Some(formatted);
                         },
