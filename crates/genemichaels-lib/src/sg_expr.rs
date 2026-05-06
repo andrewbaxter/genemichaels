@@ -38,10 +38,7 @@ use {
         },
     },
     loga::ea,
-    proc_macro2::{
-        Literal,
-        TokenTree,
-    },
+    proc_macro2::Literal,
     quote::ToTokens,
     syn::{
         Expr,
@@ -51,8 +48,6 @@ use {
         ExprMethodCall,
         ExprTry,
         FieldValue,
-        LitStr,
-        PathArguments,
         spanned::Spanned,
     },
 };
@@ -617,73 +612,19 @@ impl Formattable for &Expr {
                     };
                     let formatter_name = {
                         let mut found = None;
-
-                        // Expr attr... not supported yet
-                        for attr in &e.attrs {
-                            if !matches!(attr.style, syn::AttrStyle::Outer) {
-                                continue;
-                            }
-                            let syn::Meta::List(m) = &attr.meta else {
-                                continue;
-                            };
-                            let segs = &m.path.segments;
-                            if segs.len() != 2 || segs[0].ident != "rustfmt" || segs[1].ident != "external" ||
-                                !matches!(segs[0].arguments, PathArguments::None) ||
-                                !matches!(segs[1].arguments, PathArguments::None) {
-                                continue;
-                            }
-                            let Ok(lit) = syn::parse2::<LitStr>(m.tokens.clone()) else {
-                                continue;
-                            };
-                            found = Some(lit.value());
-                            break;
-                        }
-
-                        // Fake expr attr with `//#` directive comment
-                        if found.is_none() {
-                            let hl = crate::whitespace::HashLineColumn(e.lit.span().start());
-                            if let Some((_, ws_list)) = out.whitespaces.get(&hl) {
-                                'comment_search: for ws in ws_list {
-                                    let crate::WhitespaceMode::Comment(comment) = &ws.mode else {
-                                        continue;
-                                    };
-                                    if comment.mode != crate::CommentMode::Directive {
-                                        continue;
-                                    }
-                                    for line in comment.lines.lines() {
-                                        if let Some(name) = (|| {
-                                            let text = format!("#{}", line);
-                                            let ts = text.parse::<proc_macro2::TokenStream>().ok()?;
-                                            let mut iter = ts.into_iter();
-                                            let TokenTree::Punct(p) = iter.next()? else {
-                                                return None;
-                                            };
-                                            if p.as_char() != '#' {
-                                                return None;
-                                            }
-                                            let TokenTree::Group(g) = iter.next()? else {
-                                                return None;
-                                            };
-                                            if g.delimiter() != proc_macro2::Delimiter::Bracket {
-                                                return None;
-                                            }
-                                            let meta: syn::Meta = syn::parse2(g.stream()).ok()?;
-                                            let syn::Meta::List(m) = meta else {
-                                                return None;
-                                            };
-                                            let segs = &m.path.segments;
-                                            if segs.len() != 2 || segs[0].ident != "rustfmt" ||
-                                                segs[1].ident != "external" ||
-                                                !matches!(segs[0].arguments, PathArguments::None) ||
-                                                !matches!(segs[1].arguments, PathArguments::None) {
-                                                return None;
-                                            }
-                                            let lit = syn::parse2::<LitStr>(m.tokens.clone()).ok()?;
-                                            return Some(lit.value());
-                                        })() {
-                                            found = Some(name);
-                                            break 'comment_search;
-                                        }
+                        let hl = crate::whitespace::HashLineColumn(e.lit.span().start());
+                        if let Some((_, ws_list)) = out.whitespaces.get(&hl) {
+                            'comment_search: for ws in ws_list {
+                                let crate::WhitespaceMode::Comment(comment) = &ws.mode else {
+                                    continue;
+                                };
+                                if comment.mode != crate::CommentMode::Directive {
+                                    continue;
+                                }
+                                for line in comment.lines.lines() {
+                                    if let Some(name) = line.trim().strip_prefix("genem-external:") {
+                                        found = Some(name.trim().to_string());
+                                        break 'comment_search;
                                     }
                                 }
                             }

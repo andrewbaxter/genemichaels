@@ -684,8 +684,25 @@ pub fn format_str(source: &str, config: &FormatConfig) -> Result<FormatRes, loga
         source1 = source;
         shebang_line_off = 0;
     }
-    let source = source1;
-    let (whitespaces, tokens) = extract_whitespaces(config.keep_max_blank_lines, source)?;
+    let stripped_source = source1;
+    let (whitespaces, tokens) = extract_whitespaces(config.keep_max_blank_lines, stripped_source)?;
+    for ws_list in whitespaces.values() {
+        for ws in ws_list {
+            if let WhitespaceMode::Comment(comment) = &ws.mode {
+                if comment.mode == CommentMode::Directive {
+                    for line in comment.lines.lines() {
+                        if line.trim() == "genem-file-skip" {
+                            return Ok(FormatRes {
+                                rendered: source.to_string(),
+                                lost_comments: BTreeMap::new(),
+                                warnings: vec![],
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
     let out =
         format_ast(
             syn::parse2::<File>(
@@ -1011,7 +1028,7 @@ pub fn format_ast(
                                     }
                                     let prefix = format!(
                                         //. .
-                                        "{}//{}",
+                                        "{}//{} ",
                                         render_indent(config, b.get()),
                                         match comment.mode {
                                             CommentMode::Normal => "",
@@ -1019,43 +1036,22 @@ pub fn format_ast(
                                             CommentMode::DocInner => "!",
                                             CommentMode::DocOuter => "/",
                                             CommentMode::Verbatim => ".",
-                                            CommentMode::Directive => "",
+                                            CommentMode::Directive => "#",
                                         }
                                     );
                                     let verbatim;
                                     match comment.mode {
                                         CommentMode::Directive => {
-                                            let attr_prefix = format!("{}//", render_indent(config, b.get()));
                                             for (i, line) in comment.lines.lines().enumerate() {
-                                                eprintln!("directive line [{}]", line);
                                                 if i > 0 {
                                                     rendered.push('\n');
                                                 }
-                                                if line.starts_with("[") {
-                                                    eprintln!("a");
-                                                    let mut nested_config = config.clone();
-                                                    nested_config.max_width = usize::MAX;
-                                                    match crate::format_str(&format!("#{}", line), &nested_config) {
-                                                        Ok(res) => {
-                                                            eprintln!("b");
-                                                            for (i, line) in res.rendered.lines().enumerate() {
-                                                                if i > 0 {
-                                                                    rendered.push('\n');
-                                                                }
-                                                                rendered.push_str(
-                                                                    &format!("{}{}", attr_prefix, line.trim_end()),
-                                                                );
-                                                            }
-                                                            continue;
-                                                        },
-                                                        Err(e) => {
-                                                            eprintln!("c: {}", e);
-                                                        },
-                                                    }
-                                                } else {
+                                                if let Some((k, v)) = line.split_once(":") {
                                                     rendered.push_str(
-                                                        &format!("{}{}", attr_prefix, line.trim_end()),
+                                                        &format!("{}{}: {}", prefix, k.trim(), v.trim()),
                                                     );
+                                                } else {
+                                                    rendered.push_str(&format!("{}{}", prefix, line.trim()));
                                                 }
                                             }
                                             continue;
@@ -1067,12 +1063,7 @@ pub fn format_ast(
                                             verbatim = true;
                                         },
                                         _ => {
-                                            match format_md(
-                                                &mut rendered.text,
-                                                config,
-                                                &format!("{} ", prefix),
-                                                &comment.lines,
-                                            ) {
+                                            match format_md(&mut rendered.text, config, &prefix, &comment.lines) {
                                                 Err(e) => {
                                                     let err =
                                                         loga::err_with(
@@ -1108,7 +1099,7 @@ pub fn format_ast(
                                                 rendered.push('\n');
                                             }
                                             let line = line.strip_prefix(' ').unwrap_or(line);
-                                            rendered.push_str(&format!("{} {}", prefix, line.trim_end()));
+                                            rendered.push_str(&format!("{}{}", prefix, line.trim_end()));
                                         }
                                     }
                                 },

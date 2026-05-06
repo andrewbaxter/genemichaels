@@ -58,6 +58,24 @@ use {
     },
 };
 
+pub(crate) fn has_genem_skip_comment(out: &MakeSegsState, loc: LineColumn) -> bool {
+    let hl = HashLineColumn(loc);
+    if let Some((_, ws_list)) = out.whitespaces.get(&hl) {
+        for ws in ws_list {
+            if let crate::WhitespaceMode::Comment(comment) = &ws.mode {
+                if comment.mode == crate::CommentMode::Directive {
+                    for line in comment.lines.lines() {
+                        if line.trim() == "genem-skip" {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return false;
+}
+
 pub(crate) fn build_rev_pair(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
@@ -234,7 +252,8 @@ pub(crate) fn new_sg_outer_attrs(
     span_including_attrs: proc_macro2::Span,
     child: impl Formattable,
 ) -> SplitGroupIdx {
-    if attrs.is_empty() {
+    let skip_comment = has_genem_skip_comment(out, span_including_attrs.start());
+    if attrs.is_empty() && !skip_comment {
         return child.make_segs(out, base_indent);
     }
     let mut sg = new_sg(out);
@@ -255,6 +274,9 @@ pub(crate) fn new_sg_outer_attrs(
             skip_fmt = true;
         }
     }
+    if skip_comment {
+        skip_fmt = true;
+    }
     'child: {
         'to_noskip_fmt: {
             if !skip_fmt {
@@ -265,7 +287,11 @@ pub(crate) fn new_sg_outer_attrs(
             };
             let after_attr_byte_offset;
             let after_attr_line_col;
-            if let Some(attr) = attrs.last() {
+            if attrs.is_empty() {
+                append_whitespace(out, base_indent, &mut sg, span_including_attrs.start());
+                after_attr_byte_offset = span_including_attrs.span().byte_range().start;
+                after_attr_line_col = Bound::Excluded(HashLineColumn(span_including_attrs.start()));
+            } else if let Some(attr) = attrs.last() {
                 // I believe byte range must be within `source_text`: if any attr is synthetic
                 // then `source_text` should be None
                 after_attr_byte_offset = attr.span().byte_range().end;

@@ -667,7 +667,6 @@ fn rt_fake(text: &str) {
     pretty_assertions::assert_str_eq!(text, res.rendered);
 }
 
-
 #[test]
 fn rt_external_formatter_comment_code_block() {
     rt_fake(r#"/// ```fake
@@ -686,9 +685,10 @@ fn rt_comments_directive_verbatim() {
 }
 
 #[test]
-fn rt_comments_directive_bracket() {
-    rt(r#"fn main() {
-    //#[derive(Debug)]
+fn rt_genem_file_skip() {
+    rt(r#"//# genem-file-skip
+fn main() {
+    let x=1;
 }
 "#);
 }

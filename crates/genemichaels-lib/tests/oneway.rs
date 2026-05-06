@@ -409,18 +409,20 @@ fn ow_external_formatter_adjust_indent_on() {
         adjust_indent: true,
     });
     owc(r##"fn main() {
-    let x = #[rustfmt::external("sed")]
-    r#"
+    let x = 
+        //# genem-external: sed
+        r#"
         line1
         line2
     "#;
 }
 "##, r##"fn main() {
-    let x = #[rustfmt::external("sed")]
-    r#"
-       line1
-       line2
-       "#;
+    let x = 
+        //# genem-external: sed
+        r#"
+           line1
+           line2
+           "#;
 }
 "##, &FormatConfig {
         external_formatters,
@@ -436,15 +438,17 @@ fn ow_external_formatter_adjust_indent_off() {
         adjust_indent: false,
     });
     owc(r##"fn main() {
-    let x = #[rustfmt::external("cat")]
-    r#"
+    let x = 
+        //# genem-external: cat
+        r#"
         line1
         line2
     "#;
 }
 "##, r##"fn main() {
-    let x = #[rustfmt::external("cat")]
-    r#"
+    let x = 
+        //# genem-external: cat
+        r#"
         line1
         line2
     "#;
@@ -463,14 +467,16 @@ fn ow_external_formatter_to_raw() {
         adjust_indent: true,
     });
     owc(r#"fn main() {
-    let x = #[rustfmt::external("cat")]
-    "line1
+    let x = 
+        //# genem-external: cat
+        "line1
 line2";
 }
 "#, r##"fn main() {
-    let x = #[rustfmt::external("cat")]
-    r#"line1
-       line2"#;
+    let x = 
+        //# genem-external: cat
+        r#"line1
+           line2"#;
 }
 "##, &FormatConfig {
         external_formatters,
@@ -486,18 +492,20 @@ fn ow_external_formatter_left_strip() {
         adjust_indent: true,
     });
     owc(r##"fn main() {
-    let x = #[rustfmt::external("cat")]
-    r#"
+    let x = 
+        //# genem-external: cat
+        r#"
           line1
         line2
     "#;
 }
 "##, r##"fn main() {
-    let x = #[rustfmt::external("cat")]
-    r#"
-         line1
-       line2
-       "#;
+    let x = 
+        //# genem-external: cat
+        r#"
+             line1
+           line2
+           "#;
 }
 "##, &FormatConfig {
         external_formatters,
@@ -508,10 +516,11 @@ fn ow_external_formatter_left_strip() {
 #[test]
 fn rt_external_formatter_raw_string() {
     let res = format_str(r##"fn f() -> &'static str {
-    #[rustfmt::external("fake")]
-    r#"
+    let x = 
+        //# genem-external: fake
+        r#"
        aaaaa
-    "#
+    "#;
 }
 "##, &FormatConfig {
         external_formatters: BTreeMap::from([("fake".to_string(), ExternalFormatterConfig {
@@ -521,10 +530,11 @@ fn rt_external_formatter_raw_string() {
         ..Default::default()
     }).unwrap();
     pretty_assertions::assert_str_eq!(r##"fn f() -> &'static str {
-    #[rustfmt::external("fake")]
-    r#"
+    let x = 
+        //# genem-external: fake
+        r#"
        bbbbb
-    "#
+    "#;
 }
 "##, res.rendered);
 }
@@ -563,16 +573,37 @@ fn ow_directive_comment_external_formatter() {
     });
     owc(r##"fn main() {
     let x = 
-        //#[rustfmt::  external("sed")]
+        //# genem-external: sed
         "hello";
 }
 "##, r##"fn main() {
     let x = 
-        //#[rustfmt::external("sed")]
+        //# genem-external: sed
         "HELLO";
 }
 "##, &FormatConfig {
         external_formatters,
         ..Default::default()
     });
+}
+
+#[test]
+fn ow_genem_skip_no_attrs() {
+    ow(r#"fn main() {
+    //# genem-skip
+    struct SomeStrangeIndentation {
+ abcd: i32,
+                              def: String, k: Option<
+               (
+                  )>}
+}
+"#, r#"fn main() {
+    //# genem-skip
+    struct SomeStrangeIndentation {
+ abcd: i32,
+                              def: String, k: Option<
+               (
+                  )>}
+}
+"#);
 }

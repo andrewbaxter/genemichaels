@@ -1,20 +1,21 @@
 use {
     crate::{
-        new_sg,
-        sg_general::{
-            append_statement_list_raw,
-            new_sg_outer_attrs,
-        },
         Alignment,
         Formattable,
         MakeSegsState,
         SplitGroupIdx,
+        new_sg,
+        sg_general::{
+            append_statement_list_raw,
+            has_genem_skip_comment,
+            new_sg_outer_attrs,
+        },
     },
     quote::ToTokens,
     syn::{
-        spanned::Spanned,
         AttrStyle,
         File,
+        spanned::Spanned,
     },
 };
 
@@ -63,6 +64,9 @@ impl Formattable for File {
                 if attr.meta.to_token_stream().to_string().contains("rustfmt :: skip") {
                     break 'res_rustfmt_skip self.span().source_text();
                 }
+            }
+            if has_genem_skip_comment(out, self.span().start()) {
+                break 'res_rustfmt_skip self.span().source_text();
             }
             break 'res_rustfmt_skip None;
         } {

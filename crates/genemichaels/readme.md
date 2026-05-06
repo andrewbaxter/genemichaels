@@ -101,10 +101,10 @@ Since comments are assumed to be markdown they will be formatted per markdown ru
 
 ## Disabling formatting for specific files
 
-To skip specific files, in the first 5 lines of the source add a directive comment containing the `genem: off`, ex:
+To skip specific files, in the first 5 lines of the source add a directive comment containing the `genem-file-skip` anywhere, ex:
 
 ```rust
-//# genem: off
+//# genem-file-skip
 ...
 ```
 
@@ -127,9 +127,11 @@ This was a simplified explanation; there are a few other factors:
 - Alignments
 - Segments that change depending on whether their group is split or not (i.e. the `<break>` above which only breaks the line when the group is split, vs unconditional breaks)
 
-## Multi-threading
+## Skipping formatting
 
-By default Gene Michaels formats multiple files on all available cores, but this uses proportionally more memory. If you have a project with particularly large files you can restrict to a smaller number of cores in the configuration.
+Gene Michaels respects `#[rustfmt::skip]` attributes.
+
+You can also use `//# genem-skip` comments to skip formatting of the expression following.
 
 ## Comments
 
