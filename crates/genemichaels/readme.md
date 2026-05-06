@@ -79,7 +79,8 @@ Here is the default config - all values shown are defaults and can be omitted.
   // individual `use x::y::z;` statements and sorted.
   "import_normalization": "none",
   // Define external formatters with names here, which will then be used to format strings with
-  // `#[rustfmt::external("name")]` as well as comment markdown blocks with "name" as the language.
+  // directive comment `//# genem-external: name` as well as comment markdown blocks with "name"
+  // as the language.
   //
   // Entries are an array of arguments. If one argument is `{}` it will be replaced with the path
   // to a file containing the text to format. Otherwise, the text to format will be provided on the
@@ -100,10 +101,10 @@ Since comments are assumed to be markdown they will be formatted per markdown ru
 
 ## Disabling formatting for specific files
 
-To skip specific files, in the first 5 lines of the source add a comment containing `nogenemichaels`, ex:
+To skip specific files, in the first 5 lines of the source add a directive comment containing the `genem: off`, ex:
 
 ```rust
-// nogenemichaels
+//# genem: off
 ...
 ```
 

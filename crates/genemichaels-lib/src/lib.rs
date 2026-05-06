@@ -53,6 +53,7 @@ pub enum CommentMode {
     DocInner,
     DocOuter,
     Verbatim,
+    Directive,
 }
 
 #[derive(Debug, Clone)]
@@ -885,6 +886,7 @@ pub fn format_ast(
         text: String,
         col: usize,
     }
+
     impl Rendered {
         fn push_str(&mut self, s: &str) {
             self.text.push_str(s);
@@ -894,6 +896,7 @@ pub fn format_ast(
                 self.col += s.chars().count();
             }
         }
+
         fn push(&mut self, c: char) {
             self.text.push(c);
             if c == '\n' {
@@ -903,9 +906,12 @@ pub fn format_ast(
             }
         }
     }
-    // Render
-    let mut rendered = Rendered { text: String::new(), col: 0 };
 
+    // Render
+    let mut rendered = Rendered {
+        text: String::new(),
+        col: 0,
+    };
     let mut warnings = vec![];
     let lines = lines;
     let mut line_i = 0usize;
@@ -1005,7 +1011,7 @@ pub fn format_ast(
                                     }
                                     let prefix = format!(
                                         //. .
-                                        "{}//{} ",
+                                        "{}//{}",
                                         render_indent(config, b.get()),
                                         match comment.mode {
                                             CommentMode::Normal => "",
@@ -1013,17 +1019,60 @@ pub fn format_ast(
                                             CommentMode::DocInner => "!",
                                             CommentMode::DocOuter => "/",
                                             CommentMode::Verbatim => ".",
+                                            CommentMode::Directive => "",
                                         }
                                     );
-                                    let verbatim = match comment.mode {
+                                    let verbatim;
+                                    match comment.mode {
+                                        CommentMode::Directive => {
+                                            let attr_prefix = format!("{}//", render_indent(config, b.get()));
+                                            for (i, line) in comment.lines.lines().enumerate() {
+                                                eprintln!("directive line [{}]", line);
+                                                if i > 0 {
+                                                    rendered.push('\n');
+                                                }
+                                                if line.starts_with("[") {
+                                                    eprintln!("a");
+                                                    let mut nested_config = config.clone();
+                                                    nested_config.max_width = usize::MAX;
+                                                    match crate::format_str(&format!("#{}", line), &nested_config) {
+                                                        Ok(res) => {
+                                                            eprintln!("b");
+                                                            for (i, line) in res.rendered.lines().enumerate() {
+                                                                if i > 0 {
+                                                                    rendered.push('\n');
+                                                                }
+                                                                rendered.push_str(
+                                                                    &format!("{}{}", attr_prefix, line.trim_end()),
+                                                                );
+                                                            }
+                                                            continue;
+                                                        },
+                                                        Err(e) => {
+                                                            eprintln!("c: {}", e);
+                                                        },
+                                                    }
+                                                } else {
+                                                    rendered.push_str(
+                                                        &format!("{}{}", attr_prefix, line.trim_end()),
+                                                    );
+                                                }
+                                            }
+                                            continue;
+                                        },
                                         CommentMode::Verbatim => {
-                                            true
+                                            verbatim = true;
                                         },
                                         CommentMode::Normal if config.explicit_markdown_comments => {
-                                            true
+                                            verbatim = true;
                                         },
                                         _ => {
-                                            match format_md(&mut rendered.text, config, &prefix, &comment.lines) {
+                                            match format_md(
+                                                &mut rendered.text,
+                                                config,
+                                                &format!("{} ", prefix),
+                                                &comment.lines,
+                                            ) {
                                                 Err(e) => {
                                                     let err =
                                                         loga::err_with(
@@ -1039,7 +1088,7 @@ pub fn format_ast(
                                                     } else {
                                                         warnings.push(e);
                                                     }
-                                                    true
+                                                    verbatim = true;
                                                 },
                                                 Ok(_) => {
                                                     let text = &rendered.text;
@@ -1048,7 +1097,7 @@ pub fn format_ast(
                                                     } else {
                                                         text.chars().count()
                                                     };
-                                                    false
+                                                    verbatim = false;
                                                 },
                                             }
                                         },
@@ -1059,7 +1108,7 @@ pub fn format_ast(
                                                 rendered.push('\n');
                                             }
                                             let line = line.strip_prefix(' ').unwrap_or(line);
-                                            rendered.push_str(&format!("{}{}", prefix, line.trim_end()));
+                                            rendered.push_str(&format!("{} {}", prefix, line.trim_end()));
                                         }
                                     }
                                 },

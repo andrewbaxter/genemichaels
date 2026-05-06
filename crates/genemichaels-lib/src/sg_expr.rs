@@ -38,7 +38,10 @@ use {
         },
     },
     loga::ea,
-    proc_macro2::Literal,
+    proc_macro2::{
+        Literal,
+        TokenTree,
+    },
     quote::ToTokens,
     syn::{
         Expr,
@@ -612,10 +615,10 @@ impl Formattable for &Expr {
                     let syn::Lit::Str(lit_str) = &e.lit else {
                         break 'ext None;
                     };
-
-                    // Find the rustfmt::external attribute
                     let formatter_name = {
                         let mut found = None;
+
+                        // Expr attr... not supported yet
                         for attr in &e.attrs {
                             if !matches!(attr.style, syn::AttrStyle::Outer) {
                                 continue;
@@ -634,6 +637,56 @@ impl Formattable for &Expr {
                             };
                             found = Some(lit.value());
                             break;
+                        }
+
+                        // Fake expr attr with `//#` directive comment
+                        if found.is_none() {
+                            let hl = crate::whitespace::HashLineColumn(e.lit.span().start());
+                            if let Some((_, ws_list)) = out.whitespaces.get(&hl) {
+                                'comment_search: for ws in ws_list {
+                                    let crate::WhitespaceMode::Comment(comment) = &ws.mode else {
+                                        continue;
+                                    };
+                                    if comment.mode != crate::CommentMode::Directive {
+                                        continue;
+                                    }
+                                    for line in comment.lines.lines() {
+                                        if let Some(name) = (|| {
+                                            let text = format!("#{}", line);
+                                            let ts = text.parse::<proc_macro2::TokenStream>().ok()?;
+                                            let mut iter = ts.into_iter();
+                                            let TokenTree::Punct(p) = iter.next()? else {
+                                                return None;
+                                            };
+                                            if p.as_char() != '#' {
+                                                return None;
+                                            }
+                                            let TokenTree::Group(g) = iter.next()? else {
+                                                return None;
+                                            };
+                                            if g.delimiter() != proc_macro2::Delimiter::Bracket {
+                                                return None;
+                                            }
+                                            let meta: syn::Meta = syn::parse2(g.stream()).ok()?;
+                                            let syn::Meta::List(m) = meta else {
+                                                return None;
+                                            };
+                                            let segs = &m.path.segments;
+                                            if segs.len() != 2 || segs[0].ident != "rustfmt" ||
+                                                segs[1].ident != "external" ||
+                                                !matches!(segs[0].arguments, PathArguments::None) ||
+                                                !matches!(segs[1].arguments, PathArguments::None) {
+                                                return None;
+                                            }
+                                            let lit = syn::parse2::<LitStr>(m.tokens.clone()).ok()?;
+                                            return Some(lit.value());
+                                        })() {
+                                            found = Some(name);
+                                            break 'comment_search;
+                                        }
+                                    }
+                                }
+                            }
                         }
                         let Some(name) = found else {
                             break 'ext None;
@@ -693,7 +746,10 @@ impl Formattable for &Expr {
                             for (i, line) in content.split('\n').enumerate() {
                                 if !line.trim().is_empty() {
                                     if i == 0 {
-                                        first_line_start = Some(content_start_col + line.chars().take_while(|&c| c == ' ').count());
+                                        first_line_start =
+                                            Some(
+                                                content_start_col + line.chars().take_while(|&c| c == ' ').count(),
+                                            );
                                     } else {
                                         first_line_start = Some(line.chars().take_while(|&c| c == ' ').count());
                                     }
@@ -710,7 +766,8 @@ impl Formattable for &Expr {
                                             continue;
                                         }
                                         if i > 0 {
-                                            min_indent = min_indent.min(line.chars().take_while(|&c| c == ' ').count());
+                                            min_indent =
+                                                min_indent.min(line.chars().take_while(|&c| c == ' ').count());
                                         }
                                     }
                                 }

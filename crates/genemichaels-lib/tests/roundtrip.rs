@@ -62,8 +62,7 @@ fn rt_struct1() {
 
 #[test]
 fn rt_struct_generic1() {
-    rt(
-        r#"struct DefaultTupleStruct<A, B, C>(
+    rt(r#"struct DefaultTupleStruct<A, B, C>(
     A,
     #[serde(default)]
     B,
@@ -72,8 +71,7 @@ fn rt_struct_generic1() {
 )
 where
     C: MyDefault;
-"#,
-    );
+"#);
 }
 
 #[test]
@@ -135,14 +133,12 @@ fn rt_tuple_unit3() {
 
 #[test]
 fn rt_pat_field1() {
-    rt(
-        r#"fn main() {
+    rt(r#"fn main() {
     match x {
         Expr::MethodCall(ExprMethodCall { args, receiver: func, .. }) => { },
     }
 }
-"#,
-    )
+"#)
 }
 
 #[test]
@@ -187,32 +183,26 @@ fn rt_macro_star_equal_gt() {
 
 #[test]
 fn rt_comments_md_long_h1() {
-    rt(
-        r#" 
+    rt(r#" 
 // # This is a very very very unusually very very long comment that should wrap even longer and longer
-"#,
-    );
+"#);
 }
 
 #[test]
 fn rt_comments_md_long_h2() {
-    rt(
-        r#" 
+    rt(r#" 
 // ## This is a very very very unusually very very long comment that should wrap even longer and longer
-"#,
-    );
+"#);
 }
 
 #[test]
 fn rt_comments_md_long_p() {
-    rt(
-        r#" 
+    rt(r#" 
 // This is a very very very unusually very very long comment that should wrap even
 // longer and longer but make sure it wraps the same way every time
 //
 // This should be a separate paragraph
-"#,
-    );
+"#);
 }
 
 #[test]
@@ -246,14 +236,12 @@ static _x: i32 = 4i32;
 
 #[test]
 fn rt_comments_unbreakable_links1() {
-    rt(
-        r#"//! This is a very long line that will get wrapped right around check_store
+    rt(r#"//! This is a very long line that will get wrapped right around check_store
 //! [`check_store()`].
 //!
 //! [`check_store()`]: a::b::c
 fn main() { }
-"#,
-    );
+"#);
 }
 
 #[test]
@@ -385,8 +373,7 @@ fn rt_comment_before_label1() {
 #[test]
 fn rt_comment_x() {
     // https://github.com/andrewbaxter/genemichaels/issues/89
-    rt(
-        r#"fn get_valid_selection(get_actual_edit_transaction: impl Fn(
+    rt(r#"fn get_valid_selection(get_actual_edit_transaction: impl Fn(
     // current
     &Selection,
     // next
@@ -394,8 +381,7 @@ fn rt_comment_x() {
 ) -> anyhow::Result<EditTransaction>) -> anyhow::Result<Either<Selection, EditTransaction>> {
     todo!()
 }
-"#,
-    );
+"#);
 }
 
 #[test]
@@ -426,8 +412,7 @@ fn rt_comments_macro_comment() {
 
 #[test]
 fn rt_trait1() {
-    rt(
-        r#"pub trait MyTrait<T, D>: Sized
+    rt(r#"pub trait MyTrait<T, D>: Sized
 where
     T: MyTrait2,
     D: MyTrait3 {
@@ -435,8 +420,7 @@ where
     #[allow(clippy::needless_lifetimes)]
     fn another_method<'a>(&'a self) -> ReturnValue<T, D>;
 }
-"#,
-    );
+"#);
 }
 
 #[test]
@@ -457,12 +441,10 @@ where
 
 #[test]
 fn rt_empty_parens1() {
-    rt(
-        r#"fn main() {
+    rt(r#"fn main() {
     call_123456789_123456789_12346789_123456789_123456789_123456789_123456789_123456789_123456789_123456789_123456789();
 }
-"#,
-    );
+"#);
 }
 
 #[test]
@@ -559,8 +541,7 @@ fn main() { }
 
 #[test]
 fn rt_dontskip_modattrs() {
-    rt(
-        r#"#![allow(
+    rt(r#"#![allow(
     clippy::too_many_arguments,
     clippy::field_reassign_with_default,
     clippy::never_loop,
@@ -568,14 +549,12 @@ fn rt_dontskip_modattrs() {
 )]
 
 fn main() { }
-"#,
-    );
+"#);
 }
 
 #[test]
 fn rt_rustfmt_skip_all() {
-    rt(
-        r#"#![rustfmt::skip]
+    rt(r#"#![rustfmt::skip]
            fn main() {
     struct SomeStrangeIndentation {
  abcd: i32,
@@ -583,14 +562,12 @@ fn rt_rustfmt_skip_all() {
                (
                   )>}
 }
-"#,
-    );
+"#);
 }
 
 #[test]
 fn rt_rustfmt_skip_all_with_comments() {
-    rt(
-        r#"#![rustfmt::skip]
+    rt(r#"#![rustfmt::skip]
            fn main() {
     struct SomeStrangeIndentation {
  abcd: i32,
@@ -599,14 +576,12 @@ fn rt_rustfmt_skip_all_with_comments() {
                (
                   )>}
 }
-"#,
-    );
+"#);
 }
 
 #[test]
 fn rt_rustfmt_skip_subtree() {
-    rt(
-        r#"fn main() {
+    rt(r#"fn main() {
     #[rustfmt::skip]
     struct SomeStrangeIndentation {
  abcd: i32,
@@ -614,14 +589,12 @@ fn rt_rustfmt_skip_subtree() {
                (
                   )>}
 }
-"#,
-    );
+"#);
 }
 
 #[test]
 fn rt_rustfmt_skip_subtree_comment() {
-    rt(
-        r#"fn main() {
+    rt(r#"fn main() {
     #[rustfmt::skip]
     // Start comment
     struct SomeStrangeIndentation {
@@ -632,14 +605,12 @@ fn rt_rustfmt_skip_subtree_comment() {
                   )>}
     // End line end comment
 }
-"#,
-    );
+"#);
 }
 
 #[test]
 fn rt_rustfmt_skip_subtree_comment_array() {
-    rt(
-        r#"fn main() {
+    rt(r#"fn main() {
     #[rustfmt::skip]
     let src_attribs = [
         // EGL_WIDTH
@@ -658,14 +629,12 @@ fn rt_rustfmt_skip_subtree_comment_array() {
         egl::EGL_NONE,
      ];
 }
-"#,
-    );
+"#);
 }
 
 #[test]
 fn rttabs_struct_generic1() {
-    rt_tabs(
-        r#"struct DefaultTupleStruct<A, B, C>(
+    rt_tabs(r#"struct DefaultTupleStruct<A, B, C>(
 	A,
 	#[serde(default)]
 	B,
@@ -674,8 +643,7 @@ fn rttabs_struct_generic1() {
 )
 where
 	C: MyDefault;
-"#,
-    );
+"#);
 }
 
 #[test]
@@ -689,46 +657,16 @@ fn rt_const_ref() {
 fn rt_fake(text: &str) {
     let res = format_str(text, &FormatConfig {
         max_width: 120,
-        external_formatters: BTreeMap::from([(
-            "fake".to_string(),
-            ExternalFormatterConfig {
-                commandline: vec!["sed".to_string(), "s/./a/g".to_string()],
-                adjust_indent: false,
-            },
-        )]),
+        external_formatters: BTreeMap::from([("fake".to_string(), ExternalFormatterConfig {
+            commandline: vec!["sed".to_string(), "s/./a/g".to_string()],
+            adjust_indent: false,
+        })]),
         ..Default::default()
     }).unwrap();
     assert!(res.lost_comments.is_empty(), "Comments remain: {:?}", res.lost_comments);
     pretty_assertions::assert_str_eq!(text, res.rendered);
 }
 
-#[test]
-fn rt_external_formatter_raw_string() {
-    let res = format_str(r##"fn f() -> &'static str {
-    #[rustfmt::external("fake")]
-    r#"
-       aaaaa
-    "#
-}
-"##, &FormatConfig {
-        max_width: 120,
-        external_formatters: BTreeMap::from([(
-            "fake".to_string(),
-            ExternalFormatterConfig {
-                commandline: vec!["sed".to_string(), "s/a/b/g".to_string()],
-                adjust_indent: false,
-            },
-        )]),
-        ..Default::default()
-    }).unwrap();
-    pretty_assertions::assert_str_eq!(r##"fn f() -> &'static str {
-    #[rustfmt::external("fake")]
-    r#"
-       bbbbb
-    "#
-}
-"##, res.rendered);
-}
 
 #[test]
 fn rt_external_formatter_comment_code_block() {
@@ -736,5 +674,21 @@ fn rt_external_formatter_comment_code_block() {
 /// aaaaa
 /// ```
 fn f() { }
+"#);
+}
+
+#[test]
+fn rt_comments_directive_verbatim() {
+    rt(r#"fn main() {
+    //# this is verbatim
+}
+"#);
+}
+
+#[test]
+fn rt_comments_directive_bracket() {
+    rt(r#"fn main() {
+    //#[derive(Debug)]
+}
 "#);
 }
