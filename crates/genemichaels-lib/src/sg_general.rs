@@ -65,7 +65,7 @@ pub(crate) fn has_genem_skip_comment(out: &MakeSegsState, loc: LineColumn) -> bo
             if let crate::WhitespaceMode::Comment(comment) = &ws.mode {
                 if comment.mode == crate::CommentMode::Directive {
                     for line in comment.lines.lines() {
-                        if line.trim() == "genem-skip" {
+                        if line.trim() == "genemichaels-skip" {
                             return true;
                         }
                     }

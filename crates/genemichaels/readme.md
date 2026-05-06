@@ -79,7 +79,7 @@ Here is the default config - all values shown are defaults and can be omitted.
   // individual `use x::y::z;` statements and sorted.
   "import_normalization": "none",
   // Define external formatters with names here, which will then be used to format strings with
-  // directive comment `//# genem-external: name` as well as comment markdown blocks with "name"
+  // directive comment `//# genemichaels-external: name` as well as comment markdown blocks with "name"
   // as the language.
   //
   // Entries are an array of arguments. If one argument is `{}` it will be replaced with the path
@@ -101,10 +101,10 @@ Since comments are assumed to be markdown they will be formatted per markdown ru
 
 ## Disabling formatting for specific files
 
-To skip specific files, in the first 5 lines of the source add a directive comment containing the `genem-file-skip` anywhere, ex:
+To skip specific files, in the first 5 lines of the source add a directive comment containing the `genemichaels-file-skip` anywhere, ex:
 
 ```rust
-//# genem-file-skip
+//# genemichaels-file-skip
 ...
 ```
 
@@ -131,7 +131,7 @@ This was a simplified explanation; there are a few other factors:
 
 Gene Michaels respects `#[rustfmt::skip]` attributes.
 
-You can also use `//# genem-skip` comments to skip formatting of the expression following.
+You can also use `//# genemichaels-skip` comments to skip formatting of the expression following.
 
 ## Comments
 

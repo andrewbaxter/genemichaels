@@ -410,7 +410,7 @@ fn ow_external_formatter_adjust_indent_on() {
     });
     owc(r##"fn main() {
     let x = 
-        //# genem-external: sed
+        //# genemichaels-external: sed
         r#"
         line1
         line2
@@ -418,7 +418,7 @@ fn ow_external_formatter_adjust_indent_on() {
 }
 "##, r##"fn main() {
     let x = 
-        //# genem-external: sed
+        //# genemichaels-external: sed
         r#"
            line1
            line2
@@ -439,7 +439,7 @@ fn ow_external_formatter_adjust_indent_off() {
     });
     owc(r##"fn main() {
     let x = 
-        //# genem-external: cat
+        //# genemichaels-external: cat
         r#"
         line1
         line2
@@ -447,7 +447,7 @@ fn ow_external_formatter_adjust_indent_off() {
 }
 "##, r##"fn main() {
     let x = 
-        //# genem-external: cat
+        //# genemichaels-external: cat
         r#"
         line1
         line2
@@ -468,13 +468,13 @@ fn ow_external_formatter_to_raw() {
     });
     owc(r#"fn main() {
     let x = 
-        //# genem-external: cat
+        //# genemichaels-external: cat
         "line1
 line2";
 }
 "#, r##"fn main() {
     let x = 
-        //# genem-external: cat
+        //# genemichaels-external: cat
         r#"line1
            line2"#;
 }
@@ -493,7 +493,7 @@ fn ow_external_formatter_left_strip() {
     });
     owc(r##"fn main() {
     let x = 
-        //# genem-external: cat
+        //# genemichaels-external: cat
         r#"
           line1
         line2
@@ -501,7 +501,7 @@ fn ow_external_formatter_left_strip() {
 }
 "##, r##"fn main() {
     let x = 
-        //# genem-external: cat
+        //# genemichaels-external: cat
         r#"
              line1
            line2
@@ -517,7 +517,7 @@ fn ow_external_formatter_left_strip() {
 fn rt_external_formatter_raw_string() {
     let res = format_str(r##"fn f() -> &'static str {
     let x = 
-        //# genem-external: fake
+        //# genemichaels-external: fake
         r#"
        aaaaa
     "#;
@@ -531,7 +531,7 @@ fn rt_external_formatter_raw_string() {
     }).unwrap();
     pretty_assertions::assert_str_eq!(r##"fn f() -> &'static str {
     let x = 
-        //# genem-external: fake
+        //# genemichaels-external: fake
         r#"
        bbbbb
     "#;
@@ -573,12 +573,12 @@ fn ow_directive_comment_external_formatter() {
     });
     owc(r##"fn main() {
     let x = 
-        //# genem-external: sed
+        //# genemichaels-external: sed
         "hello";
 }
 "##, r##"fn main() {
     let x = 
-        //# genem-external: sed
+        //# genemichaels-external: sed
         "HELLO";
 }
 "##, &FormatConfig {
@@ -590,7 +590,7 @@ fn ow_directive_comment_external_formatter() {
 #[test]
 fn ow_genem_skip_no_attrs() {
     ow(r#"fn main() {
-    //# genem-skip
+    //# genemichaels-skip
     struct SomeStrangeIndentation {
  abcd: i32,
                               def: String, k: Option<
@@ -598,7 +598,7 @@ fn ow_genem_skip_no_attrs() {
                   )>}
 }
 "#, r#"fn main() {
-    //# genem-skip
+    //# genemichaels-skip
     struct SomeStrangeIndentation {
  abcd: i32,
                               def: String, k: Option<

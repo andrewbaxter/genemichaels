@@ -622,7 +622,7 @@ impl Formattable for &Expr {
                                     continue;
                                 }
                                 for line in comment.lines.lines() {
-                                    if let Some(name) = line.trim().strip_prefix("genem-external:") {
+                                    if let Some(name) = line.trim().strip_prefix("genemichaels-external:") {
                                         found = Some(name.trim().to_string());
                                         break 'comment_search;
                                     }

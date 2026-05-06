@@ -686,7 +686,7 @@ fn rt_comments_directive_verbatim() {
 
 #[test]
 fn rt_genem_file_skip() {
-    rt(r#"//# genem-file-skip
+    rt(r#"//# genemichaels-file-skip
 fn main() {
     let x=1;
 }

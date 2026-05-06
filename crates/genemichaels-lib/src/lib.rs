@@ -691,7 +691,7 @@ pub fn format_str(source: &str, config: &FormatConfig) -> Result<FormatRes, loga
             if let WhitespaceMode::Comment(comment) = &ws.mode {
                 if comment.mode == CommentMode::Directive {
                     for line in comment.lines.lines() {
-                        if line.trim() == "genem-file-skip" {
+                        if line.trim() == "genemichaels-file-skip" {
                             return Ok(FormatRes {
                                 rendered: source.to_string(),
                                 lost_comments: BTreeMap::new(),
