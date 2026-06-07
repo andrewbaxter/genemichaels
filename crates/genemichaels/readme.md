@@ -78,6 +78,15 @@ Here is the default config - all values shown are defaults and can be omitted.
   // combined into one `use {}` statement and sorted. With "split" mode all imports are split into
   // individual `use x::y::z;` statements and sorted.
   "import_normalization": "none",
+  // Sort declarations at module level. By default, declarations are untouched ("none").
+  // - "by_name": Moves `use` to the top, then sorts everything else by name (case insensitive).
+  // - "auto": Groups by category in this order: mod, use, macro, macro_call, const, trait, concrete.
+  //   Within each category, sorts by name. Concrete types (structs, enums, unions, type aliases,
+  //   functions) are each followed by their impl blocks.
+  // - {"by_category": ["use", "const", ...]}: Like "auto" but with a user-specified category order.
+  //   Any omitted categories are appended in the "auto" order. Categories: "mod", "use", "macro",
+  //   "macro_call", "const", "trait", "concrete".
+  "declaration_sort": "none",
   // Define external formatters with names here, which will then be used to format strings with
   // directive comment `//# genemichaels-external: name` as well as comment markdown blocks with "name"
   // as the language.

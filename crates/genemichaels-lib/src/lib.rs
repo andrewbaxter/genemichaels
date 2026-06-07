@@ -1,8 +1,8 @@
 use {
     loga::{
-        ea,
         Error,
         ResultContext,
+        ea,
     },
     proc_macro2::{
         Ident,
@@ -10,16 +10,16 @@ use {
     },
     quote::ToTokens,
     serde::{
-        Serialize,
         Deserialize,
+        Serialize,
     },
     sg_general::append_whitespace,
     std::{
-        collections::BTreeMap,
         cell::{
             Cell,
             RefCell,
         },
+        collections::BTreeMap,
         fs,
         io::Write,
         process::{
@@ -28,8 +28,8 @@ use {
         },
         rc::Rc,
     },
-    tempfile::NamedTempFile,
     syn::File,
+    tempfile::NamedTempFile,
 };
 pub use whitespace::{
     format_md,
@@ -45,6 +45,7 @@ pub(crate) mod sg_type;
 pub(crate) mod sg_root;
 pub(crate) mod sg_general_lists;
 pub(crate) mod normalize_imports;
+pub(crate) mod normalize_declarations;
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub enum CommentMode {
@@ -502,6 +503,8 @@ pub trait Formattable {
     ) {
 
     }
+
+    fn normalize_declarations(&mut self, _config: &FormatConfig) { }
 }
 
 impl<F: Fn(&mut MakeSegsState, &Alignment) -> SplitGroupIdx> Formattable for F {
@@ -557,6 +560,28 @@ pub enum ImportNormalizationMode {
     Split,
 }
 
+#[derive(Debug, Copy, Clone, Deserialize, Serialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum DeclarationSortCategory {
+    Mod,
+    Use,
+    Macro,
+    MacroCall,
+    Const,
+    Trait,
+    Concrete,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum DeclarationSortMode {
+    #[default]
+    None,
+    Auto,
+    ByName,
+    ByCategory(Vec<DeclarationSortCategory>),
+}
+
 fn default_true() -> bool {
     true
 }
@@ -584,6 +609,7 @@ pub struct FormatConfig {
     pub indent_unit: IndentUnit,
     pub explicit_markdown_comments: bool,
     pub import_normalization: ImportNormalizationMode,
+    pub declaration_sort: DeclarationSortMode,
     pub external_formatters: BTreeMap<String, ExternalFormatterConfig>,
 }
 
@@ -602,6 +628,7 @@ impl Default for FormatConfig {
             indent_unit: IndentUnit::Spaces,
             explicit_markdown_comments: false,
             import_normalization: ImportNormalizationMode::None,
+            declaration_sort: DeclarationSortMode::None,
             external_formatters: BTreeMap::new(),
         }
     }
@@ -735,6 +762,7 @@ pub fn format_ast(
     let mut whitespaces: BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)> =
         whitespaces.into_iter().map(|(k, v)| (k, (1, v))).collect();
     ast.normalize_imports(config, &mut whitespaces);
+    ast.normalize_declarations(config);
 
     // Ensure any orphaned whitespace from import normalization (e.g. removed commas)
     // is preserved in order to alert for formatting bugs (i.e. import normalization

@@ -34,6 +34,13 @@ impl Formattable for File {
         }
     }
 
+    fn normalize_declarations(&mut self, config: &crate::FormatConfig) {
+        if config.declaration_sort != crate::DeclarationSortMode::None {
+            let mut normalizer = crate::normalize_declarations::DeclarationNormalizer { config };
+            syn::visit_mut::VisitMut::visit_file_mut(&mut normalizer, self);
+        }
+    }
+
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
         fn build_inner(out: &mut MakeSegsState, base_indent: &Alignment, ast: &File) -> SplitGroupIdx {
             new_sg_outer_attrs(

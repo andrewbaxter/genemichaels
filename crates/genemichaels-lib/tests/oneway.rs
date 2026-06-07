@@ -1,5 +1,7 @@
 use {
     genemichaels_lib::{
+        DeclarationSortCategory,
+        DeclarationSortMode,
         ExternalFormatterConfig,
         FormatConfig,
         format_str,
@@ -668,6 +670,230 @@ fn ow_vec_macro_trailing_comma_split() {
 }
 "#, &FormatConfig {
         max_width: 20,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_declaration_sort_none() {
+    owc(r#"fn b() { }
+
+fn a() { }
+"#, r#"fn b() { }
+
+fn a() { }
+"#, &FormatConfig {
+        declaration_sort: DeclarationSortMode::None,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_declaration_sort_by_name() {
+    owc(r#"fn b() { }
+
+fn a() { }
+
+use std::fmt;
+"#, r#"use std::fmt;
+
+fn a() { }
+
+fn b() { }
+"#, &FormatConfig {
+        declaration_sort: DeclarationSortMode::ByName,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_declaration_sort_by_name_case_insensitive() {
+    owc(r#"fn Zebra() { }
+
+fn apple() { }
+"#, r#"fn apple() { }
+
+fn Zebra() { }
+"#, &FormatConfig {
+        declaration_sort: DeclarationSortMode::ByName,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_declaration_sort_auto() {
+    owc(r#"fn my_func() { }
+
+struct MyStruct { }
+
+use std::fmt;
+
+mod mymod;
+
+trait MyTrait { }
+
+const X: i32 = 1;
+"#, r#"mod mymod;
+
+use std::fmt;
+
+const X: i32 = 1;
+
+trait MyTrait { }
+
+fn my_func() { }
+
+struct MyStruct {}
+"#, &FormatConfig {
+        declaration_sort: DeclarationSortMode::Auto,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_declaration_sort_auto_impl_follows_type() {
+    owc(r#"impl MyStruct {
+    fn method(&self) { }
+}
+
+struct MyStruct { }
+"#, r#"struct MyStruct {}
+
+impl MyStruct {
+    fn method(&self) { }
+}
+"#, &FormatConfig {
+        declaration_sort: DeclarationSortMode::Auto,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_declaration_sort_by_category_custom_order() {
+    owc(r#"fn my_func() { }
+
+use std::fmt;
+
+const X: i32 = 1;
+"#, r#"const X: i32 = 1;
+
+use std::fmt;
+
+fn my_func() { }
+"#, &FormatConfig {
+        declaration_sort: DeclarationSortMode::ByCategory(
+            vec![DeclarationSortCategory::Const, DeclarationSortCategory::Use, DeclarationSortCategory::Concrete],
+        ),
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_declaration_sort_by_name_comments_move_with_items() {
+    owc(r#"// Comment for b
+fn b() { }
+
+// Comment for a
+fn a() { }
+"#, r#"// Comment for a
+fn a() { }
+
+// Comment for b
+fn b() { }
+"#, &FormatConfig {
+        declaration_sort: DeclarationSortMode::ByName,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_declaration_sort_by_name_comments_no_lost() {
+    let res = format_str(r#"// Comment for b
+fn b() { }
+
+// Comment for a
+fn a() { }
+"#, &FormatConfig {
+        declaration_sort: DeclarationSortMode::ByName,
+        ..Default::default()
+    }).unwrap();
+    assert!(res.lost_comments.is_empty(), "Lost comments: {:?}", res.lost_comments);
+}
+
+#[test]
+fn ow_declaration_sort_auto_comments_move_with_items() {
+    owc(r#"// My function
+fn my_func() { }
+
+// My import
+use std::fmt;
+
+// My module
+mod mymod;
+"#, r#"// My module
+mod mymod;
+
+// My import
+use std::fmt;
+
+// My function
+fn my_func() { }
+"#, &FormatConfig {
+        declaration_sort: DeclarationSortMode::Auto,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_declaration_sort_auto_comments_no_lost() {
+    let res = format_str(r#"// My function
+fn my_func() { }
+
+// My import
+use std::fmt;
+
+// My module
+mod mymod;
+"#, &FormatConfig {
+        declaration_sort: DeclarationSortMode::Auto,
+        ..Default::default()
+    }).unwrap();
+    assert!(res.lost_comments.is_empty(), "Lost comments: {:?}", res.lost_comments);
+}
+
+#[test]
+fn ow_declaration_sort_by_name_doc_comments_move_with_items() {
+    owc(r#"/// Documentation for b
+fn b() { }
+
+/// Documentation for a
+fn a() { }
+"#, r#"/// Documentation for a
+fn a() { }
+
+/// Documentation for b
+fn b() { }
+"#, &FormatConfig {
+        declaration_sort: DeclarationSortMode::ByName,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_declaration_sort_by_name_multiline_comments() {
+    owc(r#"// First line for z
+// Second line for z
+fn z() { }
+
+// Comment for a
+fn a() { }
+"#, r#"// Comment for a
+fn a() { }
+
+// First line for z Second line for z
+fn z() { }
+"#, &FormatConfig {
+        declaration_sort: DeclarationSortMode::ByName,
         ..Default::default()
     });
 }
