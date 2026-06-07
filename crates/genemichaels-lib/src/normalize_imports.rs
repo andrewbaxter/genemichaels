@@ -163,13 +163,16 @@ fn process_item_uses(
 
             // Create a `use` tree per group
             for mut subgroup in groups {
-                if subgroup.len() == 1 {
+                if subgroup.len() == 1 && !matches!(subgroup[0].tree, UseTree::Group(_)) {
                     new_items.push(subgroup.pop().unwrap());
                     continue;
                 }
 
-                // Move the `use`/`;` whitespace onto the first child to avoid losing it
-                for item in subgroup.iter() {
+                // Move the `use`/`;` whitespace onto the first child to avoid
+                // losing it. Only needed when merging multiple `use` statements
+                // (whose use/semi tokens disappear); for a single `use { ... };`
+                // the tokens are preserved in the template.
+                for item in if subgroup.len() > 1 { subgroup.iter() } else { [].iter() } {
                     let tree_start = HashLineColumn(item.tree.span().start());
                     for span in [item.use_token.span, item.semi_token.span] {
                         let hl = HashLineColumn(span.start());

@@ -388,6 +388,40 @@ use std::
 }
 
 #[test]
+fn ow_import_normalization_combine_single_use_group() {
+    owc(r#"use {
+    crate::{
+        a::B,
+        c::D,
+    },
+    flowcontrol::shed,
+    dumpster::unsync::Gc,
+    v8::tc_scope,
+    jswrap::JsWrap,
+    core::mem,
+    core::marker::Copy,
+};
+"#, r#"use {
+    core::{
+        marker::Copy,
+        mem,
+    },
+    crate::{
+        a::B,
+        c::D,
+    },
+    dumpster::unsync::Gc,
+    flowcontrol::shed,
+    jswrap::JsWrap,
+    v8::tc_scope,
+};
+"#, &FormatConfig {
+        import_normalization: genemichaels_lib::ImportNormalizationMode::Combine,
+        ..Default::default()
+    });
+}
+
+#[test]
 fn ow_format_rust_in_comment() {
     ow(r#"/// ```rust
 /// fn  foo(  )  {

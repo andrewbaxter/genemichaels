@@ -692,3 +692,25 @@ fn main() {
 }
 "#);
 }
+
+#[test]
+fn rt_import_normalization_combine_single_use_group_doc_comment() {
+    let text = r#"//! Doc comment line one
+//!
+//! Doc comment line two
+use {
+    a::A,
+    b::B,
+};
+
+fn main() { }
+"#;
+    let res = format_str(text, &FormatConfig {
+        max_width: 120,
+        keep_max_blank_lines: 0,
+        import_normalization: genemichaels_lib::ImportNormalizationMode::Combine,
+        ..Default::default()
+    }).unwrap();
+    assert!(res.lost_comments.is_empty(), "Comments remain: {:?}", res.lost_comments);
+    pretty_assertions::assert_str_eq!(text, res.rendered);
+}
