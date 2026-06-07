@@ -141,6 +141,7 @@ pub(crate) fn append_attr(
             },
             syn::Meta::List(m) => {
                 sg.child(build_path(out, &indent, &m.path));
+                let _in_macro = IncMacroDepth::new(out);
                 append_macro_body_bracketed(out, &indent, &mut sg, &m.delimiter, m.tokens.clone());
             },
             syn::Meta::NameValue(m) => {
@@ -350,6 +351,15 @@ pub(crate) fn new_sg_outer_attrs(
     sg.build(out)
 }
 
+fn is_normal_rust_macro(mac: &Macro) -> bool {
+    mac.path.leading_colon.is_none() && mac.path.segments.len() == 1 &&
+        mac
+            .path
+            .segments
+            .first()
+            .is_some_and(|s| s.ident == "vec" && matches!(s.arguments, syn::PathArguments::None))
+}
+
 pub(crate) fn append_macro_bracketed(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
@@ -357,6 +367,11 @@ pub(crate) fn append_macro_bracketed(
     mac: &Macro,
     semi: bool,
 ) {
+    let _in_macro = if !is_normal_rust_macro(mac) {
+        Some(IncMacroDepth::new(out))
+    } else {
+        None
+    };
     append_macro_body_bracketed(out, base_indent, sg, &mac.delimiter, mac.tokens.clone());
     if semi {
         sg.seg(out, ";");
@@ -425,8 +440,6 @@ pub(crate) fn append_macro_body(
     sg: &mut SplitGroupBuilder,
     tokens: TokenStream,
 ) {
-    let _in_macro = IncMacroDepth::new(out);
-
     // Try to parse entire macro like a function call
     if let Ok(exprs) = syn::parse2::<ExprCall>(quote!{
         f(#tokens)
@@ -434,7 +447,11 @@ pub(crate) fn append_macro_body(
         if exprs.args.len() == 1 && matches!(exprs.args.iter().next(), Some(Expr::Verbatim(_))) {
             // not really parsed, continue
         } else {
-            append_inline_list_raw(out, base_indent, sg, ",", &exprs.args, InlineListSuffix::<Expr>::VerbatimPunct);
+            append_inline_list_raw(out, base_indent, sg, ",", &exprs.args, if out.macro_depth.get() == 0 {
+                InlineListSuffix::<Expr>::Punct
+            } else {
+                InlineListSuffix::<Expr>::VerbatimPunct
+            });
             return;
         }
     }

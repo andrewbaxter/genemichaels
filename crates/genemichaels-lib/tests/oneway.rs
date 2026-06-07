@@ -1,7 +1,7 @@
 use {
     genemichaels_lib::{
-        FormatConfig,
         ExternalFormatterConfig,
+        FormatConfig,
         format_str,
     },
     std::collections::BTreeMap,
@@ -640,4 +640,34 @@ fn ow_genem_skip_no_attrs() {
                   )>}
 }
 "#);
+}
+
+#[test]
+fn ow_vec_macro_trailing_comma() {
+    ow(r#"fn main() {
+    let x = vec![1, 2, 3,];
+}
+"#, r#"fn main() {
+    let x = vec![1, 2, 3];
+}
+"#);
+}
+
+#[test]
+fn ow_vec_macro_trailing_comma_split() {
+    owc(r#"fn main() {
+    let x = vec![1, 2, 3];
+}
+"#, r#"fn main() {
+    let x =
+        vec![
+            1,
+            2,
+            3,
+        ];
+}
+"#, &FormatConfig {
+        max_width: 20,
+        ..Default::default()
+    });
 }

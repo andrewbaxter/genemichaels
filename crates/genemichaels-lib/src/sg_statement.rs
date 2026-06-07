@@ -1,45 +1,45 @@
 use {
     crate::{
+        Alignment,
+        Formattable,
+        FormattableStmt,
+        IncMacroDepth,
+        MakeSegsState,
+        MarginGroup,
+        SplitGroupBuilder,
+        SplitGroupIdx,
+        check_split_brace_threshold,
         new_sg,
         new_sg_lit,
         sg_general::{
             append_binary,
             append_bracketed_statement_list,
-            append_whitespace,
             append_macro_body,
-            new_sg_outer_attrs,
+            append_macro_bracketed,
+            append_whitespace,
             new_sg_binary,
             new_sg_block,
             new_sg_macro,
-            append_macro_bracketed,
+            new_sg_outer_attrs,
+        },
+        sg_general_lists::{
+            InlineListSuffix,
+            append_bracketed_list,
+            append_bracketed_list_common,
+            append_bracketed_list_curly,
+            append_inline_list,
+            new_sg_bracketed_list,
         },
         sg_type::{
-            append_path,
-            build_path,
-            build_generics_part_b,
-            append_generics_part_a,
             append_generics,
-        },
-        Alignment,
-        Formattable,
-        FormattableStmt,
-        MakeSegsState,
-        MarginGroup,
-        SplitGroupBuilder,
-        check_split_brace_threshold,
-        SplitGroupIdx,
-        sg_general_lists::{
-            append_inline_list,
-            append_bracketed_list,
-            append_bracketed_list_curly,
-            new_sg_bracketed_list,
-            append_bracketed_list_common,
-            InlineListSuffix,
+            append_generics_part_a,
+            append_path,
+            build_generics_part_b,
+            build_path,
         },
     },
     quote::ToTokens,
     syn::{
-        spanned::Spanned,
         Expr,
         Field,
         ForeignItem,
@@ -53,6 +53,7 @@ use {
         UseTree,
         Variant,
         Visibility,
+        spanned::Spanned,
     },
 };
 
@@ -315,6 +316,7 @@ impl Formattable for ForeignItem {
                 },
             ),
             ForeignItem::Verbatim(x) => {
+                let _in_macro = IncMacroDepth::new(out);
                 let mut sg = new_sg(out);
                 append_macro_body(out, base_indent, &mut sg, x.clone());
                 sg.build(out)
@@ -447,6 +449,7 @@ impl Formattable for ImplItem {
                 },
             ),
             ImplItem::Verbatim(x) => {
+                let _in_macro = IncMacroDepth::new(out);
                 let mut sg = new_sg(out);
                 append_macro_body(out, base_indent, &mut sg, x.clone());
                 sg.build(out)
@@ -617,6 +620,7 @@ impl Formattable for TraitItem {
                 },
             ),
             TraitItem::Verbatim(x) => {
+                let _in_macro = IncMacroDepth::new(out);
                 let mut sg = new_sg(out);
                 append_macro_body(out, base_indent, &mut sg, x.clone());
                 sg.build(out)
@@ -1114,6 +1118,7 @@ impl Formattable for Item {
                 },
             ),
             Item::Verbatim(x) => {
+                let _in_macro = IncMacroDepth::new(out);
                 let mut sg = new_sg(out);
                 append_macro_body(out, base_indent, &mut sg, x.clone());
                 sg.build(out)

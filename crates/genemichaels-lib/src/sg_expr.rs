@@ -2,6 +2,7 @@ use {
     crate::{
         Alignment,
         Formattable,
+        IncMacroDepth,
         MakeSegsState,
         Segment,
         SegmentContent,
@@ -1132,6 +1133,7 @@ impl Formattable for &Expr {
                 },
             ),
             Expr::Verbatim(e) => {
+                let _in_macro = IncMacroDepth::new(out);
                 let mut sg = new_sg(out);
                 append_macro_body(out, base_indent, &mut sg, e.clone());
                 sg.build(out)
