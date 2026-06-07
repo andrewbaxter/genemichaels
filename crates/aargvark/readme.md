@@ -186,43 +186,83 @@ This is the capitalized text (like XYZ) after an option that basically means "se
 
 The `vark()` method will output completions when:
 
-- The environment variable `VARK_COMPLETE` is set with the value `empty` or `partial`
+- The environment variable `AARGVARK_COMPLETE` is set with the value `empty` or `partial`
 
   `empty` means a new (empty) argument is being started, and `partial` means that the last argument hasn't been completed yet. The reason this must be passed in externally is because the space at the end will be stripped by the time the program is executed.
 
 - The command line with one discarded initial argument is provided
 
-  The discarded initial argument allows you to pass `COMP_LINE` in bash verbatim (which contains the program argument). This is probaly easier than parsing, removing the argument, then re-quoting and splatting in bash.
+  The discarded initial argument allows you to pass `COMP_LINE` in bash verbatim (which contains the program argument). This is probably easier than parsing, removing the argument, then re-quoting and splatting in bash.
 
   If your shell doesn't include the program name, you can just add `""` or something to pad the arguments.
 
-One completion is printed per line on stdout. This is the output format `bash` expects.
+One completion is printed per line on stdout.
 
-The completions are always relative to the end of the command line - internal completion isn't supported and you'll get line-end completions if you attempt it which could be confusing.
+Completions work at any cursor position — the shell integration truncates the command line at the cursor position before passing it to the program, so completions are always generated for the argument under the cursor. Arguments after the cursor are kept as-is.
 
 In order to use these autocompletions, you need to configure your shell to invoke it.
 
-For bash, something like:
+#### Bash
 
 ```shell
-_my_program () {
-  # Only invoke if the cursor is at the end of the line
-  if [[ $COMP_POINT == ${#COMP_LINE} ]]; then
+_my_program() {
+    # Truncate the command line at the cursor position so completions work
+    # at any point in the line, not just the end
+    local truncated="${COMP_LINE:0:$COMP_POINT}"
 
-    # Determine if a new argument is being started, or a partially written argument
-    # is being finished
+    # Determine if a new argument is being started, or a partially written
+    # argument is being finished
     local vark_complete_type
-    if [[ "$COMP_LINE" == *" " ]]; then
+    if [[ "$truncated" == *" " ]]; then
         vark_complete_type=empty
     else
         vark_complete_type=partial
     fi
 
     # Call the program to generate and output completion options
-    AARGVARK_COMPLETE=$vark_complete_type my_program $COMP_LINE
-  fi
+    local IFS=$'\n'
+    COMPREPLY=($(AARGVARK_COMPLETE=$vark_complete_type my_program $truncated 2>/dev/null))
 }
-complete -C _my_program my_program
+complete -o nosort -F _my_program my_program
+```
+
+#### Zsh
+
+```shell
+_my_program() {
+    # Build args up to cursor position (words[1] is the command name)
+    local -a truncated_words=("${words[1,CURRENT]}")
+
+    # Determine if completing a partial word or starting a new one
+    local vark_complete_type
+    if [[ -n "$PREFIX" ]]; then
+        vark_complete_type=partial
+    else
+        vark_complete_type=empty
+    fi
+
+    # Call the program and collect completions
+    local -a completions
+    completions=("${(@f)$(AARGVARK_COMPLETE=$vark_complete_type my_program "${truncated_words[@]}" 2>/dev/null)}")
+
+    # Add completions (suppress default sorting to preserve program order)
+    compadd -U -V unsorted -- "${completions[@]}"
+}
+compdef _my_program my_program
+```
+
+#### Fish
+
+```shell
+complete -c my_program -f -a '(
+    set -l tokens (commandline -cop)
+    set -l current (commandline -ct)
+    if test -z "$current"
+        AARGVARK_COMPLETE=empty my_program $tokens 2>/dev/null
+    else
+        AARGVARK_COMPLETE=partial my_program $tokens $current 2>/dev/null
+    end
+)'
 ```
 
 ### Custom completions

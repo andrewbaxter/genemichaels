@@ -270,3 +270,68 @@ fn t_autocomplete_enum_partial() {
     let v = vark_complete::<Yomo>(aargvark::CompleteCursorPosition::Partial, None, svec!["o"]);
     assert_eq!(v, vec![vec!["one".to_string()], vec!["ochre".to_string()]]);
 }
+
+#[test]
+fn t_autocomplete_mid_partial() {
+    // Simulates mid-line completion: cursor is at end of a partial arg that isn't the
+    // last arg on the line. The shell truncates COMP_LINE at COMP_POINT before passing
+    // it, so vark_complete only sees args up to the cursor.
+    #[allow(dead_code)]
+    #[derive(Aargvark)]
+    struct TwoFields {
+        first: bool,
+        second: String,
+    }
+
+    // Completing "tr" as the first field, as if "tr something_else" were the full line
+    // but we truncated at cursor position. Should suggest "true".
+    let v = vark_complete::<TwoFields>(aargvark::CompleteCursorPosition::Partial, None, svec!["tr"]);
+    assert_eq!(v, vec![vec!["true".to_string()]]);
+}
+
+#[test]
+fn t_autocomplete_mid_empty() {
+    // Simulates mid-line completion: cursor is after a space in the middle of the line.
+    // The shell truncates at COMP_POINT and determines cursor type is "empty".
+    #[derive(Aargvark)]
+    enum Cmd {
+        Start,
+        Stop,
+    }
+
+    #[allow(dead_code)]
+    #[derive(Aargvark)]
+    struct Args {
+        cmd: Cmd,
+        name: String,
+    }
+
+    // Cursor is right after "start " (with trailing space), as if the full line were
+    // "start old_name". We only pass what's before the cursor.
+    let v = vark_complete::<Args>(aargvark::CompleteCursorPosition::Empty, None, svec!["start"]);
+    // After parsing "start" as the cmd, completion for the next field (String) returns
+    // empty since String has no meaningful completions.
+    assert_eq!(v, Vec::<Vec<String>>::new());
+}
+
+#[test]
+fn t_autocomplete_mid_partial_enum() {
+    // Mid-line completion on an enum variant tag in the middle of the arg list
+    #[derive(Aargvark)]
+    enum Color {
+        Red,
+        Rose,
+        Blue,
+    }
+
+    #[allow(dead_code)]
+    #[derive(Aargvark)]
+    struct PaintArgs {
+        color: Color,
+        surface: String,
+    }
+
+    // Completing "r" for the color field, as if full line were "r wall"
+    let v = vark_complete::<PaintArgs>(aargvark::CompleteCursorPosition::Partial, None, svec!["r"]);
+    assert_eq!(v, vec![vec!["red".to_string()], vec!["rose".to_string()]]);
+}
