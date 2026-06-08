@@ -58,67 +58,6 @@ use {
     },
 };
 
-pub(crate) fn has_genem_skip_comment(out: &MakeSegsState, loc: LineColumn) -> bool {
-    let hl = HashLineColumn(loc);
-    if let Some((_, ws_list)) = out.whitespaces.get(&hl) {
-        for ws in ws_list {
-            if let crate::WhitespaceMode::Comment(comment) = &ws.mode {
-                if comment.mode == crate::CommentMode::Directive {
-                    for line in comment.lines.lines() {
-                        if line.trim() == "genemichaels-skip" {
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
-    }
-    return false;
-}
-
-pub(crate) fn build_rev_pair(
-    out: &mut MakeSegsState,
-    base_indent: &Alignment,
-    base: impl Formattable,
-    right: impl Formattable,
-) -> SplitGroupIdx {
-    let mut sg = new_sg(out);
-    sg.child(base.make_segs(out, base_indent));
-    sg.seg(out, " ");
-    sg.child(right.make_segs(out, base_indent));
-    sg.reverse_children();
-    sg.build(out)
-}
-
-pub(crate) fn append_binary(
-    out: &mut MakeSegsState,
-    base_indent: &Alignment,
-    node: &mut SplitGroupBuilder,
-    tok: &str,
-    right: impl Formattable,
-) {
-    node.seg(out, tok);
-    let indent = base_indent.indent();
-    node.split(out, indent.clone(), true);
-    node.seg_unsplit(out, " ");
-    node.child(right.make_segs(out, &indent));
-}
-
-pub(crate) fn new_sg_binary(
-    out: &mut MakeSegsState,
-    base_indent: &Alignment,
-    left: impl Formattable,
-    tok_loc: LineColumn,
-    tok: &str,
-    right: impl Formattable,
-) -> SplitGroupIdx {
-    let mut sg = new_sg(out);
-    sg.child(left.make_segs(out, base_indent));
-    append_whitespace(out, base_indent, &mut sg, tok_loc);
-    append_binary(out, base_indent, &mut sg, tok, right);
-    sg.build(out)
-}
-
 pub(crate) fn append_attr(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
@@ -163,50 +102,18 @@ pub(crate) fn append_attr(
     });
 }
 
-pub(crate) fn append_statement_list_raw(
+pub(crate) fn append_binary(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
-    sg: &mut SplitGroupBuilder,
-    attrs: Option<&Vec<Attribute>>,
-    block: &Vec<impl FormattableStmt>,
+    node: &mut SplitGroupBuilder,
+    tok: &str,
+    right: impl Formattable,
 ) {
-    if check_split_brace_threshold(out, block.len()) ||
-        block.iter().any(|s| has_comments(out, s) || (s.has_attrs() && out.config.split_attributes)) {
-        sg.initial_split();
-    }
-    sg.seg_unsplit(out, " ");
-    let mut previous_margin_group = crate::MarginGroup::None;
-    let mut i = 0;
-    for attr in attrs.unwrap_or(&vec![]) {
-        match attr.style {
-            syn::AttrStyle::Outer => {
-                continue;
-            },
-            syn::AttrStyle::Inner(_) => { },
-        };
-        if i > 0 {
-            sg.split_if(out, base_indent.clone(), out.config.split_attributes, false);
-        }
-        append_attr(out, base_indent, sg, attr);
-        if !out.config.split_attributes {
-            sg.seg_unsplit(out, " ");
-        }
-        previous_margin_group = MarginGroup::Attr;
-        i += 1;
-    }
-    for el in block {
-        let (new_margin_group, want_margin) = el.want_margin();
-        if i > 0 {
-            if previous_margin_group != new_margin_group || want_margin || has_comments(out, el) {
-                sg.split(out, base_indent.clone(), true);
-            }
-            sg.split(out, base_indent.clone(), true);
-        }
-        sg.child((el).make_segs(out, base_indent));
-        sg.seg_unsplit(out, " ");
-        previous_margin_group = new_margin_group;
-        i += 1;
-    }
+    node.seg(out, tok);
+    let indent = base_indent.indent();
+    node.split(out, indent.clone(), true);
+    node.seg_unsplit(out, " ");
+    node.child(right.make_segs(out, &indent));
 }
 
 pub(crate) fn append_bracketed_statement_list(
@@ -230,208 +137,6 @@ pub(crate) fn append_bracketed_statement_list(
     append_whitespace(out, &indent, sg, suffix_start);
     sg.split(out, base_indent.clone(), false);
     sg.seg(out, "}");
-}
-
-pub(crate) fn new_sg_block(
-    out: &mut MakeSegsState,
-    base_indent: &Alignment,
-    prefix_start: LineColumn,
-    prefix: &'static str,
-    attrs: Option<&Vec<Attribute>>,
-    block: &Vec<impl FormattableStmt>,
-    suffix_start: LineColumn,
-) -> SplitGroupIdx {
-    let mut sg = new_sg(out);
-    append_bracketed_statement_list(out, base_indent, &mut sg, prefix_start, prefix, attrs, block, suffix_start);
-    sg.build(out)
-}
-
-pub(crate) fn new_sg_outer_attrs(
-    out: &mut MakeSegsState,
-    base_indent: &Alignment,
-    attrs: &Vec<Attribute>,
-    span_including_attrs: proc_macro2::Span,
-    child: impl Formattable,
-) -> SplitGroupIdx {
-    let skip_comment = has_genem_skip_comment(out, span_including_attrs.start());
-    if attrs.is_empty() && !skip_comment {
-        return child.make_segs(out, base_indent);
-    }
-    let mut sg = new_sg(out);
-    let mut skip_fmt = false;
-    for attr in attrs {
-        match attr.style {
-            syn::AttrStyle::Outer => { },
-            syn::AttrStyle::Inner(_) => {
-                continue;
-            },
-        };
-        append_attr(out, base_indent, &mut sg, attr);
-        if !out.config.split_attributes {
-            sg.seg_unsplit(out, " ");
-        }
-        sg.split_if(out, base_indent.clone(), out.config.split_attributes, false);
-        if attr.meta.to_token_stream().to_string().contains("rustfmt :: skip") {
-            skip_fmt = true;
-        }
-    }
-    if skip_comment {
-        skip_fmt = true;
-    }
-    'child: {
-        'to_noskip_fmt: {
-            if !skip_fmt {
-                break 'to_noskip_fmt;
-            }
-            let Some(text) = span_including_attrs.source_text() else {
-                break 'to_noskip_fmt;
-            };
-            let after_attr_byte_offset;
-            let after_attr_line_col;
-            if attrs.is_empty() {
-                append_whitespace(out, base_indent, &mut sg, span_including_attrs.start());
-                after_attr_byte_offset = span_including_attrs.span().byte_range().start;
-                after_attr_line_col = Bound::Excluded(HashLineColumn(span_including_attrs.start()));
-            } else if let Some(attr) = attrs.last() {
-                // I believe byte range must be within `source_text`: if any attr is synthetic
-                // then `source_text` should be None
-                after_attr_byte_offset = attr.span().byte_range().end;
-                after_attr_line_col = Bound::Excluded(HashLineColumn(attr.span().end()));
-            } else {
-                after_attr_byte_offset = 0;
-                after_attr_line_col = Bound::Included(HashLineColumn(span_including_attrs.start()));
-            }
-            sg.seg(out, &text[after_attr_byte_offset - span_including_attrs.span().byte_range().start..]);
-
-            // Remove comments used within subtree from global block
-            let remove_whitespaces_keys =
-                out
-                    .whitespaces
-                    .range((after_attr_line_col, Bound::Included(HashLineColumn(span_including_attrs.end()))))
-                    .map(|x| *x.0)
-                    .collect::<Vec<_>>();
-            for k in remove_whitespaces_keys {
-                let (_, ws) = out.whitespaces.remove(&k).unwrap();
-
-                // Line end comments after the end of the unformatted span will get lost since
-                // they should be included by span formatting. This checks if they've been missed
-                // and smashes them on the end.
-                for ws in ws {
-                    match ws.mode {
-                        WhitespaceMode::BlankLines(_) => { },
-                        WhitespaceMode::Comment(comment) => {
-                            if match span_including_attrs.byte_range().end_bound() {
-                                Bound::Included(x) => comment.orig_start_offset <= *x,
-                                Bound::Excluded(x) => comment.orig_start_offset < *x,
-                                Bound::Unbounded => unreachable!(),
-                            } {
-                                continue;
-                            }
-                            sg.add(out, crate::Segment {
-                                node: sg.node,
-                                line: None,
-                                mode: crate::SegmentMode::All,
-                                content: crate::SegmentContent::Whitespace((base_indent.clone(), vec![Whitespace {
-                                    loc: k.0,
-                                    mode: WhitespaceMode::Comment(crate::Comment {
-                                        mode: crate::CommentMode::Normal,
-                                        lines: comment.lines,
-                                        orig_start_offset: 0,
-                                    }),
-                                }])),
-                            });
-                        },
-                    }
-                }
-            }
-            break 'child;
-        }
-        sg.child(child.make_segs(out, base_indent));
-    }
-    sg.build(out)
-}
-
-fn is_normal_rust_macro(mac: &Macro) -> bool {
-    mac.path.leading_colon.is_none() && mac.path.segments.len() == 1 &&
-        mac
-            .path
-            .segments
-            .first()
-            .is_some_and(|s| s.ident == "vec" && matches!(s.arguments, syn::PathArguments::None))
-}
-
-pub(crate) fn append_macro_bracketed(
-    out: &mut MakeSegsState,
-    base_indent: &Alignment,
-    sg: &mut SplitGroupBuilder,
-    mac: &Macro,
-    semi: bool,
-) {
-    let _in_macro = if !is_normal_rust_macro(mac) {
-        Some(IncMacroDepth::new(out))
-    } else {
-        None
-    };
-    append_macro_body_bracketed(out, base_indent, sg, &mac.delimiter, mac.tokens.clone());
-    if semi {
-        sg.seg(out, ";");
-    }
-}
-
-pub(crate) fn new_sg_macro(
-    out: &mut MakeSegsState,
-    base_indent: &Alignment,
-    mac: &Macro,
-    semi: bool,
-) -> SplitGroupIdx {
-    let mut sg = new_sg(out);
-    sg.child(build_path(out, base_indent, &mac.path));
-    sg.seg(out, "!");
-    append_macro_bracketed(out, base_indent, &mut sg, mac, semi);
-    sg.build(out)
-}
-
-pub(crate) fn append_macro_body_bracketed(
-    out: &mut MakeSegsState,
-    base_indent: &Alignment,
-    sg: &mut SplitGroupBuilder,
-    delim: &MacroDelimiter,
-    tokens: TokenStream,
-) {
-    let indent = base_indent.indent();
-    match delim {
-        syn::MacroDelimiter::Paren(x) => {
-            sg.seg(out, "(");
-            if !tokens.is_empty() || out.whitespaces.contains_key(&HashLineColumn(x.span.close().start())) {
-                sg.split(out, indent.clone(), true);
-                append_macro_body(out, &indent, sg, tokens);
-                append_whitespace(out, base_indent, sg, x.span.close().start());
-            }
-            sg.split(out, base_indent.clone(), false);
-            sg.seg(out, ")");
-        },
-        syn::MacroDelimiter::Brace(x) => {
-            sg.seg(out, "{");
-            sg.initial_split();
-            if !tokens.is_empty() || out.whitespaces.contains_key(&HashLineColumn(x.span.close().start())) {
-                sg.split(out, indent.clone(), true);
-                append_macro_body(out, &indent, sg, tokens);
-                append_whitespace(out, base_indent, sg, x.span.close().start());
-            }
-            sg.split(out, base_indent.clone(), false);
-            sg.seg(out, "}");
-        },
-        syn::MacroDelimiter::Bracket(x) => {
-            sg.seg(out, "[");
-            if !tokens.is_empty() || out.whitespaces.contains_key(&HashLineColumn(x.span.close().start())) {
-                sg.split(out, indent.clone(), true);
-                append_macro_body(out, &indent, sg, tokens);
-                append_whitespace(out, base_indent, sg, x.span.close().start());
-            }
-            sg.split(out, base_indent.clone(), false);
-            sg.seg(out, "]");
-        },
-    }
 }
 
 pub(crate) fn append_macro_body(
@@ -673,6 +378,113 @@ pub(crate) fn append_macro_body(
     }
 }
 
+pub(crate) fn append_macro_body_bracketed(
+    out: &mut MakeSegsState,
+    base_indent: &Alignment,
+    sg: &mut SplitGroupBuilder,
+    delim: &MacroDelimiter,
+    tokens: TokenStream,
+) {
+    let indent = base_indent.indent();
+    match delim {
+        syn::MacroDelimiter::Paren(x) => {
+            sg.seg(out, "(");
+            if !tokens.is_empty() || out.whitespaces.contains_key(&HashLineColumn(x.span.close().start())) {
+                sg.split(out, indent.clone(), true);
+                append_macro_body(out, &indent, sg, tokens);
+                append_whitespace(out, base_indent, sg, x.span.close().start());
+            }
+            sg.split(out, base_indent.clone(), false);
+            sg.seg(out, ")");
+        },
+        syn::MacroDelimiter::Brace(x) => {
+            sg.seg(out, "{");
+            sg.initial_split();
+            if !tokens.is_empty() || out.whitespaces.contains_key(&HashLineColumn(x.span.close().start())) {
+                sg.split(out, indent.clone(), true);
+                append_macro_body(out, &indent, sg, tokens);
+                append_whitespace(out, base_indent, sg, x.span.close().start());
+            }
+            sg.split(out, base_indent.clone(), false);
+            sg.seg(out, "}");
+        },
+        syn::MacroDelimiter::Bracket(x) => {
+            sg.seg(out, "[");
+            if !tokens.is_empty() || out.whitespaces.contains_key(&HashLineColumn(x.span.close().start())) {
+                sg.split(out, indent.clone(), true);
+                append_macro_body(out, &indent, sg, tokens);
+                append_whitespace(out, base_indent, sg, x.span.close().start());
+            }
+            sg.split(out, base_indent.clone(), false);
+            sg.seg(out, "]");
+        },
+    }
+}
+
+pub(crate) fn append_macro_bracketed(
+    out: &mut MakeSegsState,
+    base_indent: &Alignment,
+    sg: &mut SplitGroupBuilder,
+    mac: &Macro,
+    semi: bool,
+) {
+    let _in_macro = if !is_normal_rust_macro(mac) {
+        Some(IncMacroDepth::new(out))
+    } else {
+        None
+    };
+    append_macro_body_bracketed(out, base_indent, sg, &mac.delimiter, mac.tokens.clone());
+    if semi {
+        sg.seg(out, ";");
+    }
+}
+
+pub(crate) fn append_statement_list_raw(
+    out: &mut MakeSegsState,
+    base_indent: &Alignment,
+    sg: &mut SplitGroupBuilder,
+    attrs: Option<&Vec<Attribute>>,
+    block: &Vec<impl FormattableStmt>,
+) {
+    if check_split_brace_threshold(out, block.len()) ||
+        block.iter().any(|s| has_comments(out, s) || (s.has_attrs() && out.config.split_attributes)) {
+        sg.initial_split();
+    }
+    sg.seg_unsplit(out, " ");
+    let mut previous_margin_group = crate::MarginGroup::None;
+    let mut i = 0;
+    for attr in attrs.unwrap_or(&vec![]) {
+        match attr.style {
+            syn::AttrStyle::Outer => {
+                continue;
+            },
+            syn::AttrStyle::Inner(_) => { },
+        };
+        if i > 0 {
+            sg.split_if(out, base_indent.clone(), out.config.split_attributes, false);
+        }
+        append_attr(out, base_indent, sg, attr);
+        if !out.config.split_attributes {
+            sg.seg_unsplit(out, " ");
+        }
+        previous_margin_group = MarginGroup::Attr;
+        i += 1;
+    }
+    for el in block {
+        let (new_margin_group, want_margin) = el.want_margin();
+        if i > 0 {
+            if previous_margin_group != new_margin_group || want_margin || has_comments(out, el) {
+                sg.split(out, base_indent.clone(), true);
+            }
+            sg.split(out, base_indent.clone(), true);
+        }
+        sg.child((el).make_segs(out, base_indent));
+        sg.seg_unsplit(out, " ");
+        previous_margin_group = new_margin_group;
+        i += 1;
+    }
+}
+
 pub(crate) fn append_whitespace(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
@@ -724,6 +536,20 @@ pub(crate) fn append_whitespace(
     });
 }
 
+pub(crate) fn build_rev_pair(
+    out: &mut MakeSegsState,
+    base_indent: &Alignment,
+    base: impl Formattable,
+    right: impl Formattable,
+) -> SplitGroupIdx {
+    let mut sg = new_sg(out);
+    sg.child(base.make_segs(out, base_indent));
+    sg.seg(out, " ");
+    sg.child(right.make_segs(out, base_indent));
+    sg.reverse_children();
+    sg.build(out)
+}
+
 pub(crate) fn has_comments(out: &mut MakeSegsState, t: impl ToTokens) -> bool {
     t
         .to_token_stream()
@@ -731,6 +557,180 @@ pub(crate) fn has_comments(out: &mut MakeSegsState, t: impl ToTokens) -> bool {
         .next()
         .map(|t| out.whitespaces.contains_key(&HashLineColumn(t.span().start())))
         .unwrap_or(false)
+}
+
+pub(crate) fn has_genem_skip_comment(out: &MakeSegsState, loc: LineColumn) -> bool {
+    let hl = HashLineColumn(loc);
+    if let Some((_, ws_list)) = out.whitespaces.get(&hl) {
+        for ws in ws_list {
+            if let crate::WhitespaceMode::Comment(comment) = &ws.mode {
+                if comment.mode == crate::CommentMode::Directive {
+                    for line in comment.lines.lines() {
+                        if line.trim() == "genemichaels-skip" {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return false;
+}
+
+fn is_normal_rust_macro(mac: &Macro) -> bool {
+    mac.path.leading_colon.is_none() && mac.path.segments.len() == 1 &&
+        mac
+            .path
+            .segments
+            .first()
+            .is_some_and(|s| s.ident == "vec" && matches!(s.arguments, syn::PathArguments::None))
+}
+
+pub(crate) fn new_sg_binary(
+    out: &mut MakeSegsState,
+    base_indent: &Alignment,
+    left: impl Formattable,
+    tok_loc: LineColumn,
+    tok: &str,
+    right: impl Formattable,
+) -> SplitGroupIdx {
+    let mut sg = new_sg(out);
+    sg.child(left.make_segs(out, base_indent));
+    append_whitespace(out, base_indent, &mut sg, tok_loc);
+    append_binary(out, base_indent, &mut sg, tok, right);
+    sg.build(out)
+}
+
+pub(crate) fn new_sg_block(
+    out: &mut MakeSegsState,
+    base_indent: &Alignment,
+    prefix_start: LineColumn,
+    prefix: &'static str,
+    attrs: Option<&Vec<Attribute>>,
+    block: &Vec<impl FormattableStmt>,
+    suffix_start: LineColumn,
+) -> SplitGroupIdx {
+    let mut sg = new_sg(out);
+    append_bracketed_statement_list(out, base_indent, &mut sg, prefix_start, prefix, attrs, block, suffix_start);
+    sg.build(out)
+}
+
+pub(crate) fn new_sg_macro(
+    out: &mut MakeSegsState,
+    base_indent: &Alignment,
+    mac: &Macro,
+    semi: bool,
+) -> SplitGroupIdx {
+    let mut sg = new_sg(out);
+    sg.child(build_path(out, base_indent, &mac.path));
+    sg.seg(out, "!");
+    append_macro_bracketed(out, base_indent, &mut sg, mac, semi);
+    sg.build(out)
+}
+
+pub(crate) fn new_sg_outer_attrs(
+    out: &mut MakeSegsState,
+    base_indent: &Alignment,
+    attrs: &Vec<Attribute>,
+    span_including_attrs: proc_macro2::Span,
+    child: impl Formattable,
+) -> SplitGroupIdx {
+    let skip_comment = has_genem_skip_comment(out, span_including_attrs.start());
+    if attrs.is_empty() && !skip_comment {
+        return child.make_segs(out, base_indent);
+    }
+    let mut sg = new_sg(out);
+    let mut skip_fmt = false;
+    for attr in attrs {
+        match attr.style {
+            syn::AttrStyle::Outer => { },
+            syn::AttrStyle::Inner(_) => {
+                continue;
+            },
+        };
+        append_attr(out, base_indent, &mut sg, attr);
+        if !out.config.split_attributes {
+            sg.seg_unsplit(out, " ");
+        }
+        sg.split_if(out, base_indent.clone(), out.config.split_attributes, false);
+        if attr.meta.to_token_stream().to_string().contains("rustfmt :: skip") {
+            skip_fmt = true;
+        }
+    }
+    if skip_comment {
+        skip_fmt = true;
+    }
+    'child: {
+        'to_noskip_fmt: {
+            if !skip_fmt {
+                break 'to_noskip_fmt;
+            }
+            let Some(text) = span_including_attrs.source_text() else {
+                break 'to_noskip_fmt;
+            };
+            let after_attr_byte_offset;
+            let after_attr_line_col;
+            if attrs.is_empty() {
+                append_whitespace(out, base_indent, &mut sg, span_including_attrs.start());
+                after_attr_byte_offset = span_including_attrs.span().byte_range().start;
+                after_attr_line_col = Bound::Excluded(HashLineColumn(span_including_attrs.start()));
+            } else if let Some(attr) = attrs.last() {
+                // I believe byte range must be within `source_text`: if any attr is synthetic
+                // then `source_text` should be None
+                after_attr_byte_offset = attr.span().byte_range().end;
+                after_attr_line_col = Bound::Excluded(HashLineColumn(attr.span().end()));
+            } else {
+                after_attr_byte_offset = 0;
+                after_attr_line_col = Bound::Included(HashLineColumn(span_including_attrs.start()));
+            }
+            sg.seg(out, &text[after_attr_byte_offset - span_including_attrs.span().byte_range().start..]);
+
+            // Remove comments used within subtree from global block
+            let remove_whitespaces_keys =
+                out
+                    .whitespaces
+                    .range((after_attr_line_col, Bound::Included(HashLineColumn(span_including_attrs.end()))))
+                    .map(|x| *x.0)
+                    .collect::<Vec<_>>();
+            for k in remove_whitespaces_keys {
+                let (_, ws) = out.whitespaces.remove(&k).unwrap();
+
+                // Line end comments after the end of the unformatted span will get lost since
+                // they should be included by span formatting. This checks if they've been missed
+                // and smashes them on the end.
+                for ws in ws {
+                    match ws.mode {
+                        WhitespaceMode::BlankLines(_) => { },
+                        WhitespaceMode::Comment(comment) => {
+                            if match span_including_attrs.byte_range().end_bound() {
+                                Bound::Included(x) => comment.orig_start_offset <= *x,
+                                Bound::Excluded(x) => comment.orig_start_offset < *x,
+                                Bound::Unbounded => unreachable!(),
+                            } {
+                                continue;
+                            }
+                            sg.add(out, crate::Segment {
+                                node: sg.node,
+                                line: None,
+                                mode: crate::SegmentMode::All,
+                                content: crate::SegmentContent::Whitespace((base_indent.clone(), vec![Whitespace {
+                                    loc: k.0,
+                                    mode: WhitespaceMode::Comment(crate::Comment {
+                                        mode: crate::CommentMode::Normal,
+                                        lines: comment.lines,
+                                        orig_start_offset: 0,
+                                    }),
+                                }])),
+                            });
+                        },
+                    }
+                }
+            }
+            break 'child;
+        }
+        sg.child(child.make_segs(out, base_indent));
+    }
+    sg.build(out)
 }
 
 impl FormattablePunct for Comma {

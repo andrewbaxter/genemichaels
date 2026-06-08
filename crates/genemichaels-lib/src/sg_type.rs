@@ -49,62 +49,66 @@ use {
     },
 };
 
-pub(crate) fn build_extended_path(
+pub(crate) fn append_angle_bracketed_generics(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
-    qself: &Option<QSelf>,
-    p: &Path,
-) -> SplitGroupIdx {
-    let mut node = new_sg(out);
-    match qself {
-        Some(qself) => {
-            append_whitespace(out, base_indent, &mut node, qself.lt_token.span.start());
-            node.seg(out, "<");
-            let taken = match qself.position {
-                0 => {
-                    node.child(qself.ty.make_segs(out, base_indent));
-                    0
-                },
-                n => {
-                    node.child(qself.ty.make_segs(out, base_indent));
-                    node.seg(out, " as ");
-                    append_path(
-                        out,
-                        &mut node,
-                        base_indent,
-                        p.leading_colon.map(|t| Some(t.spans[0].start())),
-                        p.segments.pairs().take(n),
-                    );
-                    n
-                },
-            };
-            append_whitespace(out, base_indent, &mut node, qself.gt_token.span.start());
-            node.seg(out, ">");
-            append_path(out, &mut node, base_indent, Some(None), p.segments.pairs().skip(taken));
-        },
-        None => {
-            append_path(
-                out,
-                &mut node,
-                base_indent,
-                p.leading_colon.map(|t| Some(t.spans[0].start())),
-                p.segments.pairs(),
-            );
-        },
-    };
-    node.build(out)
+    sg: &mut SplitGroupBuilder,
+    generics: &AngleBracketedGenericArguments,
+) {
+    if generics.args.is_empty() {
+        return;
+    }
+    sg.child(new_sg_bracketed_list_common(
+        out,
+        base_indent,
+        // not really optional, just sometimes not parsed
+        generics.lt_token.span.start(),
+        &generics.lt_token.to_token_stream().to_string(),
+        &generics.args,
+        // not really optional, just sometimes not parsed
+        generics.gt_token.span.start(),
+        &generics.gt_token.to_token_stream().to_string(),
+    ));
 }
 
-pub(crate) fn build_path(out: &mut MakeSegsState, base_indent: &Alignment, path: &syn::Path) -> SplitGroupIdx {
-    let mut node = new_sg(out);
-    append_path(
+pub(crate) fn append_generics(
+    out: &mut MakeSegsState,
+    base_indent: &Alignment,
+    sg: &mut SplitGroupBuilder,
+    generics: &Generics,
+) {
+    append_generics_part_a(out, base_indent, sg, generics);
+    if let Some(wh) = &generics.where_clause {
+        sg.child(build_generics_part_b(out, base_indent, wh));
+    }
+}
+
+pub(crate) fn append_generics_part_a(
+    out: &mut MakeSegsState,
+    base_indent: &Alignment,
+    sg: &mut SplitGroupBuilder,
+    generics: &Generics,
+) {
+    if generics.params.is_empty() {
+        return;
+    }
+    sg.child(new_sg_bracketed_list_common(
         out,
-        &mut node,
         base_indent,
-        path.leading_colon.map(|t| Some(t.spans[0].start())),
-        path.segments.pairs(),
-    );
-    node.build(out)
+        // not really optional, just sometimes not parsed
+        generics.lt_token.map(|s| s.span.start()).unwrap_or(LineColumn {
+            line: 0,
+            column: 0,
+        }),
+        "<",
+        &generics.params,
+        // not really optional, just sometimes not parsed
+        generics.gt_token.map(|s| s.span.start()).unwrap_or(LineColumn {
+            line: 0,
+            column: 0,
+        }),
+        ">",
+    ));
 }
 
 pub(crate) fn append_path<
@@ -175,9 +179,100 @@ pub(crate) fn append_path<
     }
 }
 
-pub(crate) enum BuildRefMutability {
-    Const,
-    Mut,
+pub(crate) fn build_array_type(
+    out: &mut MakeSegsState,
+    base_indent: &Alignment,
+    start: LineColumn,
+    expr: impl Formattable,
+    len: &Expr,
+) -> SplitGroupIdx {
+    let mut sg = new_sg(out);
+    append_whitespace(out, base_indent, &mut sg, start);
+    sg.seg(out, "[");
+    sg.child(expr.make_segs(out, base_indent));
+    sg.seg(out, "; ");
+    sg.child(len.make_segs(out, base_indent));
+    sg.seg(out, "]");
+    sg.build(out)
+}
+
+pub(crate) fn build_extended_path(
+    out: &mut MakeSegsState,
+    base_indent: &Alignment,
+    qself: &Option<QSelf>,
+    p: &Path,
+) -> SplitGroupIdx {
+    let mut node = new_sg(out);
+    match qself {
+        Some(qself) => {
+            append_whitespace(out, base_indent, &mut node, qself.lt_token.span.start());
+            node.seg(out, "<");
+            let taken = match qself.position {
+                0 => {
+                    node.child(qself.ty.make_segs(out, base_indent));
+                    0
+                },
+                n => {
+                    node.child(qself.ty.make_segs(out, base_indent));
+                    node.seg(out, " as ");
+                    append_path(
+                        out,
+                        &mut node,
+                        base_indent,
+                        p.leading_colon.map(|t| Some(t.spans[0].start())),
+                        p.segments.pairs().take(n),
+                    );
+                    n
+                },
+            };
+            append_whitespace(out, base_indent, &mut node, qself.gt_token.span.start());
+            node.seg(out, ">");
+            append_path(out, &mut node, base_indent, Some(None), p.segments.pairs().skip(taken));
+        },
+        None => {
+            append_path(
+                out,
+                &mut node,
+                base_indent,
+                p.leading_colon.map(|t| Some(t.spans[0].start())),
+                p.segments.pairs(),
+            );
+        },
+    };
+    node.build(out)
+}
+
+pub(crate) fn build_generics_part_b(
+    out: &mut MakeSegsState,
+    base_indent: &Alignment,
+    wh: &WhereClause,
+) -> SplitGroupIdx {
+    let mut sg = new_sg(out);
+    if out.config.split_where {
+        sg.initial_split();
+    }
+    sg.seg_unsplit(out, " ");
+    append_whitespace(out, base_indent, &mut sg, wh.where_token.span.start());
+    sg.split(out, base_indent.clone(), true);
+    sg.seg(out, "where");
+    sg.seg_unsplit(out, " ");
+
+    // No final comma because can be followed by a ;, and ,; looks pretty odd (and is
+    // rejected by the compiler)
+    append_inline_list(out, base_indent, &mut sg, ",", &wh.predicates, InlineListSuffix::<Expr>::None);
+    sg.build(out)
+}
+
+pub(crate) fn build_path(out: &mut MakeSegsState, base_indent: &Alignment, path: &syn::Path) -> SplitGroupIdx {
+    let mut node = new_sg(out);
+    append_path(
+        out,
+        &mut node,
+        base_indent,
+        path.leading_colon.map(|t| Some(t.spans[0].start())),
+        path.segments.pairs(),
+    );
+    node.build(out)
 }
 
 pub(crate) fn build_ref(
@@ -210,355 +305,26 @@ pub(crate) fn build_ref(
     sg.build(out)
 }
 
-pub(crate) fn build_array_type(
-    out: &mut MakeSegsState,
-    base_indent: &Alignment,
-    start: LineColumn,
-    expr: impl Formattable,
-    len: &Expr,
-) -> SplitGroupIdx {
-    let mut sg = new_sg(out);
-    append_whitespace(out, base_indent, &mut sg, start);
-    sg.seg(out, "[");
-    sg.child(expr.make_segs(out, base_indent));
-    sg.seg(out, "; ");
-    sg.child(len.make_segs(out, base_indent));
-    sg.seg(out, "]");
-    sg.build(out)
+pub(crate) enum BuildRefMutability {
+    Const,
+    Mut,
 }
 
-pub(crate) fn append_generics_part_a(
-    out: &mut MakeSegsState,
-    base_indent: &Alignment,
-    sg: &mut SplitGroupBuilder,
-    generics: &Generics,
-) {
-    if generics.params.is_empty() {
-        return;
-    }
-    sg.child(new_sg_bracketed_list_common(
-        out,
-        base_indent,
-        // not really optional, just sometimes not parsed
-        generics.lt_token.map(|s| s.span.start()).unwrap_or(LineColumn {
-            line: 0,
-            column: 0,
-        }),
-        "<",
-        &generics.params,
-        // not really optional, just sometimes not parsed
-        generics.gt_token.map(|s| s.span.start()).unwrap_or(LineColumn {
-            line: 0,
-            column: 0,
-        }),
-        ">",
-    ));
-}
-
-pub(crate) fn append_generics(
-    out: &mut MakeSegsState,
-    base_indent: &Alignment,
-    sg: &mut SplitGroupBuilder,
-    generics: &Generics,
-) {
-    append_generics_part_a(out, base_indent, sg, generics);
-    if let Some(wh) = &generics.where_clause {
-        sg.child(build_generics_part_b(out, base_indent, wh));
-    }
-}
-
-pub(crate) fn build_generics_part_b(
-    out: &mut MakeSegsState,
-    base_indent: &Alignment,
-    wh: &WhereClause,
-) -> SplitGroupIdx {
-    let mut sg = new_sg(out);
-    if out.config.split_where {
-        sg.initial_split();
-    }
-    sg.seg_unsplit(out, " ");
-    append_whitespace(out, base_indent, &mut sg, wh.where_token.span.start());
-    sg.split(out, base_indent.clone(), true);
-    sg.seg(out, "where");
-    sg.seg_unsplit(out, " ");
-
-    // No final comma because can be followed by a ;, and ,; looks pretty odd (and is
-    // rejected by the compiler)
-    append_inline_list(out, base_indent, &mut sg, ",", &wh.predicates, InlineListSuffix::<Expr>::None);
-    sg.build(out)
-}
-
-pub(crate) fn append_angle_bracketed_generics(
-    out: &mut MakeSegsState,
-    base_indent: &Alignment,
-    sg: &mut SplitGroupBuilder,
-    generics: &AngleBracketedGenericArguments,
-) {
-    if generics.args.is_empty() {
-        return;
-    }
-    sg.child(new_sg_bracketed_list_common(
-        out,
-        base_indent,
-        // not really optional, just sometimes not parsed
-        generics.lt_token.span.start(),
-        &generics.lt_token.to_token_stream().to_string(),
-        &generics.args,
-        // not really optional, just sometimes not parsed
-        generics.gt_token.span.start(),
-        &generics.gt_token.to_token_stream().to_string(),
-    ));
-}
-
-impl Formattable for WherePredicate {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
-        #[deny(clippy::wildcard_enum_match_arm)]
-        match self {
-            WherePredicate::Type(t) => {
-                let mut sg = new_sg(out);
-                if let Some(hot) = &t.lifetimes {
-                    append_whitespace(out, base_indent, &mut sg, hot.for_token.span.start());
-                    sg.seg(out, "for");
-                    append_bracketed_list_common(
-                        out,
-                        base_indent,
-                        &mut sg,
-                        hot.lt_token.span.start(),
-                        "<",
-                        &hot.lifetimes,
-                        hot.gt_token.span.start(),
-                        "> ",
-                    );
-                }
-                sg.child(t.bounded_ty.make_segs(out, base_indent));
-                sg.seg(out, ":");
-                sg.seg_unsplit(out, " ");
-                append_inline_list(out, base_indent, &mut sg, " +", &t.bounds, InlineListSuffix::<Expr>::None);
-                sg.build(out)
-            },
-            WherePredicate::Lifetime(l) => {
-                let mut sg = new_sg(out);
-                sg.seg(out, &l.lifetime);
-                sg.seg(out, ":");
-                sg.seg_unsplit(out, " ");
-                append_inline_list(out, base_indent, &mut sg, " +", &l.bounds, InlineListSuffix::<Expr>::None);
-                sg.build(out)
-            },
-            _ => unreachable!(),
-        }
-    }
-
+impl Formattable for &Path {
     fn has_attrs(&self) -> bool {
         false
     }
-}
 
-impl Formattable for GenericParam {
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
-        match self {
-            GenericParam::Type(t) => new_sg_outer_attrs(
-                out,
-                base_indent,
-                &t.attrs,
-                self.span(),
-                |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let build_base = |out: &mut MakeSegsState, base_indent: &Alignment| {
-                        let mut sg = new_sg(out);
-                        append_whitespace(out, base_indent, &mut sg, t.ident.span().start());
-                        sg.seg(out, &t.ident);
-                        if t.colon_token.is_some() && !t.bounds.is_empty() {
-                            sg.seg(out, ": ");
-                            append_inline_list(
-                                out,
-                                base_indent,
-                                &mut sg,
-                                " +",
-                                &t.bounds,
-                                InlineListSuffix::<Expr>::None,
-                            );
-                        }
-                        sg.build(out)
-                    };
-                    if let Some(def) = &t.default {
-                        new_sg_binary(out, base_indent, build_base, t.eq_token.unwrap().span.start(), " =", def)
-                    } else {
-                        build_base(out, base_indent)
-                    }
-                },
-            ),
-            GenericParam::Lifetime(l) => l.make_segs(out, base_indent),
-            GenericParam::Const(c) => new_sg_outer_attrs(
-                out,
-                base_indent,
-                &c.attrs,
-                self.span(),
-                |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let build_base = |out: &mut MakeSegsState, base_indent: &Alignment| {
-                        let mut sg = new_sg(out);
-                        append_whitespace(out, base_indent, &mut sg, c.const_token.span.start());
-                        sg.seg(out, "const ");
-                        append_whitespace(out, base_indent, &mut sg, c.ident.span().start());
-                        sg.seg(out, &c.ident.to_string());
-                        sg.seg(out, ": ");
-                        sg.child(c.ty.make_segs(out, base_indent));
-                        sg.build(out)
-                    };
-                    if let Some(def) = &c.default {
-                        new_sg_binary(out, base_indent, build_base, c.eq_token.unwrap().span.start(), " =", def)
-                    } else {
-                        build_base(out, base_indent)
-                    }
-                },
-            ),
-        }
-    }
-
-    fn has_attrs(&self) -> bool {
-        false
-    }
-}
-
-impl Formattable for TypeParamBound {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
-        let mut sg = new_sg(out);
-        #[deny(clippy::wildcard_enum_match_arm)]
-        match self {
-            syn::TypeParamBound::Trait(t) => {
-                if t.paren_token.is_some() {
-                    sg.seg(out, "(");
-                }
-                match t.modifier {
-                    syn::TraitBoundModifier::None => { },
-                    syn::TraitBoundModifier::Maybe(m) => {
-                        append_whitespace(out, base_indent, &mut sg, m.span.start());
-                        sg.seg(out, "?");
-                    },
-                }
-                if let Some(hot) = &t.lifetimes {
-                    append_whitespace(out, base_indent, &mut sg, hot.for_token.span.start());
-                    sg.seg(out, "for");
-                    append_bracketed_list_common(
-                        out,
-                        base_indent,
-                        &mut sg,
-                        hot.lt_token.span.start(),
-                        "<",
-                        &hot.lifetimes,
-                        hot.gt_token.span.start(),
-                        "> ",
-                    );
-                }
-                append_path(
-                    out,
-                    &mut sg,
-                    base_indent,
-                    t.path.leading_colon.map(|t| Some(t.spans[0].start())),
-                    t.path.segments.pairs(),
-                );
-                if t.paren_token.is_some() {
-                    sg.seg(out, ")");
-                }
-            },
-            syn::TypeParamBound::Lifetime(l) => {
-                sg.seg(out, l.to_string());
-            },
-            TypeParamBound::PreciseCapture(p) => {
-                append_whitespace(out, base_indent, &mut sg, p.use_token.span.start());
-                sg.seg(out, p.use_token.to_token_stream().to_string());
-                append_bracketed_list_common(
-                    out,
-                    base_indent,
-                    &mut sg,
-                    p.lt_token.span.start(),
-                    "<",
-                    &p.params,
-                    p.gt_token.span.start(),
-                    "> ",
-                );
-            },
-            TypeParamBound::Verbatim(x) => {
-                new_sg_lit(out, None, x);
-            },
-            _ => unreachable!(),
-        }
-        sg.build(out)
-    }
-
-    fn has_attrs(&self) -> bool {
-        false
-    }
-}
-
-impl Formattable for LifetimeParam {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
-        new_sg_outer_attrs(
-            out,
-            base_indent,
-            &self.attrs,
-            self.span(),
-            |out: &mut MakeSegsState, base_indent: &Alignment| {
-                let mut node = new_sg(out);
-                node.seg(out, &self.lifetime);
-                if self.colon_token.is_some() {
-                    append_binary(
-                        out,
-                        base_indent,
-                        &mut node,
-                        ":",
-                        |out: &mut MakeSegsState, base_indent: &Alignment| {
-                            let mut node = new_sg(out);
-                            append_inline_list(
-                                out,
-                                base_indent,
-                                &mut node,
-                                " +",
-                                &self.bounds,
-                                InlineListSuffix::None::<Expr>,
-                            );
-                            node.build(out)
-                        },
-                    );
-                }
-                node.build(out)
-            },
-        )
-    }
-
-    fn has_attrs(&self) -> bool {
-        !self.attrs.is_empty()
-    }
-}
-
-impl Formattable for syn::Lifetime {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
-        new_sg_lit(out, Some((base_indent, vec![self.apostrophe.start()])), self)
-    }
-
-    fn has_attrs(&self) -> bool {
-        false
-    }
-}
-
-impl Formattable for syn::CapturedParam {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
-        #[deny(clippy::wildcard_enum_match_arm)]
-        match self {
-            syn::CapturedParam::Lifetime(lifetime) => {
-                return lifetime.make_segs(out, base_indent);
-            },
-            syn::CapturedParam::Ident(ident) => {
-                return ident.make_segs(out, base_indent);
-            },
-            _ => unreachable!(),
-        }
-    }
-
-    fn has_attrs(&self) -> bool {
-        return false;
+        build_path(out, base_indent, self)
     }
 }
 
 impl Formattable for &Type {
+    fn has_attrs(&self) -> bool {
+        false
+    }
+
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
         #[deny(clippy::wildcard_enum_match_arm)]
         match self {
@@ -714,23 +480,13 @@ impl Formattable for &Type {
             _ => unreachable!(),
         }
     }
-
-    fn has_attrs(&self) -> bool {
-        false
-    }
-}
-
-impl Formattable for Type {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
-        (&self).make_segs(out, base_indent)
-    }
-
-    fn has_attrs(&self) -> bool {
-        (&self).has_attrs()
-    }
 }
 
 impl Formattable for BareFnArg {
+    fn has_attrs(&self) -> bool {
+        !self.attrs.is_empty()
+    }
+
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
         new_sg_outer_attrs(
             out,
@@ -749,13 +505,16 @@ impl Formattable for BareFnArg {
             },
         )
     }
-
-    fn has_attrs(&self) -> bool {
-        !self.attrs.is_empty()
-    }
 }
 
 impl Formattable for FnArg {
+    fn has_attrs(&self) -> bool {
+        match self {
+            FnArg::Receiver(x) => !x.attrs.is_empty(),
+            FnArg::Typed(x) => !x.attrs.is_empty(),
+        }
+    }
+
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
         match self {
             FnArg::Receiver(x) => new_sg_outer_attrs(
@@ -811,16 +570,13 @@ impl Formattable for FnArg {
             ),
         }
     }
-
-    fn has_attrs(&self) -> bool {
-        match self {
-            FnArg::Receiver(x) => !x.attrs.is_empty(),
-            FnArg::Typed(x) => !x.attrs.is_empty(),
-        }
-    }
 }
 
 impl Formattable for GenericArgument {
+    fn has_attrs(&self) -> bool {
+        false
+    }
+
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
         #[deny(clippy::wildcard_enum_match_arm)]
         match self {
@@ -870,18 +626,262 @@ impl Formattable for GenericArgument {
             _ => todo!(),
         }
     }
+}
 
+impl Formattable for GenericParam {
     fn has_attrs(&self) -> bool {
         false
+    }
+
+    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
+        match self {
+            GenericParam::Type(t) => new_sg_outer_attrs(
+                out,
+                base_indent,
+                &t.attrs,
+                self.span(),
+                |out: &mut MakeSegsState, base_indent: &Alignment| {
+                    let build_base = |out: &mut MakeSegsState, base_indent: &Alignment| {
+                        let mut sg = new_sg(out);
+                        append_whitespace(out, base_indent, &mut sg, t.ident.span().start());
+                        sg.seg(out, &t.ident);
+                        if t.colon_token.is_some() && !t.bounds.is_empty() {
+                            sg.seg(out, ": ");
+                            append_inline_list(
+                                out,
+                                base_indent,
+                                &mut sg,
+                                " +",
+                                &t.bounds,
+                                InlineListSuffix::<Expr>::None,
+                            );
+                        }
+                        sg.build(out)
+                    };
+                    if let Some(def) = &t.default {
+                        new_sg_binary(out, base_indent, build_base, t.eq_token.unwrap().span.start(), " =", def)
+                    } else {
+                        build_base(out, base_indent)
+                    }
+                },
+            ),
+            GenericParam::Lifetime(l) => l.make_segs(out, base_indent),
+            GenericParam::Const(c) => new_sg_outer_attrs(
+                out,
+                base_indent,
+                &c.attrs,
+                self.span(),
+                |out: &mut MakeSegsState, base_indent: &Alignment| {
+                    let build_base = |out: &mut MakeSegsState, base_indent: &Alignment| {
+                        let mut sg = new_sg(out);
+                        append_whitespace(out, base_indent, &mut sg, c.const_token.span.start());
+                        sg.seg(out, "const ");
+                        append_whitespace(out, base_indent, &mut sg, c.ident.span().start());
+                        sg.seg(out, &c.ident.to_string());
+                        sg.seg(out, ": ");
+                        sg.child(c.ty.make_segs(out, base_indent));
+                        sg.build(out)
+                    };
+                    if let Some(def) = &c.default {
+                        new_sg_binary(out, base_indent, build_base, c.eq_token.unwrap().span.start(), " =", def)
+                    } else {
+                        build_base(out, base_indent)
+                    }
+                },
+            ),
+        }
     }
 }
 
-impl Formattable for &Path {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
-        build_path(out, base_indent, self)
+impl Formattable for LifetimeParam {
+    fn has_attrs(&self) -> bool {
+        !self.attrs.is_empty()
     }
 
+    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
+        new_sg_outer_attrs(
+            out,
+            base_indent,
+            &self.attrs,
+            self.span(),
+            |out: &mut MakeSegsState, base_indent: &Alignment| {
+                let mut node = new_sg(out);
+                node.seg(out, &self.lifetime);
+                if self.colon_token.is_some() {
+                    append_binary(
+                        out,
+                        base_indent,
+                        &mut node,
+                        ":",
+                        |out: &mut MakeSegsState, base_indent: &Alignment| {
+                            let mut node = new_sg(out);
+                            append_inline_list(
+                                out,
+                                base_indent,
+                                &mut node,
+                                " +",
+                                &self.bounds,
+                                InlineListSuffix::None::<Expr>,
+                            );
+                            node.build(out)
+                        },
+                    );
+                }
+                node.build(out)
+            },
+        )
+    }
+}
+
+impl Formattable for syn::CapturedParam {
+    fn has_attrs(&self) -> bool {
+        return false;
+    }
+
+    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
+        #[deny(clippy::wildcard_enum_match_arm)]
+        match self {
+            syn::CapturedParam::Lifetime(lifetime) => {
+                return lifetime.make_segs(out, base_indent);
+            },
+            syn::CapturedParam::Ident(ident) => {
+                return ident.make_segs(out, base_indent);
+            },
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl Formattable for syn::Lifetime {
     fn has_attrs(&self) -> bool {
         false
+    }
+
+    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
+        new_sg_lit(out, Some((base_indent, vec![self.apostrophe.start()])), self)
+    }
+}
+
+impl Formattable for Type {
+    fn has_attrs(&self) -> bool {
+        (&self).has_attrs()
+    }
+
+    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
+        (&self).make_segs(out, base_indent)
+    }
+}
+
+impl Formattable for TypeParamBound {
+    fn has_attrs(&self) -> bool {
+        false
+    }
+
+    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
+        let mut sg = new_sg(out);
+        #[deny(clippy::wildcard_enum_match_arm)]
+        match self {
+            syn::TypeParamBound::Trait(t) => {
+                if t.paren_token.is_some() {
+                    sg.seg(out, "(");
+                }
+                match t.modifier {
+                    syn::TraitBoundModifier::None => { },
+                    syn::TraitBoundModifier::Maybe(m) => {
+                        append_whitespace(out, base_indent, &mut sg, m.span.start());
+                        sg.seg(out, "?");
+                    },
+                }
+                if let Some(hot) = &t.lifetimes {
+                    append_whitespace(out, base_indent, &mut sg, hot.for_token.span.start());
+                    sg.seg(out, "for");
+                    append_bracketed_list_common(
+                        out,
+                        base_indent,
+                        &mut sg,
+                        hot.lt_token.span.start(),
+                        "<",
+                        &hot.lifetimes,
+                        hot.gt_token.span.start(),
+                        "> ",
+                    );
+                }
+                append_path(
+                    out,
+                    &mut sg,
+                    base_indent,
+                    t.path.leading_colon.map(|t| Some(t.spans[0].start())),
+                    t.path.segments.pairs(),
+                );
+                if t.paren_token.is_some() {
+                    sg.seg(out, ")");
+                }
+            },
+            syn::TypeParamBound::Lifetime(l) => {
+                sg.seg(out, l.to_string());
+            },
+            TypeParamBound::PreciseCapture(p) => {
+                append_whitespace(out, base_indent, &mut sg, p.use_token.span.start());
+                sg.seg(out, p.use_token.to_token_stream().to_string());
+                append_bracketed_list_common(
+                    out,
+                    base_indent,
+                    &mut sg,
+                    p.lt_token.span.start(),
+                    "<",
+                    &p.params,
+                    p.gt_token.span.start(),
+                    "> ",
+                );
+            },
+            TypeParamBound::Verbatim(x) => {
+                new_sg_lit(out, None, x);
+            },
+            _ => unreachable!(),
+        }
+        sg.build(out)
+    }
+}
+
+impl Formattable for WherePredicate {
+    fn has_attrs(&self) -> bool {
+        false
+    }
+
+    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
+        #[deny(clippy::wildcard_enum_match_arm)]
+        match self {
+            WherePredicate::Type(t) => {
+                let mut sg = new_sg(out);
+                if let Some(hot) = &t.lifetimes {
+                    append_whitespace(out, base_indent, &mut sg, hot.for_token.span.start());
+                    sg.seg(out, "for");
+                    append_bracketed_list_common(
+                        out,
+                        base_indent,
+                        &mut sg,
+                        hot.lt_token.span.start(),
+                        "<",
+                        &hot.lifetimes,
+                        hot.gt_token.span.start(),
+                        "> ",
+                    );
+                }
+                sg.child(t.bounded_ty.make_segs(out, base_indent));
+                sg.seg(out, ":");
+                sg.seg_unsplit(out, " ");
+                append_inline_list(out, base_indent, &mut sg, " +", &t.bounds, InlineListSuffix::<Expr>::None);
+                sg.build(out)
+            },
+            WherePredicate::Lifetime(l) => {
+                let mut sg = new_sg(out);
+                sg.seg(out, &l.lifetime);
+                sg.seg(out, ":");
+                sg.seg_unsplit(out, " ");
+                append_inline_list(out, base_indent, &mut sg, " +", &l.bounds, InlineListSuffix::<Expr>::None);
+                sg.build(out)
+            },
+            _ => unreachable!(),
+        }
     }
 }

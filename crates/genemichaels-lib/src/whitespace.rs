@@ -2,13 +2,13 @@ use {
     crate::{
         Comment,
         CommentMode,
+        FormatConfig,
         Whitespace,
         WhitespaceMode,
-        FormatConfig,
     },
     loga::{
-        ea,
         ResultContext,
+        ea,
     },
     markdown::mdast::Node,
     proc_macro2::{
@@ -25,34 +25,6 @@ use {
         str::FromStr,
     },
 };
-
-#[derive(PartialEq, Eq, Debug, Clone, Copy)]
-pub struct HashLineColumn(pub LineColumn);
-
-impl Hash for HashLineColumn {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        (self.0.line, self.0.column).hash(state);
-    }
-}
-
-impl Ord for HashLineColumn {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        return self.0.line.cmp(&other.0.line).then(self.0.column.cmp(&other.0.column));
-    }
-}
-
-impl PartialOrd for HashLineColumn {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        return Some(self.0.cmp(&other.0));
-    }
-}
-
-#[derive(Debug, derive_more::Add, PartialEq, Eq, PartialOrd, Ord, derive_more::Sub, Clone, Copy)]
-struct VisualLen(usize);
-
-fn unicode_len(text: &str) -> VisualLen {
-    VisualLen(text.chars().count())
-}
 
 /// Identifies the start/stop locations of whitespace in a chunk of source.
 /// Whitespace is grouped runs, but the `keep_max_blank_lines` parameter allows
@@ -76,29 +48,20 @@ pub fn extract_whitespaces(
     }
 
     struct State<'a> {
-        source: &'a str,
+        block_event_re: Option<Regex>,
         keep_max_blank_lines: usize,
+        last_offset: usize,
         // starting offset of each line
         line_lookup: Vec<usize>,
-        whitespaces: BTreeMap<HashLineColumn, Vec<Whitespace>>,
         // records the beginning of the last line extracted - this is the destination for
         // transposed comments
         line_start: Option<LineColumn>,
-        last_offset: usize,
+        source: &'a str,
         start_re: Option<Regex>,
-        block_event_re: Option<Regex>,
+        whitespaces: BTreeMap<HashLineColumn, Vec<Whitespace>>,
     }
 
     impl<'a> State<'a> {
-        fn to_offset(&self, loc: LineColumn) -> usize {
-            if loc.line == 0 {
-                return 0usize;
-            }
-            let line_start_offset = *self.line_lookup.get(loc.line - 1).unwrap();
-            line_start_offset +
-                self.source[line_start_offset..].chars().take(loc.column).map(char::len_utf8).sum::<usize>()
-        }
-
         fn add_comments(&mut self, end: LineColumn, abs_start: usize, between_ast_nodes: &str) {
             let start_re = &self.start_re.get_or_insert_with(|| Regex::new(
                 // `//` maybe followed by `[/!.?#]`, `/**/`, or `/*` maybe followed by `[*!]`
@@ -108,32 +71,16 @@ pub fn extract_whitespaces(
                 &self.block_event_re.get_or_insert_with(|| Regex::new(r#"((?:/\*)|(?:\*/))"#).unwrap());
 
             struct CommentBuffer {
-                keep_max_blank_lines: usize,
                 blank_lines: usize,
-                out: Vec<Whitespace>,
-                mode: CommentMode,
+                keep_max_blank_lines: usize,
                 lines: Vec<String>,
                 loc: LineColumn,
+                mode: CommentMode,
                 orig_start_offset: Option<usize>,
+                out: Vec<Whitespace>,
             }
 
             impl CommentBuffer {
-                fn flush(&mut self) {
-                    if self.lines.is_empty() {
-                        return;
-                    }
-                    self.out.push(Whitespace {
-                        loc: self.loc,
-                        mode: crate::WhitespaceMode::Comment(Comment {
-                            mode: self.mode,
-                            lines: self.lines.split_off(0).join("\n"),
-                            orig_start_offset: self.orig_start_offset.unwrap(),
-                        }),
-                    });
-                    self.blank_lines = 0;
-                    self.orig_start_offset = None;
-                }
-
                 fn add(&mut self, mode: CommentMode, line: &str, orig_start_offset: usize) {
                     if self.mode != mode && !self.lines.is_empty() {
                         self.flush();
@@ -154,6 +101,22 @@ pub fn extract_whitespaces(
                             ),
                         });
                     }
+                }
+
+                fn flush(&mut self) {
+                    if self.lines.is_empty() {
+                        return;
+                    }
+                    self.out.push(Whitespace {
+                        loc: self.loc,
+                        mode: crate::WhitespaceMode::Comment(Comment {
+                            mode: self.mode,
+                            lines: self.lines.split_off(0).join("\n"),
+                            orig_start_offset: self.orig_start_offset.unwrap(),
+                        }),
+                    });
+                    self.blank_lines = 0;
+                    self.orig_start_offset = None;
                 }
             }
 
@@ -334,6 +297,15 @@ pub fn extract_whitespaces(
             let whole_text = &self.source[start .. end_offset];
             self.add_comments(end, start, whole_text);
         }
+
+        fn to_offset(&self, loc: LineColumn) -> usize {
+            if loc.line == 0 {
+                return 0usize;
+            }
+            let line_start_offset = *self.line_lookup.get(loc.line - 1).unwrap();
+            line_start_offset +
+                self.source[line_start_offset..].chars().take(loc.column).map(char::len_utf8).sum::<usize>()
+        }
     }
 
     // Extract comments
@@ -421,59 +393,48 @@ pub fn extract_whitespaces(
     Ok((state.whitespaces, tokens))
 }
 
-struct State {
-    line_buffer: String,
-    need_nl: bool,
-    config: FormatConfig,
-}
-
-#[derive(Debug)]
-struct LineState_ {
-    base_prefix_len: VisualLen,
-    first_prefix: Option<String>,
-    prefix: String,
-    max_width: VisualLen,
-    rel_max_width: Option<VisualLen>,
-    backward_break: Option<usize>,
-    unbreakable: bool,
-}
-
-impl LineState_ {
-    fn flush_always(&mut self, state: &mut State, out: &mut String) {
-        out.push_str(format!(
-            //. .
-            "{}{}{}",
-            if state.need_nl {
-                "\n"
-            } else {
-                ""
-            },
-            match &self.first_prefix.take() {
-                Some(t) => t,
-                None => &*self.prefix,
-            },
-            &state.line_buffer,
-        ).trim_end());
-        state.line_buffer.clear();
-        state.need_nl = true;
-        self.backward_break = None;
-    }
-
-    fn flush(&mut self, state: &mut State, out: &mut String) {
-        if !state.line_buffer.trim().is_empty() {
-            self.flush_always(state, out);
-        }
-    }
-
-    fn calc_max_width(&self) -> VisualLen {
-        match self.rel_max_width {
-            Some(w) => unicode_len(&self.prefix) + w,
-            None => self.max_width,
-        }
-    }
-
-    fn calc_current_len(&self, state: &State) -> VisualLen {
-        self.base_prefix_len + unicode_len(&state.line_buffer)
+pub fn format_md(
+    true_out: &mut String,
+    config: &FormatConfig,
+    prefix: &str,
+    source: &str,
+) -> Result<(), loga::Error> {
+    // TODO, due to a bug a bunch of unreachable branches might have had code added.
+    // I'd like to go back and see if some block-level starts can be removed in
+    // contexts they shouldn't appear.
+    match || -> Result<String, loga::Error> {
+        let mut out = String::new();
+        let mut state = State {
+            line_buffer: String::new(),
+            need_nl: false,
+            config: config.clone(),
+        };
+        let ast = markdown::to_mdast(source, &markdown::ParseOptions {
+            constructs: markdown::Constructs { ..Default::default() },
+            ..Default::default()
+        }).map_err(loga::err).context("Error parsing markdown")?;
+        recurse_write(
+            &mut state,
+            &mut out,
+            LineState::new(
+                unicode_len(&prefix),
+                None,
+                prefix.to_string(),
+                VisualLen(config.max_width),
+                config.comment_width.map(VisualLen),
+            ),
+            &ast,
+            false,
+        );
+        Ok(out)
+    }() {
+        Ok(o) => {
+            true_out.push_str(&o);
+            Ok(())
+        },
+        Err(e) => {
+            Err(e)
+        },
     }
 }
 
@@ -485,44 +446,30 @@ fn get_splits(text: &str) -> Vec<usize> {
     text.char_indices().filter(|i| i.1 == ' ').map(|i| i.0 + 1).collect()
 }
 
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
+pub struct HashLineColumn(pub LineColumn);
+
+impl Hash for HashLineColumn {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        (self.0.line, self.0.column).hash(state);
+    }
+}
+
+impl Ord for HashLineColumn {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        return self.0.line.cmp(&other.0.line).then(self.0.column.cmp(&other.0.column));
+    }
+}
+
+impl PartialOrd for HashLineColumn {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        return Some(self.0.cmp(&other.0));
+    }
+}
+
 struct LineState(Rc<RefCell<LineState_>>);
 
 impl LineState {
-    fn new(
-        base_prefix_len: VisualLen,
-        first_prefix: Option<String>,
-        prefix: String,
-        max_width: VisualLen,
-        rel_max_width: Option<VisualLen>,
-    ) -> LineState {
-        LineState(Rc::new(RefCell::new(LineState_ {
-            base_prefix_len: base_prefix_len,
-            first_prefix,
-            prefix,
-            max_width,
-            rel_max_width,
-            backward_break: None,
-            unbreakable: false,
-        })))
-    }
-
-    fn clone_inline(&self) -> LineState {
-        LineState(self.0.clone())
-    }
-
-    fn clone_zero_indent(&self) -> LineState {
-        let mut s = self.0.as_ref().borrow_mut();
-        LineState(Rc::new(RefCell::new(LineState_ {
-            base_prefix_len: s.base_prefix_len,
-            first_prefix: s.first_prefix.take(),
-            prefix: s.prefix.clone(),
-            max_width: s.max_width,
-            rel_max_width: s.rel_max_width,
-            backward_break: None,
-            unbreakable: false,
-        })))
-    }
-
     fn clone_indent(&self, first_prefix: Option<String>, prefix: String) -> LineState {
         let mut s = self.0.as_ref().borrow_mut();
         LineState(Rc::new(RefCell::new(LineState_ {
@@ -539,6 +486,10 @@ impl LineState {
             backward_break: None,
             unbreakable: false,
         })))
+    }
+
+    fn clone_inline(&self) -> LineState {
+        LineState(self.0.clone())
     }
 
     fn clone_unbreakable(&self, first_prefix: Option<String>) -> LineState {
@@ -559,6 +510,41 @@ impl LineState {
         })))
     }
 
+    fn clone_zero_indent(&self) -> LineState {
+        let mut s = self.0.as_ref().borrow_mut();
+        LineState(Rc::new(RefCell::new(LineState_ {
+            base_prefix_len: s.base_prefix_len,
+            first_prefix: s.first_prefix.take(),
+            prefix: s.prefix.clone(),
+            max_width: s.max_width,
+            rel_max_width: s.rel_max_width,
+            backward_break: None,
+            unbreakable: false,
+        })))
+    }
+
+    fn flush_always(&self, state: &mut State, out: &mut String) {
+        self.0.as_ref().borrow_mut().flush_always(state, out);
+    }
+
+    fn new(
+        base_prefix_len: VisualLen,
+        first_prefix: Option<String>,
+        prefix: String,
+        max_width: VisualLen,
+        rel_max_width: Option<VisualLen>,
+    ) -> LineState {
+        LineState(Rc::new(RefCell::new(LineState_ {
+            base_prefix_len: base_prefix_len,
+            first_prefix,
+            prefix,
+            max_width,
+            rel_max_width,
+            backward_break: None,
+            unbreakable: false,
+        })))
+    }
+
     fn write(&self, state: &mut State, out: &mut String, text: &str, breaks: &[usize]) {
         let mut s = self.0.as_ref().borrow_mut();
         if s.unbreakable {
@@ -568,14 +554,14 @@ impl LineState {
         let max_len = s.calc_max_width();
 
         struct FoundWritableLen<'a> {
-            /// How much of text can be written to the current line. If a break is used, will
-            /// be equal to the break point, but if the whole string is written may be longer
-            writable: usize,
-            /// If a break is used, the break and the remaining unused breaks
-            previous_break: Option<(usize, &'a [usize])>,
             /// The next break after the last break before the max length, 2nd fallback (after
             /// retro-break)
             next_break: Option<(usize, &'a [usize])>,
+            /// If a break is used, the break and the remaining unused breaks
+            previous_break: Option<(usize, &'a [usize])>,
+            /// How much of text can be written to the current line. If a break is used, will
+            /// be equal to the break point, but if the whole string is written may be longer
+            writable: usize,
         }
 
         fn find_writable_len<
@@ -690,20 +676,66 @@ impl LineState {
         self.write(state, out, text, &get_splits(text));
     }
 
-    fn write_unbreakable(&self, state: &mut State, out: &mut String, text: &str) {
-        self.write(state, out, text, &[]);
-    }
-
-    fn flush_always(&self, state: &mut State, out: &mut String) {
-        self.0.as_ref().borrow_mut().flush_always(state, out);
-    }
-
     fn write_newline(&self, state: &mut State, out: &mut String) {
         let mut s = self.0.as_ref().borrow_mut();
         if !state.line_buffer.is_empty() {
             panic!();
         }
         s.flush_always(state, out);
+    }
+
+    fn write_unbreakable(&self, state: &mut State, out: &mut String, text: &str) {
+        self.write(state, out, text, &[]);
+    }
+}
+
+#[derive(Debug)]
+struct LineState_ {
+    backward_break: Option<usize>,
+    base_prefix_len: VisualLen,
+    first_prefix: Option<String>,
+    max_width: VisualLen,
+    prefix: String,
+    rel_max_width: Option<VisualLen>,
+    unbreakable: bool,
+}
+
+impl LineState_ {
+    fn calc_current_len(&self, state: &State) -> VisualLen {
+        self.base_prefix_len + unicode_len(&state.line_buffer)
+    }
+
+    fn calc_max_width(&self) -> VisualLen {
+        match self.rel_max_width {
+            Some(w) => unicode_len(&self.prefix) + w,
+            None => self.max_width,
+        }
+    }
+
+    fn flush(&mut self, state: &mut State, out: &mut String) {
+        if !state.line_buffer.trim().is_empty() {
+            self.flush_always(state, out);
+        }
+    }
+
+    fn flush_always(&mut self, state: &mut State, out: &mut String) {
+        out.push_str(format!(
+            //. .
+            "{}{}{}",
+            if state.need_nl {
+                "\n"
+            } else {
+                ""
+            },
+            match &self.first_prefix.take() {
+                Some(t) => t,
+                None => &*self.prefix,
+            },
+            &state.line_buffer,
+        ).trim_end());
+        state.line_buffer.clear();
+        state.need_nl = true;
+        self.backward_break = None;
     }
 }
 
@@ -1041,47 +1073,15 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
     }
 }
 
-pub fn format_md(
-    true_out: &mut String,
-    config: &FormatConfig,
-    prefix: &str,
-    source: &str,
-) -> Result<(), loga::Error> {
-    // TODO, due to a bug a bunch of unreachable branches might have had code added.
-    // I'd like to go back and see if some block-level starts can be removed in
-    // contexts they shouldn't appear.
-    match || -> Result<String, loga::Error> {
-        let mut out = String::new();
-        let mut state = State {
-            line_buffer: String::new(),
-            need_nl: false,
-            config: config.clone(),
-        };
-        let ast = markdown::to_mdast(source, &markdown::ParseOptions {
-            constructs: markdown::Constructs { ..Default::default() },
-            ..Default::default()
-        }).map_err(loga::err).context("Error parsing markdown")?;
-        recurse_write(
-            &mut state,
-            &mut out,
-            LineState::new(
-                unicode_len(&prefix),
-                None,
-                prefix.to_string(),
-                VisualLen(config.max_width),
-                config.comment_width.map(VisualLen),
-            ),
-            &ast,
-            false,
-        );
-        Ok(out)
-    }() {
-        Ok(o) => {
-            true_out.push_str(&o);
-            Ok(())
-        },
-        Err(e) => {
-            Err(e)
-        },
-    }
+struct State {
+    config: FormatConfig,
+    line_buffer: String,
+    need_nl: bool,
 }
+
+fn unicode_len(text: &str) -> VisualLen {
+    VisualLen(text.chars().count())
+}
+
+#[derive(Debug, derive_more::Add, PartialEq, Eq, PartialOrd, Ord, derive_more::Sub, Clone, Copy)]
+struct VisualLen(usize);

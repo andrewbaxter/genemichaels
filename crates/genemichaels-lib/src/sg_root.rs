@@ -20,25 +20,8 @@ use {
 };
 
 impl Formattable for File {
-    fn normalize_imports(
-        &mut self,
-        config: &crate::FormatConfig,
-        whitespaces: &mut std::collections::BTreeMap<crate::HashLineColumn, (usize, Vec<crate::Whitespace>)>,
-    ) {
-        if config.import_normalization != crate::ImportNormalizationMode::None {
-            let mut normalizer = crate::normalize_imports::ImportNormalizer {
-                config,
-                whitespaces,
-            };
-            syn::visit_mut::VisitMut::visit_file_mut(&mut normalizer, self);
-        }
-    }
-
-    fn normalize_declarations(&mut self, config: &crate::FormatConfig) {
-        if config.declaration_normalization != crate::DeclarationNormalizationMode::None {
-            let mut normalizer = crate::normalize_declarations::DeclarationNormalizer { config };
-            syn::visit_mut::VisitMut::visit_file_mut(&mut normalizer, self);
-        }
+    fn has_attrs(&self) -> bool {
+        !self.attrs.is_empty()
     }
 
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
@@ -86,7 +69,24 @@ impl Formattable for File {
         }
     }
 
-    fn has_attrs(&self) -> bool {
-        !self.attrs.is_empty()
+    fn normalize_declarations(&mut self, config: &crate::FormatConfig) {
+        if config.declaration_normalization != crate::DeclarationNormalizationMode::None {
+            let mut normalizer = crate::normalize_declarations::DeclarationNormalizer { config };
+            syn::visit_mut::VisitMut::visit_file_mut(&mut normalizer, self);
+        }
+    }
+
+    fn normalize_imports(
+        &mut self,
+        config: &crate::FormatConfig,
+        whitespaces: &mut std::collections::BTreeMap<crate::HashLineColumn, (usize, Vec<crate::Whitespace>)>,
+    ) {
+        if config.import_normalization != crate::ImportNormalizationMode::None {
+            let mut normalizer = crate::normalize_imports::ImportNormalizer {
+                config,
+                whitespaces,
+            };
+            syn::visit_mut::VisitMut::visit_file_mut(&mut normalizer, self);
+        }
     }
 }

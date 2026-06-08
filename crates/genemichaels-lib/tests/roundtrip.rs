@@ -3,8 +3,8 @@
 use {
     genemichaels_lib::{
         ExternalFormatterConfig,
-        format_str,
         FormatConfig,
+        format_str,
     },
     std::collections::BTreeMap,
 };
@@ -19,12 +19,290 @@ fn rt(text: &str) {
     pretty_assertions::assert_str_eq!(text, res.rendered);
 }
 
-fn rt_tabs(text: &str) {
-    let res = format_str(text, &FormatConfig {
+#[test]
+fn rt_comment_before_if_brace1() {
+    rt(r#"fn main() {
+    if true
+    // hi
+    { }
+}
+"#)
+}
+
+#[test]
+fn rt_comment_before_label1() {
+    rt(r#"fn main() {
+    // hello
+    'x: for a in b { }
+}
+"#);
+}
+
+#[test]
+fn rt_comment_before_semi1() {
+    rt(r#"fn main() {
+    let x = 44
+    // comment
+    ;
+}
+"#)
+}
+
+#[test]
+fn rt_comment_x() {
+    // https://github.com/andrewbaxter/genemichaels/issues/89
+    rt(r#"fn get_valid_selection(get_actual_edit_transaction: impl Fn(
+    // current
+    &Selection,
+    // next
+    &Selection,
+) -> anyhow::Result<EditTransaction>) -> anyhow::Result<Either<Selection, EditTransaction>> {
+    todo!()
+}
+"#);
+}
+
+/// The start of the file is a special case since the first line is already on a
+/// new line.  So for elements following others, a "blank line" is a new line from
+/// the previous element, then another new line to the start of the next. But for
+/// SOF a blank line is just one new line.
+///
+/// This should probably be handled explicitly, but for now a single function that
+/// assumes it's extracting comments from non-SOF will generally be correct and
+/// simpler, I don't think SOF blank lines are that important...
+#[test]
+fn rt_comments_blank_keep1() {
+    let res = format_str(r#"
+
+
+fn main() { }
+"#, &FormatConfig {
+        max_width: 120,
+        keep_max_blank_lines: 1,
+        ..Default::default()
+    }).unwrap();
+    assert_eq!(res.rendered, r#"
+
+fn main() { }
+"#);
+}
+
+#[test]
+fn rt_comments_blank_nokeep1() {
+    let res = format_str(r#"
+
+
+fn main() { }
+"#, &FormatConfig {
         max_width: 120,
         keep_max_blank_lines: 0,
-        indent_spaces: 4,
-        indent_unit: genemichaels_lib::IndentUnit::Tabs,
+        ..Default::default()
+    }).unwrap();
+    assert_eq!(res.rendered, r#"fn main() { }
+"#);
+}
+
+#[test]
+fn rt_comments_directive_verbatim() {
+    rt(r#"fn main() {
+    //# this is verbatim
+}
+"#);
+}
+
+#[test]
+fn rt_comments_end() {
+    rt(r#"const X: i32 = 7;
+// This is where the file ends.
+"#)
+}
+
+#[test]
+fn rt_comments_generic_type1() {
+    rt(r#"struct X<
+    // hi
+    F: FnOnce(i32) -> i32,
+>(F);
+"#);
+}
+
+#[test]
+fn rt_comments_macro_comment() {
+    rt(r#"x!{
+    a,
+    b
+    //. .
+    ,
+}
+"#);
+}
+
+#[test]
+fn rt_comments_macro_final_comma() {
+    rt(r#"x!{
+    a,
+    b,
+}
+"#);
+}
+
+#[test]
+fn rt_comments_macro_final_comma2() {
+    rt(r#"x!(1, 2,);
+"#);
+}
+
+#[test]
+fn rt_comments_md_long_h1() {
+    rt(r#" 
+// # This is a very very very unusually very very long comment that should wrap even longer and longer
+"#);
+}
+
+#[test]
+fn rt_comments_md_long_h2() {
+    rt(r#" 
+// ## This is a very very very unusually very very long comment that should wrap even longer and longer
+"#);
+}
+
+#[test]
+fn rt_comments_md_long_p() {
+    rt(r#" 
+// This is a very very very unusually very very long comment that should wrap even
+// longer and longer but make sure it wraps the same way every time
+//
+// This should be a separate paragraph
+"#);
+}
+
+#[test]
+fn rt_comments_mixed1() {
+    rt(r#"// a
+/// b
+struct S;
+"#);
+}
+
+#[test]
+fn rt_comments_numbered_list1() {
+    rt(r#"// 1. list item one
+//
+// 2. list item 2
+//
+// 3. list item 3
+static _x: i32 = 4i32;
+"#)
+}
+
+#[test]
+fn rt_comments_numbered_list2() {
+    rt(r#"// 3. list item one
+//
+// 4. list item 2
+//
+// 5. list item 3
+static _x: i32 = 4i32;
+"#)
+}
+
+#[test]
+fn rt_comments_sig_return() {
+    rt(r#"fn main()
+// test
+-> () { }
+"#);
+}
+
+#[test]
+fn rt_comments_try1() {
+    rt(r#"fn main() {
+    x()
+    // failed
+    ?;
+}
+"#);
+}
+
+#[test]
+fn rt_comments_unbreakable_links1() {
+    rt(r#"//! This is a very long line that will get wrapped right around check_store
+//! [`check_store()`].
+//!
+//! [`check_store()`]: a::b::c
+fn main() { }
+"#);
+}
+
+#[test]
+fn rt_comments_verbatim1() {
+    rt(r#"fn main() {
+    //. this is verbatim
+}
+"#);
+}
+
+#[test]
+fn rt_const_ref() {
+    rt(r#"fn main() {
+    (*&raw const X).x(text);
+}
+"#);
+}
+
+#[test]
+fn rt_dontskip_modattrs() {
+    rt(r#"#![allow(
+    clippy::too_many_arguments,
+    clippy::field_reassign_with_default,
+    clippy::never_loop,
+    clippy::derive_hash_xor_eq
+)]
+
+fn main() { }
+"#);
+}
+
+#[test]
+fn rt_empty_parens1() {
+    rt(r#"fn main() {
+    call_123456789_123456789_12346789_123456789_123456789_123456789_123456789_123456789_123456789_123456789_123456789();
+}
+"#);
+}
+
+#[test]
+fn rt_extern_c_static1() {
+    rt(r#"extern "C" {
+    static X: Y;
+}
+"#);
+}
+
+#[test]
+fn rt_extern_c_type1() {
+    rt(r#"fn main() {
+    let language_fn: Symbol<unsafe extern "C" fn() -> Language> = x;
+}
+"#);
+}
+
+#[test]
+fn rt_external_formatter_comment_code_block() {
+    rt_fake(r#"/// ```fake
+/// aaaaa
+/// ```
+fn f() { }
+"#);
+}
+
+fn rt_fake(text: &str) {
+    let res = format_str(text, &FormatConfig {
+        max_width: 120,
+        external_formatters: BTreeMap::from([("fake".to_string(), ExternalFormatterConfig {
+            commandline: vec!["sed".to_string(), "s/./a/g".to_string()],
+            adjust_indent: false,
+        })]),
         ..Default::default()
     }).unwrap();
     assert!(res.lost_comments.is_empty(), "Comments remain: {:?}", res.lost_comments);
@@ -50,95 +328,56 @@ fn rt_field2() {
 }
 
 #[test]
-fn rt_struct1() {
-    rt(r#"fn main() {
-    x(MyStruct {
-        y: z,
+fn rt_fn1() {
+    rt(r#"fn main<T>()
+where
+    T: Fn() { }
+"#);
+}
+
+#[test]
+fn rt_genem_file_skip() {
+    rt(r#"//# genemichaels-file-skip
+fn main() {
+    let x=1;
+}
+"#);
+}
+
+#[test]
+fn rt_generic_nested_constraint() {
+    rt(r#"trait X: Y<Error: Debug> { }
+"#);
+}
+
+#[test]
+fn rt_import_normalization_combine_single_use_group_doc_comment() {
+    let text = r#"//! Doc comment line one
+//!
+//! Doc comment line two
+use {
+    a::A,
+    b::B,
+};
+
+fn main() { }
+"#;
+    let res = format_str(text, &FormatConfig {
+        max_width: 120,
+        keep_max_blank_lines: 0,
+        import_normalization: genemichaels_lib::ImportNormalizationMode::Combine,
         ..Default::default()
-    })
-}
-"#)
-}
-
-#[test]
-fn rt_struct_generic1() {
-    rt(r#"struct DefaultTupleStruct<A, B, C>(
-    A,
-    #[serde(default)]
-    B,
-    #[serde(default = "MyDefault::my_default")]
-    C,
-)
-where
-    C: MyDefault;
-"#);
+    }).unwrap();
+    assert!(res.lost_comments.is_empty(), "Comments remain: {:?}", res.lost_comments);
+    pretty_assertions::assert_str_eq!(text, res.rendered);
 }
 
 #[test]
-fn rt_trait_associated_type_where1() {
-    rt(r#"trait ABC {
-    type Iterator<'a>: Iterator<Item = &'a T>
-    where
-        T: 'a,
-        Self: 'a;
-}
-"#);
-}
-
-#[test]
-fn rt_trait_impl_associated_type_where1() {
-    rt(r#"impl ABC for T {
-    type Assoc = usize
-    where
-        T: Trait;
-}
-"#);
-}
-
-#[test]
-fn rt_type_assignment_where1() {
-    rt(r#"type CoreBitFields<const C: usize>
-where
-    [u8; (C + 7) / 8]: Sized = [u8; (C + 7) / 8];
-"#);
-}
-
-#[test]
-fn rt_trait_impl_default_fn() {
-    rt(r#"impl ABC for T {
-    default fn deserialize_or_zeroed() { }
-}
-"#);
-}
-
-#[test]
-fn rt_tuple_unit1() {
+fn rt_labeled_block() {
     rt(r#"fn main() {
-    x((7,));
+    'label: { }
 }
 "#);
-}
-
-#[test]
-fn rt_tuple_unit2() {
-    rt(r#"fn main(x: (i32,)) { }
-"#);
-}
-
-#[test]
-fn rt_tuple_unit3() {
-    rt(r#"fn main((x,): (i32,)) { }
-"#);
-}
-
-#[test]
-fn rt_pat_field1() {
-    rt(r#"fn main() {
-    match x {
-        Expr::MethodCall(ExprMethodCall { args, receiver: func, .. }) => { },
-    }
-}
-"#)
 }
 
 #[test]
@@ -178,272 +417,6 @@ fn rt_macro_star_equal() {
 #[test]
 fn rt_macro_star_equal_gt() {
     rt(r#"x!(a * => b);
-"#);
-}
-
-#[test]
-fn rt_comments_md_long_h1() {
-    rt(r#" 
-// # This is a very very very unusually very very long comment that should wrap even longer and longer
-"#);
-}
-
-#[test]
-fn rt_comments_md_long_h2() {
-    rt(r#" 
-// ## This is a very very very unusually very very long comment that should wrap even longer and longer
-"#);
-}
-
-#[test]
-fn rt_comments_md_long_p() {
-    rt(r#" 
-// This is a very very very unusually very very long comment that should wrap even
-// longer and longer but make sure it wraps the same way every time
-//
-// This should be a separate paragraph
-"#);
-}
-
-#[test]
-fn rt_comments_end() {
-    rt(r#"const X: i32 = 7;
-// This is where the file ends.
-"#)
-}
-
-#[test]
-fn rt_comments_numbered_list1() {
-    rt(r#"// 1. list item one
-//
-// 2. list item 2
-//
-// 3. list item 3
-static _x: i32 = 4i32;
-"#)
-}
-
-#[test]
-fn rt_comments_numbered_list2() {
-    rt(r#"// 3. list item one
-//
-// 4. list item 2
-//
-// 5. list item 3
-static _x: i32 = 4i32;
-"#)
-}
-
-#[test]
-fn rt_comments_unbreakable_links1() {
-    rt(r#"//! This is a very long line that will get wrapped right around check_store
-//! [`check_store()`].
-//!
-//! [`check_store()`]: a::b::c
-fn main() { }
-"#);
-}
-
-#[test]
-fn rt_comments_try1() {
-    rt(r#"fn main() {
-    x()
-    // failed
-    ?;
-}
-"#);
-}
-
-#[test]
-fn rt_comments_verbatim1() {
-    rt(r#"fn main() {
-    //. this is verbatim
-}
-"#);
-}
-
-#[test]
-fn rt_comments_generic_type1() {
-    rt(r#"struct X<
-    // hi
-    F: FnOnce(i32) -> i32,
->(F);
-"#);
-}
-
-#[test]
-fn rt_comments_mixed1() {
-    rt(r#"// a
-/// b
-struct S;
-"#);
-}
-
-#[test]
-fn rt_comments_sig_return() {
-    rt(r#"fn main()
-// test
--> () { }
-"#);
-}
-
-#[test]
-fn rt_generic_nested_constraint() {
-    rt(r#"trait X: Y<Error: Debug> { }
-"#);
-}
-
-#[test]
-fn rt_comments_blank_nokeep1() {
-    let res = format_str(r#"
-
-
-fn main() { }
-"#, &FormatConfig {
-        max_width: 120,
-        keep_max_blank_lines: 0,
-        ..Default::default()
-    }).unwrap();
-    assert_eq!(res.rendered, r#"fn main() { }
-"#);
-}
-
-/// The start of the file is a special case since the first line is already on a
-/// new line.  So for elements following others, a "blank line" is a new line from
-/// the previous element, then another new line to the start of the next. But for
-/// SOF a blank line is just one new line.
-///
-/// This should probably be handled explicitly, but for now a single function that
-/// assumes it's extracting comments from non-SOF will generally be correct and
-/// simpler, I don't think SOF blank lines are that important...
-#[test]
-fn rt_comments_blank_keep1() {
-    let res = format_str(r#"
-
-
-fn main() { }
-"#, &FormatConfig {
-        max_width: 120,
-        keep_max_blank_lines: 1,
-        ..Default::default()
-    }).unwrap();
-    assert_eq!(res.rendered, r#"
-
-fn main() { }
-"#);
-}
-
-#[test]
-fn rt_try_try1() {
-    rt(r#"fn main() {
-    x().hello()??.await;
-}
-"#);
-}
-
-#[test]
-fn rt_comment_before_if_brace1() {
-    rt(r#"fn main() {
-    if true
-    // hi
-    { }
-}
-"#)
-}
-
-#[test]
-fn rt_comment_before_semi1() {
-    rt(r#"fn main() {
-    let x = 44
-    // comment
-    ;
-}
-"#)
-}
-
-#[test]
-fn rt_comment_before_label1() {
-    rt(r#"fn main() {
-    // hello
-    'x: for a in b { }
-}
-"#);
-}
-
-#[test]
-fn rt_comment_x() {
-    // https://github.com/andrewbaxter/genemichaels/issues/89
-    rt(r#"fn get_valid_selection(get_actual_edit_transaction: impl Fn(
-    // current
-    &Selection,
-    // next
-    &Selection,
-) -> anyhow::Result<EditTransaction>) -> anyhow::Result<Either<Selection, EditTransaction>> {
-    todo!()
-}
-"#);
-}
-
-#[test]
-fn rt_comments_macro_final_comma() {
-    rt(r#"x!{
-    a,
-    b,
-}
-"#);
-}
-
-#[test]
-fn rt_comments_macro_final_comma2() {
-    rt(r#"x!(1, 2,);
-"#);
-}
-
-#[test]
-fn rt_comments_macro_comment() {
-    rt(r#"x!{
-    a,
-    b
-    //. .
-    ,
-}
-"#);
-}
-
-#[test]
-fn rt_trait1() {
-    rt(r#"pub trait MyTrait<T, D>: Sized
-where
-    T: MyTrait2,
-    D: MyTrait3 {
-    fn is_empty(&self) -> bool;
-    #[allow(clippy::needless_lifetimes)]
-    fn another_method<'a>(&'a self) -> ReturnValue<T, D>;
-}
-"#);
-}
-
-#[test]
-fn rt_trait2() {
-    rt(r#"pub trait X {
-    type Z;
-}
-"#)
-}
-
-#[test]
-fn rt_fn1() {
-    rt(r#"fn main<T>()
-where
-    T: Fn() { }
-"#);
-}
-
-#[test]
-fn rt_empty_parens1() {
-    rt(r#"fn main() {
-    call_123456789_123456789_12346789_123456789_123456789_123456789_123456789_123456789_123456789_123456789_123456789();
-}
 "#);
 }
 
@@ -489,67 +462,13 @@ fn rt_match_attr_indent1() {
 }
 
 #[test]
-fn rt_extern_c_static1() {
-    rt(r#"extern "C" {
-    static X: Y;
-}
-"#);
-}
-
-#[test]
-fn rt_extern_c_type1() {
+fn rt_pat_field1() {
     rt(r#"fn main() {
-    let language_fn: Symbol<unsafe extern "C" fn() -> Language> = x;
+    match x {
+        Expr::MethodCall(ExprMethodCall { args, receiver: func, .. }) => { },
+    }
 }
-"#);
-}
-
-#[test]
-fn rt_unsafe_extern_c_() {
-    rt(r#"unsafe extern "C" { }
-"#);
-}
-
-#[test]
-fn rt_static_mut1() {
-    rt(r#"static mut X: Y = Y(7);
-"#);
-}
-
-#[test]
-fn rt_labeled_block() {
-    rt(r#"fn main() {
-    'label: { }
-}
-"#);
-}
-
-#[test]
-fn rt_self_type() {
-    rt(r#"impl Something {
-    fn something(self: i32) { }
-}
-"#);
-}
-
-#[test]
-fn rt_skip_shebang() {
-    rt(r#"#!/bin/bash
-fn main() { }
-"#);
-}
-
-#[test]
-fn rt_dontskip_modattrs() {
-    rt(r#"#![allow(
-    clippy::too_many_arguments,
-    clippy::field_reassign_with_default,
-    clippy::never_loop,
-    clippy::derive_hash_xor_eq
-)]
-
-fn main() { }
-"#);
+"#)
 }
 
 #[test]
@@ -633,6 +552,156 @@ fn rt_rustfmt_skip_subtree_comment_array() {
 }
 
 #[test]
+fn rt_self_type() {
+    rt(r#"impl Something {
+    fn something(self: i32) { }
+}
+"#);
+}
+
+#[test]
+fn rt_skip_shebang() {
+    rt(r#"#!/bin/bash
+fn main() { }
+"#);
+}
+
+#[test]
+fn rt_static_mut1() {
+    rt(r#"static mut X: Y = Y(7);
+"#);
+}
+
+#[test]
+fn rt_struct1() {
+    rt(r#"fn main() {
+    x(MyStruct {
+        y: z,
+        ..Default::default()
+    })
+}
+"#)
+}
+
+#[test]
+fn rt_struct_generic1() {
+    rt(r#"struct DefaultTupleStruct<A, B, C>(
+    A,
+    #[serde(default)]
+    B,
+    #[serde(default = "MyDefault::my_default")]
+    C,
+)
+where
+    C: MyDefault;
+"#);
+}
+
+fn rt_tabs(text: &str) {
+    let res = format_str(text, &FormatConfig {
+        max_width: 120,
+        keep_max_blank_lines: 0,
+        indent_spaces: 4,
+        indent_unit: genemichaels_lib::IndentUnit::Tabs,
+        ..Default::default()
+    }).unwrap();
+    assert!(res.lost_comments.is_empty(), "Comments remain: {:?}", res.lost_comments);
+    pretty_assertions::assert_str_eq!(text, res.rendered);
+}
+
+#[test]
+fn rt_trait1() {
+    rt(r#"pub trait MyTrait<T, D>: Sized
+where
+    T: MyTrait2,
+    D: MyTrait3 {
+    fn is_empty(&self) -> bool;
+    #[allow(clippy::needless_lifetimes)]
+    fn another_method<'a>(&'a self) -> ReturnValue<T, D>;
+}
+"#);
+}
+
+#[test]
+fn rt_trait2() {
+    rt(r#"pub trait X {
+    type Z;
+}
+"#)
+}
+
+#[test]
+fn rt_trait_associated_type_where1() {
+    rt(r#"trait ABC {
+    type Iterator<'a>: Iterator<Item = &'a T>
+    where
+        T: 'a,
+        Self: 'a;
+}
+"#);
+}
+
+#[test]
+fn rt_trait_impl_associated_type_where1() {
+    rt(r#"impl ABC for T {
+    type Assoc = usize
+    where
+        T: Trait;
+}
+"#);
+}
+
+#[test]
+fn rt_trait_impl_default_fn() {
+    rt(r#"impl ABC for T {
+    default fn deserialize_or_zeroed() { }
+}
+"#);
+}
+
+#[test]
+fn rt_try_try1() {
+    rt(r#"fn main() {
+    x().hello()??.await;
+}
+"#);
+}
+
+#[test]
+fn rt_tuple_unit1() {
+    rt(r#"fn main() {
+    x((7,));
+}
+"#);
+}
+
+#[test]
+fn rt_tuple_unit2() {
+    rt(r#"fn main(x: (i32,)) { }
+"#);
+}
+
+#[test]
+fn rt_tuple_unit3() {
+    rt(r#"fn main((x,): (i32,)) { }
+"#);
+}
+
+#[test]
+fn rt_type_assignment_where1() {
+    rt(r#"type CoreBitFields<const C: usize>
+where
+    [u8; (C + 7) / 8]: Sized = [u8; (C + 7) / 8];
+"#);
+}
+
+#[test]
+fn rt_unsafe_extern_c_() {
+    rt(r#"unsafe extern "C" { }
+"#);
+}
+
+#[test]
 fn rttabs_struct_generic1() {
     rt_tabs(r#"struct DefaultTupleStruct<A, B, C>(
 	A,
@@ -644,73 +713,4 @@ fn rttabs_struct_generic1() {
 where
 	C: MyDefault;
 "#);
-}
-
-#[test]
-fn rt_const_ref() {
-    rt(r#"fn main() {
-    (*&raw const X).x(text);
-}
-"#);
-}
-
-fn rt_fake(text: &str) {
-    let res = format_str(text, &FormatConfig {
-        max_width: 120,
-        external_formatters: BTreeMap::from([("fake".to_string(), ExternalFormatterConfig {
-            commandline: vec!["sed".to_string(), "s/./a/g".to_string()],
-            adjust_indent: false,
-        })]),
-        ..Default::default()
-    }).unwrap();
-    assert!(res.lost_comments.is_empty(), "Comments remain: {:?}", res.lost_comments);
-    pretty_assertions::assert_str_eq!(text, res.rendered);
-}
-
-#[test]
-fn rt_external_formatter_comment_code_block() {
-    rt_fake(r#"/// ```fake
-/// aaaaa
-/// ```
-fn f() { }
-"#);
-}
-
-#[test]
-fn rt_comments_directive_verbatim() {
-    rt(r#"fn main() {
-    //# this is verbatim
-}
-"#);
-}
-
-#[test]
-fn rt_genem_file_skip() {
-    rt(r#"//# genemichaels-file-skip
-fn main() {
-    let x=1;
-}
-"#);
-}
-
-#[test]
-fn rt_import_normalization_combine_single_use_group_doc_comment() {
-    let text = r#"//! Doc comment line one
-//!
-//! Doc comment line two
-use {
-    a::A,
-    b::B,
-};
-
-fn main() { }
-"#;
-    let res = format_str(text, &FormatConfig {
-        max_width: 120,
-        keep_max_blank_lines: 0,
-        import_normalization: genemichaels_lib::ImportNormalizationMode::Combine,
-        ..Default::default()
-    }).unwrap();
-    assert!(res.lost_comments.is_empty(), "Comments remain: {:?}", res.lost_comments);
-    pretty_assertions::assert_str_eq!(text, res.rendered);
 }

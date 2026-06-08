@@ -1,12 +1,10 @@
 #![doc = include_str!("../readme.md")]
 
-pub use aargvark_proc_macros::Aargvark;
+/// Base types - return types, errors, etc.
+pub mod base;
 
 /// Types related to producing help text.
 pub mod help;
-
-/// Base types - return types, errors, etc.
-pub mod base;
 
 /// The main trait for parsing arguments.
 pub mod traits;
@@ -14,63 +12,17 @@ pub mod traits;
 /// Default implementations and helper traits.
 pub mod traits_impls;
 
+pub use aargvark_proc_macros::Aargvark;
 use {
     base::{
         Error,
+        R,
         VarkFailure,
         VarkState,
-        R,
     },
     help::VarkRetHelp,
     traits::AargvarkTrait,
 };
-
-/// Result of varking when no errors occurred. Either results in parsed value or
-/// the parsing was interrupted because help was requested.
-pub enum VarkRet<T> {
-    Ok(T),
-    Help(VarkRetHelp),
-}
-
-/// Parse the explicitly passed in arguments - don't read application globals. The
-/// `command` is only used in help and error text. This abstracts the parsing away
-/// from command-line usage so it can be used in other contexts.
-pub fn vark_explicit<T: AargvarkTrait>(command: Option<String>, args: Vec<String>) -> Result<VarkRet<T>, Error> {
-    let mut state = VarkState::new(false, command, args);
-    match T::vark(&mut state) {
-        R::Err => {
-            return Err(Error {
-                command: state.command,
-                args: state.args,
-                detail: state.errors,
-            });
-        },
-        R::Help(builder) => {
-            return Ok(VarkRet::Help(VarkRetHelp {
-                command: state.command,
-                args: state.args,
-                consumed_args: state.i,
-                builder: builder,
-            }));
-        },
-        R::Ok(v) => {
-            if state.i != state.args.len() {
-                return Err(Error {
-                    command: state.command,
-                    detail: vec![VarkFailure {
-                        arg_offset: state.i,
-                        error: format!(
-                            "Error parsing command line arguments: final arguments are unrecognized\n{:?}",
-                            &state.args[state.i..]
-                        ),
-                    }],
-                    args: state.args,
-                });
-            }
-            return Ok(VarkRet::Ok(v));
-        },
-    }
-}
 
 #[derive(PartialEq, Eq)]
 pub enum CompleteCursorPosition {
@@ -78,23 +30,6 @@ pub enum CompleteCursorPosition {
     Empty,
     /// Cursor is at the end of a partially-written argument
     Partial,
-}
-
-/// Generate completions for the provided argument list.
-///
-/// The result is a list of completion options, where each option is a list of
-/// unquoted command line arguments. When output to a shell, the arguments should
-/// be quoted and joined by spaces as appropriate for the shell.
-pub fn vark_complete<
-    T: AargvarkTrait,
->(cursor: CompleteCursorPosition, command: Option<String>, args: Vec<String>) -> Vec<Vec<String>> {
-    let mut args = args;
-    if args.is_empty() || cursor == CompleteCursorPosition::Empty {
-        args.push("".to_string());
-    }
-    let mut state = VarkState::new(true, command, args);
-    T::vark(&mut state);
-    return (state.last_completer.take().unwrap())();
 }
 
 /// Parse the command line arguments into the specified type. If parsing fails,
@@ -147,4 +82,68 @@ pub fn vark<T: AargvarkTrait>() -> T {
             },
         }
     }
+}
+
+/// Generate completions for the provided argument list.
+///
+/// The result is a list of completion options, where each option is a list of
+/// unquoted command line arguments. When output to a shell, the arguments should
+/// be quoted and joined by spaces as appropriate for the shell.
+pub fn vark_complete<
+    T: AargvarkTrait,
+>(cursor: CompleteCursorPosition, command: Option<String>, args: Vec<String>) -> Vec<Vec<String>> {
+    let mut args = args;
+    if args.is_empty() || cursor == CompleteCursorPosition::Empty {
+        args.push("".to_string());
+    }
+    let mut state = VarkState::new(true, command, args);
+    T::vark(&mut state);
+    return (state.last_completer.take().unwrap())();
+}
+
+/// Parse the explicitly passed in arguments - don't read application globals. The
+/// `command` is only used in help and error text. This abstracts the parsing away
+/// from command-line usage so it can be used in other contexts.
+pub fn vark_explicit<T: AargvarkTrait>(command: Option<String>, args: Vec<String>) -> Result<VarkRet<T>, Error> {
+    let mut state = VarkState::new(false, command, args);
+    match T::vark(&mut state) {
+        R::Err => {
+            return Err(Error {
+                command: state.command,
+                args: state.args,
+                detail: state.errors,
+            });
+        },
+        R::Help(builder) => {
+            return Ok(VarkRet::Help(VarkRetHelp {
+                command: state.command,
+                args: state.args,
+                consumed_args: state.i,
+                builder: builder,
+            }));
+        },
+        R::Ok(v) => {
+            if state.i != state.args.len() {
+                return Err(Error {
+                    command: state.command,
+                    detail: vec![VarkFailure {
+                        arg_offset: state.i,
+                        error: format!(
+                            "Error parsing command line arguments: final arguments are unrecognized\n{:?}",
+                            &state.args[state.i..]
+                        ),
+                    }],
+                    args: state.args,
+                });
+            }
+            return Ok(VarkRet::Ok(v));
+        },
+    }
+}
+
+/// Result of varking when no errors occurred. Either results in parsed value or
+/// the parsing was interrupted because help was requested.
+pub enum VarkRet<T> {
+    Help(VarkRetHelp),
+    Ok(T),
 }

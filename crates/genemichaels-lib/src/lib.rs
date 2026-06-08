@@ -1,3 +1,19 @@
+pub(crate) mod normalize_declarations;
+pub(crate) mod normalize_imports;
+pub(crate) mod sg_expr;
+pub(crate) mod sg_general;
+pub(crate) mod sg_general_lists;
+pub(crate) mod sg_pat;
+pub(crate) mod sg_root;
+pub(crate) mod sg_statement;
+pub(crate) mod sg_type;
+pub(crate) mod whitespace;
+
+pub use whitespace::extract_whitespaces;
+pub use whitespace::{
+    format_md,
+    HashLineColumn,
+};
 use {
     loga::{
         Error,
@@ -31,301 +47,34 @@ use {
     syn::File,
     tempfile::NamedTempFile,
 };
-pub use whitespace::{
-    format_md,
-    HashLineColumn,
-};
 
-pub(crate) mod whitespace;
-pub(crate) mod sg_expr;
-pub(crate) mod sg_general;
-pub(crate) mod sg_pat;
-pub(crate) mod sg_statement;
-pub(crate) mod sg_type;
-pub(crate) mod sg_root;
-pub(crate) mod sg_general_lists;
-pub(crate) mod normalize_imports;
-pub(crate) mod normalize_declarations;
+pub trait Formattable {
+    fn has_attrs(&self) -> bool;
+    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx;
 
-#[derive(PartialEq, Clone, Copy, Debug)]
-pub enum CommentMode {
-    Normal,
-    ExplicitNormal,
-    DocInner,
-    DocOuter,
-    Verbatim,
-    Directive,
-}
+    fn normalize_declarations(&mut self, _config: &FormatConfig) { }
 
-#[derive(Debug, Clone)]
-pub struct Comment {
-    pub mode: CommentMode,
-    pub lines: String,
-    /// The offset in the original source where the comment started (location of // or
-    /// /* that initiated this specific comment mode)
-    pub orig_start_offset: usize,
-}
+    fn normalize_imports(
+        &mut self,
+        _config: &FormatConfig,
+        _whitespaces: &mut BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)>,
+    ) {
 
-#[derive(Debug, Clone)]
-pub enum WhitespaceMode {
-    BlankLines(usize),
-    Comment(Comment),
-}
-
-#[derive(Debug, Clone)]
-pub struct Whitespace {
-    // The loc of the AST node this whitespace is associated with. Special loc (0, 1)
-    // == end of file.
-    pub loc: LineColumn,
-    pub mode: WhitespaceMode,
-}
-
-#[derive(Clone, Copy)]
-pub struct SplitGroupIdx(usize);
-
-#[derive(Clone, Copy)]
-pub struct SegmentIdx(usize);
-
-#[derive(Clone, Copy)]
-pub(crate) struct LineIdx(usize);
-
-pub struct SplitGroup {
-    pub(crate) children: Vec<SplitGroupIdx>,
-    pub(crate) split: bool,
-    pub(crate) segments: Vec<SegmentIdx>,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum SegmentMode {
-    All,
-    Unsplit,
-    Split,
-}
-
-pub(crate) struct SegmentLine {
-    pub(crate) line: LineIdx,
-    pub(crate) seg_index: usize,
-}
-
-#[derive(Debug)]
-pub(crate) enum SegmentContent {
-    Text(String),
-    Whitespace((Alignment, Vec<Whitespace>)),
-    Break(Alignment, bool),
-    RawTextAdjustIndent(String),
-}
-
-pub(crate) struct Segment {
-    pub(crate) node: SplitGroupIdx,
-    pub(crate) line: Option<SegmentLine>,
-    pub(crate) mode: SegmentMode,
-    pub(crate) content: SegmentContent,
-}
-
-pub(crate) struct Line {
-    index: usize,
-    segs: Vec<SegmentIdx>,
-}
-
-struct Lines {
-    owned_lines: Vec<Line>,
-    lines: Vec<LineIdx>,
-}
-
-pub struct MakeSegsState {
-    nodes: Vec<SplitGroup>,
-    segs: Vec<Segment>,
-    whitespaces: BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)>,
-    config: FormatConfig,
-    // MakeSegsState should be cloned at each call level with flags overwritable, but
-    // it's a huge amount of work and only applies to this field for now. So instead
-    // manage externally (for now).
-    /// Positive if processing within a macro, used to control macro tweaks.
-    macro_depth: Rc<Cell<usize>>,
-    pub(crate) warnings: Vec<Error>,
-}
-
-pub struct IncMacroDepth(Rc<Cell<usize>>);
-
-impl IncMacroDepth {
-    fn new(s: &MakeSegsState) -> Self {
-        s.macro_depth.update(|x| x + 1);
-        return Self(s.macro_depth.clone());
     }
 }
 
-impl Drop for IncMacroDepth {
-    fn drop(&mut self) {
-        self.0.update(|x| x - 1);
-    }
+pub(crate) trait FormattablePunct {
+    fn span_start(&self) -> LineColumn;
 }
 
-pub(crate) fn check_split_brace_threshold(out: &MakeSegsState, count: usize) -> bool {
-    out.config.split_brace_threshold.map(|t| count >= t).unwrap_or(false)
+pub(crate) trait FormattableStmt: ToTokens + Formattable {
+    fn want_margin(&self) -> (MarginGroup, bool);
 }
-
-pub(crate) fn line_length(out: &MakeSegsState, lines: &Lines, line_i: LineIdx) -> usize {
-    let mut max_len = 0;
-    let mut len = 0;
-    for seg_i in &lines.owned_lines.get(line_i.0).unwrap().segs {
-        let seg = out.segs.get(seg_i.0).unwrap();
-        match &seg.content {
-            SegmentContent::Text(t) => {
-                let mut first = true;
-                for line in t.split('\n') {
-                    if !first {
-                        max_len = max_len.max(len);
-                        len = line.chars().count();
-                    } else {
-                        len += line.chars().count();
-                        first = false;
-                    }
-                }
-            },
-            SegmentContent::Break(b, _) => {
-                if out.nodes.get(seg.node.0).unwrap().split {
-                    len += out.config.indent_spaces * b.get().0;
-                }
-            },
-            SegmentContent::Whitespace(_) => { },
-            SegmentContent::RawTextAdjustIndent(t) => {
-                let prefix_len = t.find('"').map(|i| i + 1).unwrap_or(0);
-                let start_len = len;
-                let mut first = true;
-                let mut local_max = 0;
-                for line in t.split('\n') {
-                    if !first {
-                        len = start_len + prefix_len + line.chars().count();
-                        local_max = local_max.max(len);
-                    } else {
-                        len += line.chars().count();
-                        local_max = local_max.max(len);
-                        first = false;
-                    }
-                }
-                len = local_max;
-            },
-        };
-    }
-    max_len.max(len)
-}
-
-pub(crate) fn split_group(out: &mut MakeSegsState, lines: &mut Lines, sg_i: SplitGroupIdx) {
-    let sg = out.nodes.get_mut(sg_i.0).unwrap();
-    sg.split = true;
-    for seg_i in &sg.segments.clone() {
-        let res = {
-            let seg = out.segs.get(seg_i.0).unwrap();
-            match (&seg.mode, &seg.content) {
-                (SegmentMode::Split, SegmentContent::Break(_, _)) => {
-                    let seg_line = seg.line.as_ref().unwrap();
-                    Some((seg_line.line, seg_line.seg_index))
-                },
-                _ => None,
-            }
-        };
-        if let Some((line_i, off)) = res {
-            split_line_at(out, lines, line_i, off, None);
-        };
-    }
-}
-
-pub(crate) fn split_line_at(
-    out: &mut MakeSegsState,
-    lines: &mut Lines,
-    line_idx: LineIdx,
-    off: usize,
-    inject_start: Option<SegmentIdx>,
-) {
-    let line = lines.owned_lines.get_mut(line_idx.0).unwrap();
-    let mut new_segs = vec![];
-    if let Some(s) = inject_start {
-        new_segs.push(s);
-    }
-    new_segs.extend(line.segs.split_off(off));
-    {
-        let seg_i = new_segs.get(0).unwrap();
-        let seg = out.segs.get(seg_i.0).unwrap();
-        match &seg.content {
-            SegmentContent::Break(a, activate) => {
-                if *activate {
-                    a.activate();
-                }
-            },
-            SegmentContent::Whitespace((a, _)) => {
-                a.activate();
-            },
-            _ => { },
-        };
-    }
-    let insert_at = line.index + 1;
-    insert_line(out, lines, insert_at, new_segs);
-}
-
-pub(crate) fn insert_line(out: &mut MakeSegsState, lines: &mut Lines, at: usize, segs: Vec<SegmentIdx>) {
-    let line_i = LineIdx(lines.owned_lines.len());
-    lines.owned_lines.push(Line {
-        index: at,
-        segs,
-    });
-    for (i, seg_i) in lines.owned_lines.get(line_i.0).unwrap().segs.iter().enumerate() {
-        let seg = out.segs.get_mut(seg_i.0).unwrap();
-        match seg.line.as_mut() {
-            Some(l) => {
-                l.line = line_i;
-                l.seg_index = i;
-            },
-            None => {
-                seg.line = Some(SegmentLine {
-                    line: line_i,
-                    seg_index: i,
-                });
-            },
-        };
-    }
-    lines.lines.insert(at, line_i);
-    for (i, line_i) in lines.lines.iter().enumerate().skip(at + 1) {
-        lines.owned_lines.get_mut(line_i.0).unwrap().index = i;
-    }
-    for (i, line_i) in lines.lines.iter().enumerate() {
-        let line = lines.owned_lines.get(line_i.0).unwrap();
-        assert_eq!(line.index, i, "line index wrong; after insert at line {}", at);
-        for (j, seg_i) in line.segs.iter().enumerate() {
-            assert_eq!(
-                out.segs.get(seg_i.0).unwrap().line.as_ref().unwrap().seg_index,
-                j,
-                "seg index wrong; on line {}, after insert at line {}",
-                i,
-                at
-            );
-        }
-    }
-}
-
-pub(crate) struct Alignment_ {
-    pub(crate) parent: Option<Alignment>,
-    pub(crate) active: bool,
-}
-
-struct IndentLevel(usize);
 
 #[derive(Clone)]
 pub struct Alignment(Rc<RefCell<Alignment_>>);
 
-impl std::fmt::Debug for Alignment {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        "(align)".fmt(f)
-    }
-}
-
 impl Alignment {
-    pub(crate) fn indent(&self) -> Alignment {
-        Alignment(Rc::new(RefCell::new(Alignment_ {
-            parent: Some(self.clone()),
-            active: false,
-        })))
-    }
-
     pub(crate) fn activate(&self) {
         self.0.borrow_mut().active = true;
     }
@@ -343,243 +92,69 @@ impl Alignment {
             parent
         }
     }
-}
 
-pub(crate) struct SplitGroupBuilder {
-    pub(crate) node: SplitGroupIdx,
-    initial_split: bool,
-    reverse_children: bool,
-    segs: Vec<SegmentIdx>,
-    children: Vec<SplitGroupIdx>,
-}
-
-impl SplitGroupBuilder {
-    pub(crate) fn add(&mut self, out: &mut MakeSegsState, seg: Segment) {
-        let idx = SegmentIdx(out.segs.len());
-        out.segs.push(seg);
-        self.segs.push(idx);
-    }
-
-    pub(crate) fn initial_split(&mut self) {
-        self.initial_split = true;
-    }
-
-    pub(crate) fn reverse_children(&mut self) {
-        self.reverse_children = true;
-    }
-
-    pub(crate) fn child(&mut self, child: SplitGroupIdx) {
-        self.children.push(child);
-    }
-
-    pub(crate) fn build(self, out: &mut MakeSegsState) -> SplitGroupIdx {
-        let sg = out.nodes.get_mut(self.node.0).unwrap();
-        sg.split = self.initial_split;
-        sg.children = self.children;
-        if self.reverse_children {
-            sg.children.reverse();
-        }
-        sg.segments = self.segs;
-        for seg in &sg.segments {
-            out.segs.get_mut(seg.0).unwrap().node = self.node;
-        }
-        self.node
-    }
-
-    pub(crate) fn seg(&mut self, out: &mut MakeSegsState, text: impl ToString) {
-        self.add(out, Segment {
-            node: self.node,
-            line: None,
-            mode: SegmentMode::All,
-            content: SegmentContent::Text(text.to_string()),
-        });
-    }
-
-    pub(crate) fn seg_split(&mut self, out: &mut MakeSegsState, text: impl ToString) {
-        self.add(out, Segment {
-            node: self.node,
-            line: None,
-            mode: SegmentMode::Split,
-            content: SegmentContent::Text(text.to_string()),
-        });
-    }
-
-    pub(crate) fn seg_unsplit(&mut self, out: &mut MakeSegsState, text: impl ToString) {
-        self.add(out, Segment {
-            node: self.node,
-            line: None,
-            mode: SegmentMode::Unsplit,
-            content: SegmentContent::Text(text.to_string()),
-        });
-    }
-
-    pub(crate) fn split_if(&mut self, out: &mut MakeSegsState, alignment: Alignment, always: bool, activate: bool) {
-        self.add(out, Segment {
-            node: self.node,
-            line: None,
-            mode: if always {
-                SegmentMode::All
-            } else {
-                SegmentMode::Split
-            },
-            content: SegmentContent::Break(alignment, activate),
-        });
-    }
-
-    pub(crate) fn split(&mut self, out: &mut MakeSegsState, alignment: Alignment, activate: bool) {
-        self.add(out, Segment {
-            node: self.node,
-            line: None,
-            mode: SegmentMode::Split,
-            content: SegmentContent::Break(alignment, activate),
-        });
-    }
-
-    pub(crate) fn split_always(&mut self, out: &mut MakeSegsState, alignment: Alignment, activate: bool) {
-        self.add(out, Segment {
-            node: self.node,
-            line: None,
-            mode: SegmentMode::All,
-            content: SegmentContent::Break(alignment, activate),
-        });
+    pub(crate) fn indent(&self) -> Alignment {
+        Alignment(Rc::new(RefCell::new(Alignment_ {
+            parent: Some(self.clone()),
+            active: false,
+        })))
     }
 }
 
-pub(crate) fn new_sg(out: &mut MakeSegsState) -> SplitGroupBuilder {
-    let idx = SplitGroupIdx(out.nodes.len());
-    out.nodes.push(SplitGroup {
-        split: false,
-        segments: vec![],
-        children: vec![],
-    });
-    SplitGroupBuilder {
-        node: idx,
-        segs: vec![],
-        children: vec![],
-        initial_split: false,
-        reverse_children: false,
+impl std::fmt::Debug for Alignment {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        "(align)".fmt(f)
     }
 }
 
-pub(crate) fn new_sg_lit(
-    out: &mut MakeSegsState,
-    start: Option<(&Alignment, Vec<LineColumn>)>,
-    text: impl ToString,
-) -> SplitGroupIdx {
-    let mut sg = new_sg(out);
-    if let Some((base_indent, starts)) = start {
-        for loc in starts {
-            append_whitespace(out, base_indent, &mut sg, loc);
-        }
-    }
-    sg.seg(out, text.to_string());
-    sg.build(out)
+pub(crate) struct Alignment_ {
+    pub(crate) active: bool,
+    pub(crate) parent: Option<Alignment>,
 }
 
-#[derive(PartialEq, Debug)]
-pub(crate) enum MarginGroup {
-    Attr,
-    BlockDef,
-    Import,
-    None,
+pub(crate) fn check_split_brace_threshold(out: &MakeSegsState, count: usize) -> bool {
+    out.config.split_brace_threshold.map(|t| count >= t).unwrap_or(false)
 }
 
-pub(crate) trait FormattablePunct {
-    fn span_start(&self) -> LineColumn;
+#[derive(Debug, Clone)]
+pub struct Comment {
+    pub lines: String,
+    pub mode: CommentMode,
+    /// The offset in the original source where the comment started (location of // or
+    /// /* that initiated this specific comment mode)
+    pub orig_start_offset: usize,
 }
 
-pub(crate) trait FormattableStmt: ToTokens + Formattable {
-    fn want_margin(&self) -> (MarginGroup, bool);
-}
-
-pub trait Formattable {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx;
-    fn has_attrs(&self) -> bool;
-
-    fn normalize_imports(
-        &mut self,
-        _config: &FormatConfig,
-        _whitespaces: &mut BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)>,
-    ) {
-
-    }
-
-    fn normalize_declarations(&mut self, _config: &FormatConfig) { }
-}
-
-impl<F: Fn(&mut MakeSegsState, &Alignment) -> SplitGroupIdx> Formattable for F {
-    fn make_segs(&self, line: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
-        self(line, base_indent)
-    }
-
-    fn has_attrs(&self) -> bool {
-        false
-    }
-}
-
-impl Formattable for Ident {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
-        new_sg_lit(out, Some((base_indent, vec![self.span().start()])), self)
-    }
-
-    fn has_attrs(&self) -> bool {
-        false
-    }
-}
-
-impl Formattable for &Ident {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
-        (*self).make_segs(out, base_indent)
-    }
-
-    fn has_attrs(&self) -> bool {
-        false
-    }
-}
-
-#[derive(Debug, Copy, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum IndentUnit {
-    Spaces,
-    Tabs,
-}
-
-fn render_indent(config: &FormatConfig, current_indent: IndentLevel) -> String {
-    match config.indent_unit {
-        IndentUnit::Spaces => return " ".repeat(config.indent_spaces * current_indent.0),
-        IndentUnit::Tabs => return "\t".repeat(current_indent.0),
-    }
-}
-
-#[derive(Debug, Copy, Clone, Deserialize, Serialize, PartialEq, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum ImportNormalizationMode {
-    #[default]
-    None,
-    Combine,
-    Split,
+#[derive(PartialEq, Clone, Copy, Debug)]
+pub enum CommentMode {
+    Directive,
+    DocInner,
+    DocOuter,
+    ExplicitNormal,
+    Normal,
+    Verbatim,
 }
 
 #[derive(Debug, Copy, Clone, Deserialize, Serialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum DeclarationNormalizationCategory {
-    Mod,
-    Use,
+    Concrete,
+    Const,
     Macro,
     MacroCall,
-    Const,
+    Mod,
     Trait,
-    Concrete,
+    Use,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum DeclarationNormalizationMode {
+    Auto,
+    ByCategory(Vec<DeclarationNormalizationCategory>),
+    ByName,
     #[default]
     None,
-    Auto,
-    ByName,
-    ByCategory(Vec<DeclarationNormalizationCategory>),
 }
 
 fn default_true() -> bool {
@@ -588,170 +163,9 @@ fn default_true() -> bool {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ExternalFormatterConfig {
-    pub commandline: Vec<String>,
     #[serde(default = "default_true")]
     pub adjust_indent: bool,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(default)]
-pub struct FormatConfig {
-    pub max_width: usize,
-    pub root_splits: bool,
-    pub split_brace_threshold: Option<usize>,
-    pub split_attributes: bool,
-    pub split_where: bool,
-    pub comment_width: Option<usize>,
-    pub comment_errors_fatal: bool,
-    pub keep_max_blank_lines: usize,
-    pub indent_spaces: usize,
-    /// Indent with spaces or tabs.
-    pub indent_unit: IndentUnit,
-    pub explicit_markdown_comments: bool,
-    pub import_normalization: ImportNormalizationMode,
-    pub declaration_normalization: DeclarationNormalizationMode,
-    pub external_formatters: BTreeMap<String, ExternalFormatterConfig>,
-}
-
-impl Default for FormatConfig {
-    fn default() -> Self {
-        Self {
-            max_width: 120,
-            root_splits: false,
-            split_brace_threshold: Some(1usize),
-            split_attributes: true,
-            split_where: true,
-            comment_width: Some(80usize),
-            comment_errors_fatal: false,
-            keep_max_blank_lines: 0,
-            indent_spaces: 4,
-            indent_unit: IndentUnit::Spaces,
-            explicit_markdown_comments: false,
-            import_normalization: ImportNormalizationMode::None,
-            declaration_normalization: DeclarationNormalizationMode::None,
-            external_formatters: BTreeMap::new(),
-        }
-    }
-}
-
-pub struct FormatRes {
-    pub rendered: String,
-    pub lost_comments: BTreeMap<HashLineColumn, Vec<Whitespace>>,
-    pub warnings: Vec<Error>,
-}
-
-pub use whitespace::extract_whitespaces;
-
-pub(crate) fn run_external_formatter(command: &[String], content: &str) -> Result<String, loga::Error> {
-    let mut tmp_file: Option<NamedTempFile> = None;
-    let args = command[1..].iter().map(|a| -> Result<String, loga::Error> {
-        if a == "{}" {
-            let f = match tmp_file {
-                Some(ref f) => f,
-                None => {
-                    let mut f = NamedTempFile::new().context("Failed to create external formatter temp file")?;
-                    f.write_all(content.as_bytes()).context("Failed to write external formatter temp file")?;
-                    f.flush().context("Failed to flush external formatter temp file")?;
-                    tmp_file.insert(f)
-                },
-            };
-            return Ok(f.path().to_string_lossy().to_string());
-        } else {
-            return Ok(a.clone());
-        }
-    }).collect::<Result<Vec<_>, _>>()?;
-    if let Some(ref tmp_file) = tmp_file {
-        let status =
-            Command::new(&command[0])
-                .args(&args)
-                .status()
-                .context_with("Failed to run external formatter", ea!(cmd = command[0].as_str()))?;
-        if !status.success() {
-            return Err(loga::err_with("External formatter exited with error", ea!(cmd = &command[0])));
-        }
-        return fs::read_to_string(tmp_file.path()).context("Failed to read external formatter output");
-    } else {
-        let mut child =
-            Command::new(&command[0])
-                .args(&args)
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .spawn()
-                .context_with("Failed to spawn external formatter", ea!(cmd = command[0].as_str()))?;
-        child
-            .stdin
-            .take()
-            .unwrap()
-            .write_all(content.as_bytes())
-            .context("Failed to write to external formatter stdin")?;
-        let output = child.wait_with_output().context("Failed to get external formatter output")?;
-        if !output.status.success() {
-            return Err(loga::err_with("External formatter exited with error", ea!(cmd = &command[0])));
-        }
-        return String::from_utf8(output.stdout)
-            .map_err(loga::err)
-            .context("External formatter output is not valid UTF-8");
-    }
-}
-
-pub fn format_str(source: &str, config: &FormatConfig) -> Result<FormatRes, loga::Error> {
-    let shebang;
-    let shebang_line_off;
-    let source1;
-    if source.starts_with("#!/") {
-        let shebang_end = match source.find("\n") {
-            Some(o) => o + 1,
-            None => source.len(),
-        };
-        shebang = Some(&source[..shebang_end]);
-        source1 = &source[shebang_end..];
-        shebang_line_off = 1;
-    } else {
-        shebang = None;
-        source1 = source;
-        shebang_line_off = 0;
-    }
-    let stripped_source = source1;
-    let (whitespaces, tokens) = extract_whitespaces(config.keep_max_blank_lines, stripped_source)?;
-    for ws_list in whitespaces.values() {
-        for ws in ws_list {
-            if let WhitespaceMode::Comment(comment) = &ws.mode {
-                if comment.mode == CommentMode::Directive {
-                    for line in comment.lines.lines() {
-                        if line.trim() == "genemichaels-file-skip" {
-                            return Ok(FormatRes {
-                                rendered: source.to_string(),
-                                lost_comments: BTreeMap::new(),
-                                warnings: vec![],
-                            });
-                        }
-                    }
-                }
-            }
-        }
-    }
-    let out =
-        format_ast(
-            syn::parse2::<File>(
-                tokens,
-            ).map_err(
-                |e| loga::err_with(
-                    "Syn error parsing Rust code",
-                    ea!(line = e.span().start().line + shebang_line_off, column = e.span().start().column, err = e),
-                ),
-            )?,
-            config,
-            whitespaces,
-        )?;
-    if let Some(shebang) = shebang {
-        return Ok(FormatRes {
-            rendered: format!("{}{}", shebang, out.rendered),
-            lost_comments: out.lost_comments,
-            warnings: out.warnings,
-        });
-    } else {
-        return Ok(out);
-    }
+    pub commandline: Vec<String>,
 }
 
 pub fn format_ast(
@@ -928,26 +342,26 @@ pub fn format_ast(
     recurse(&mut out, &mut lines, config, root);
 
     struct Rendered {
-        text: String,
         col: usize,
+        text: String,
     }
 
     impl Rendered {
-        fn push_str(&mut self, s: &str) {
-            self.text.push_str(s);
-            if let Some(nl) = s.rfind('\n') {
-                self.col = s[nl + 1..].chars().count();
-            } else {
-                self.col += s.chars().count();
-            }
-        }
-
         fn push(&mut self, c: char) {
             self.text.push(c);
             if c == '\n' {
                 self.col = 0;
             } else {
                 self.col += 1;
+            }
+        }
+
+        fn push_str(&mut self, s: &str) {
+            self.text.push_str(s);
+            if let Some(nl) = s.rfind('\n') {
+                self.col = s[nl + 1..].chars().count();
+            } else {
+                self.col += s.chars().count();
             }
         }
     }
@@ -1151,4 +565,589 @@ pub fn format_ast(
             all_warnings
         },
     })
+}
+
+pub fn format_str(source: &str, config: &FormatConfig) -> Result<FormatRes, loga::Error> {
+    let shebang;
+    let shebang_line_off;
+    let source1;
+    if source.starts_with("#!/") {
+        let shebang_end = match source.find("\n") {
+            Some(o) => o + 1,
+            None => source.len(),
+        };
+        shebang = Some(&source[..shebang_end]);
+        source1 = &source[shebang_end..];
+        shebang_line_off = 1;
+    } else {
+        shebang = None;
+        source1 = source;
+        shebang_line_off = 0;
+    }
+    let stripped_source = source1;
+    let (whitespaces, tokens) = extract_whitespaces(config.keep_max_blank_lines, stripped_source)?;
+    for ws_list in whitespaces.values() {
+        for ws in ws_list {
+            if let WhitespaceMode::Comment(comment) = &ws.mode {
+                if comment.mode == CommentMode::Directive {
+                    for line in comment.lines.lines() {
+                        if line.trim() == "genemichaels-file-skip" {
+                            return Ok(FormatRes {
+                                rendered: source.to_string(),
+                                lost_comments: BTreeMap::new(),
+                                warnings: vec![],
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let out =
+        format_ast(
+            syn::parse2::<File>(
+                tokens,
+            ).map_err(
+                |e| loga::err_with(
+                    "Syn error parsing Rust code",
+                    ea!(line = e.span().start().line + shebang_line_off, column = e.span().start().column, err = e),
+                ),
+            )?,
+            config,
+            whitespaces,
+        )?;
+    if let Some(shebang) = shebang {
+        return Ok(FormatRes {
+            rendered: format!("{}{}", shebang, out.rendered),
+            lost_comments: out.lost_comments,
+            warnings: out.warnings,
+        });
+    } else {
+        return Ok(out);
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
+pub struct FormatConfig {
+    pub comment_errors_fatal: bool,
+    pub comment_width: Option<usize>,
+    pub declaration_normalization: DeclarationNormalizationMode,
+    pub explicit_markdown_comments: bool,
+    pub external_formatters: BTreeMap<String, ExternalFormatterConfig>,
+    pub import_normalization: ImportNormalizationMode,
+    pub indent_spaces: usize,
+    /// Indent with spaces or tabs.
+    pub indent_unit: IndentUnit,
+    pub keep_max_blank_lines: usize,
+    pub max_width: usize,
+    pub root_splits: bool,
+    pub split_attributes: bool,
+    pub split_brace_threshold: Option<usize>,
+    pub split_where: bool,
+}
+
+impl Default for FormatConfig {
+    fn default() -> Self {
+        Self {
+            max_width: 120,
+            root_splits: false,
+            split_brace_threshold: Some(1usize),
+            split_attributes: true,
+            split_where: true,
+            comment_width: Some(80usize),
+            comment_errors_fatal: false,
+            keep_max_blank_lines: 0,
+            indent_spaces: 4,
+            indent_unit: IndentUnit::Spaces,
+            explicit_markdown_comments: false,
+            import_normalization: ImportNormalizationMode::None,
+            declaration_normalization: DeclarationNormalizationMode::None,
+            external_formatters: BTreeMap::new(),
+        }
+    }
+}
+
+pub struct FormatRes {
+    pub lost_comments: BTreeMap<HashLineColumn, Vec<Whitespace>>,
+    pub rendered: String,
+    pub warnings: Vec<Error>,
+}
+
+#[derive(Debug, Copy, Clone, Deserialize, Serialize, PartialEq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ImportNormalizationMode {
+    Combine,
+    #[default]
+    None,
+    Split,
+}
+
+pub struct IncMacroDepth(Rc<Cell<usize>>);
+
+impl IncMacroDepth {
+    fn new(s: &MakeSegsState) -> Self {
+        s.macro_depth.update(|x| x + 1);
+        return Self(s.macro_depth.clone());
+    }
+}
+
+impl Drop for IncMacroDepth {
+    fn drop(&mut self) {
+        self.0.update(|x| x - 1);
+    }
+}
+
+struct IndentLevel(usize);
+
+#[derive(Debug, Copy, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IndentUnit {
+    Spaces,
+    Tabs,
+}
+
+pub(crate) fn insert_line(out: &mut MakeSegsState, lines: &mut Lines, at: usize, segs: Vec<SegmentIdx>) {
+    let line_i = LineIdx(lines.owned_lines.len());
+    lines.owned_lines.push(Line {
+        index: at,
+        segs,
+    });
+    for (i, seg_i) in lines.owned_lines.get(line_i.0).unwrap().segs.iter().enumerate() {
+        let seg = out.segs.get_mut(seg_i.0).unwrap();
+        match seg.line.as_mut() {
+            Some(l) => {
+                l.line = line_i;
+                l.seg_index = i;
+            },
+            None => {
+                seg.line = Some(SegmentLine {
+                    line: line_i,
+                    seg_index: i,
+                });
+            },
+        };
+    }
+    lines.lines.insert(at, line_i);
+    for (i, line_i) in lines.lines.iter().enumerate().skip(at + 1) {
+        lines.owned_lines.get_mut(line_i.0).unwrap().index = i;
+    }
+    for (i, line_i) in lines.lines.iter().enumerate() {
+        let line = lines.owned_lines.get(line_i.0).unwrap();
+        assert_eq!(line.index, i, "line index wrong; after insert at line {}", at);
+        for (j, seg_i) in line.segs.iter().enumerate() {
+            assert_eq!(
+                out.segs.get(seg_i.0).unwrap().line.as_ref().unwrap().seg_index,
+                j,
+                "seg index wrong; on line {}, after insert at line {}",
+                i,
+                at
+            );
+        }
+    }
+}
+
+pub(crate) struct Line {
+    index: usize,
+    segs: Vec<SegmentIdx>,
+}
+
+pub(crate) fn line_length(out: &MakeSegsState, lines: &Lines, line_i: LineIdx) -> usize {
+    let mut max_len = 0;
+    let mut len = 0;
+    for seg_i in &lines.owned_lines.get(line_i.0).unwrap().segs {
+        let seg = out.segs.get(seg_i.0).unwrap();
+        match &seg.content {
+            SegmentContent::Text(t) => {
+                let mut first = true;
+                for line in t.split('\n') {
+                    if !first {
+                        max_len = max_len.max(len);
+                        len = line.chars().count();
+                    } else {
+                        len += line.chars().count();
+                        first = false;
+                    }
+                }
+            },
+            SegmentContent::Break(b, _) => {
+                if out.nodes.get(seg.node.0).unwrap().split {
+                    len += out.config.indent_spaces * b.get().0;
+                }
+            },
+            SegmentContent::Whitespace(_) => { },
+            SegmentContent::RawTextAdjustIndent(t) => {
+                let prefix_len = t.find('"').map(|i| i + 1).unwrap_or(0);
+                let start_len = len;
+                let mut first = true;
+                let mut local_max = 0;
+                for line in t.split('\n') {
+                    if !first {
+                        len = start_len + prefix_len + line.chars().count();
+                        local_max = local_max.max(len);
+                    } else {
+                        len += line.chars().count();
+                        local_max = local_max.max(len);
+                        first = false;
+                    }
+                }
+                len = local_max;
+            },
+        };
+    }
+    max_len.max(len)
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct LineIdx(usize);
+
+struct Lines {
+    lines: Vec<LineIdx>,
+    owned_lines: Vec<Line>,
+}
+
+pub struct MakeSegsState {
+    config: FormatConfig,
+    // MakeSegsState should be cloned at each call level with flags overwritable, but
+    // it's a huge amount of work and only applies to this field for now. So instead
+    // manage externally (for now).
+    /// Positive if processing within a macro, used to control macro tweaks.
+    macro_depth: Rc<Cell<usize>>,
+    nodes: Vec<SplitGroup>,
+    segs: Vec<Segment>,
+    pub(crate) warnings: Vec<Error>,
+    whitespaces: BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)>,
+}
+
+#[derive(PartialEq, Debug)]
+pub(crate) enum MarginGroup {
+    Attr,
+    BlockDef,
+    Import,
+    None,
+}
+
+pub(crate) fn new_sg(out: &mut MakeSegsState) -> SplitGroupBuilder {
+    let idx = SplitGroupIdx(out.nodes.len());
+    out.nodes.push(SplitGroup {
+        split: false,
+        segments: vec![],
+        children: vec![],
+    });
+    SplitGroupBuilder {
+        node: idx,
+        segs: vec![],
+        children: vec![],
+        initial_split: false,
+        reverse_children: false,
+    }
+}
+
+pub(crate) fn new_sg_lit(
+    out: &mut MakeSegsState,
+    start: Option<(&Alignment, Vec<LineColumn>)>,
+    text: impl ToString,
+) -> SplitGroupIdx {
+    let mut sg = new_sg(out);
+    if let Some((base_indent, starts)) = start {
+        for loc in starts {
+            append_whitespace(out, base_indent, &mut sg, loc);
+        }
+    }
+    sg.seg(out, text.to_string());
+    sg.build(out)
+}
+
+fn render_indent(config: &FormatConfig, current_indent: IndentLevel) -> String {
+    match config.indent_unit {
+        IndentUnit::Spaces => return " ".repeat(config.indent_spaces * current_indent.0),
+        IndentUnit::Tabs => return "\t".repeat(current_indent.0),
+    }
+}
+
+pub(crate) fn run_external_formatter(command: &[String], content: &str) -> Result<String, loga::Error> {
+    let mut tmp_file: Option<NamedTempFile> = None;
+    let args = command[1..].iter().map(|a| -> Result<String, loga::Error> {
+        if a == "{}" {
+            let f = match tmp_file {
+                Some(ref f) => f,
+                None => {
+                    let mut f = NamedTempFile::new().context("Failed to create external formatter temp file")?;
+                    f.write_all(content.as_bytes()).context("Failed to write external formatter temp file")?;
+                    f.flush().context("Failed to flush external formatter temp file")?;
+                    tmp_file.insert(f)
+                },
+            };
+            return Ok(f.path().to_string_lossy().to_string());
+        } else {
+            return Ok(a.clone());
+        }
+    }).collect::<Result<Vec<_>, _>>()?;
+    if let Some(ref tmp_file) = tmp_file {
+        let status =
+            Command::new(&command[0])
+                .args(&args)
+                .status()
+                .context_with("Failed to run external formatter", ea!(cmd = command[0].as_str()))?;
+        if !status.success() {
+            return Err(loga::err_with("External formatter exited with error", ea!(cmd = &command[0])));
+        }
+        return fs::read_to_string(tmp_file.path()).context("Failed to read external formatter output");
+    } else {
+        let mut child =
+            Command::new(&command[0])
+                .args(&args)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .spawn()
+                .context_with("Failed to spawn external formatter", ea!(cmd = command[0].as_str()))?;
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(content.as_bytes())
+            .context("Failed to write to external formatter stdin")?;
+        let output = child.wait_with_output().context("Failed to get external formatter output")?;
+        if !output.status.success() {
+            return Err(loga::err_with("External formatter exited with error", ea!(cmd = &command[0])));
+        }
+        return String::from_utf8(output.stdout)
+            .map_err(loga::err)
+            .context("External formatter output is not valid UTF-8");
+    }
+}
+
+pub(crate) struct Segment {
+    pub(crate) content: SegmentContent,
+    pub(crate) line: Option<SegmentLine>,
+    pub(crate) mode: SegmentMode,
+    pub(crate) node: SplitGroupIdx,
+}
+
+#[derive(Debug)]
+pub(crate) enum SegmentContent {
+    Break(Alignment, bool),
+    RawTextAdjustIndent(String),
+    Text(String),
+    Whitespace((Alignment, Vec<Whitespace>)),
+}
+
+#[derive(Clone, Copy)]
+pub struct SegmentIdx(usize);
+
+pub(crate) struct SegmentLine {
+    pub(crate) line: LineIdx,
+    pub(crate) seg_index: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum SegmentMode {
+    All,
+    Split,
+    Unsplit,
+}
+
+pub(crate) fn split_group(out: &mut MakeSegsState, lines: &mut Lines, sg_i: SplitGroupIdx) {
+    let sg = out.nodes.get_mut(sg_i.0).unwrap();
+    sg.split = true;
+    for seg_i in &sg.segments.clone() {
+        let res = {
+            let seg = out.segs.get(seg_i.0).unwrap();
+            match (&seg.mode, &seg.content) {
+                (SegmentMode::Split, SegmentContent::Break(_, _)) => {
+                    let seg_line = seg.line.as_ref().unwrap();
+                    Some((seg_line.line, seg_line.seg_index))
+                },
+                _ => None,
+            }
+        };
+        if let Some((line_i, off)) = res {
+            split_line_at(out, lines, line_i, off, None);
+        };
+    }
+}
+
+pub(crate) fn split_line_at(
+    out: &mut MakeSegsState,
+    lines: &mut Lines,
+    line_idx: LineIdx,
+    off: usize,
+    inject_start: Option<SegmentIdx>,
+) {
+    let line = lines.owned_lines.get_mut(line_idx.0).unwrap();
+    let mut new_segs = vec![];
+    if let Some(s) = inject_start {
+        new_segs.push(s);
+    }
+    new_segs.extend(line.segs.split_off(off));
+    {
+        let seg_i = new_segs.get(0).unwrap();
+        let seg = out.segs.get(seg_i.0).unwrap();
+        match &seg.content {
+            SegmentContent::Break(a, activate) => {
+                if *activate {
+                    a.activate();
+                }
+            },
+            SegmentContent::Whitespace((a, _)) => {
+                a.activate();
+            },
+            _ => { },
+        };
+    }
+    let insert_at = line.index + 1;
+    insert_line(out, lines, insert_at, new_segs);
+}
+
+pub struct SplitGroup {
+    pub(crate) children: Vec<SplitGroupIdx>,
+    pub(crate) segments: Vec<SegmentIdx>,
+    pub(crate) split: bool,
+}
+
+pub(crate) struct SplitGroupBuilder {
+    children: Vec<SplitGroupIdx>,
+    initial_split: bool,
+    pub(crate) node: SplitGroupIdx,
+    reverse_children: bool,
+    segs: Vec<SegmentIdx>,
+}
+
+impl SplitGroupBuilder {
+    pub(crate) fn add(&mut self, out: &mut MakeSegsState, seg: Segment) {
+        let idx = SegmentIdx(out.segs.len());
+        out.segs.push(seg);
+        self.segs.push(idx);
+    }
+
+    pub(crate) fn build(self, out: &mut MakeSegsState) -> SplitGroupIdx {
+        let sg = out.nodes.get_mut(self.node.0).unwrap();
+        sg.split = self.initial_split;
+        sg.children = self.children;
+        if self.reverse_children {
+            sg.children.reverse();
+        }
+        sg.segments = self.segs;
+        for seg in &sg.segments {
+            out.segs.get_mut(seg.0).unwrap().node = self.node;
+        }
+        self.node
+    }
+
+    pub(crate) fn child(&mut self, child: SplitGroupIdx) {
+        self.children.push(child);
+    }
+
+    pub(crate) fn initial_split(&mut self) {
+        self.initial_split = true;
+    }
+
+    pub(crate) fn reverse_children(&mut self) {
+        self.reverse_children = true;
+    }
+
+    pub(crate) fn seg(&mut self, out: &mut MakeSegsState, text: impl ToString) {
+        self.add(out, Segment {
+            node: self.node,
+            line: None,
+            mode: SegmentMode::All,
+            content: SegmentContent::Text(text.to_string()),
+        });
+    }
+
+    pub(crate) fn seg_split(&mut self, out: &mut MakeSegsState, text: impl ToString) {
+        self.add(out, Segment {
+            node: self.node,
+            line: None,
+            mode: SegmentMode::Split,
+            content: SegmentContent::Text(text.to_string()),
+        });
+    }
+
+    pub(crate) fn seg_unsplit(&mut self, out: &mut MakeSegsState, text: impl ToString) {
+        self.add(out, Segment {
+            node: self.node,
+            line: None,
+            mode: SegmentMode::Unsplit,
+            content: SegmentContent::Text(text.to_string()),
+        });
+    }
+
+    pub(crate) fn split(&mut self, out: &mut MakeSegsState, alignment: Alignment, activate: bool) {
+        self.add(out, Segment {
+            node: self.node,
+            line: None,
+            mode: SegmentMode::Split,
+            content: SegmentContent::Break(alignment, activate),
+        });
+    }
+
+    pub(crate) fn split_always(&mut self, out: &mut MakeSegsState, alignment: Alignment, activate: bool) {
+        self.add(out, Segment {
+            node: self.node,
+            line: None,
+            mode: SegmentMode::All,
+            content: SegmentContent::Break(alignment, activate),
+        });
+    }
+
+    pub(crate) fn split_if(&mut self, out: &mut MakeSegsState, alignment: Alignment, always: bool, activate: bool) {
+        self.add(out, Segment {
+            node: self.node,
+            line: None,
+            mode: if always {
+                SegmentMode::All
+            } else {
+                SegmentMode::Split
+            },
+            content: SegmentContent::Break(alignment, activate),
+        });
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct SplitGroupIdx(usize);
+
+#[derive(Debug, Clone)]
+pub struct Whitespace {
+    // The loc of the AST node this whitespace is associated with. Special loc (0, 1)
+    // == end of file.
+    pub loc: LineColumn,
+    pub mode: WhitespaceMode,
+}
+
+#[derive(Debug, Clone)]
+pub enum WhitespaceMode {
+    BlankLines(usize),
+    Comment(Comment),
+}
+
+impl Formattable for &Ident {
+    fn has_attrs(&self) -> bool {
+        false
+    }
+
+    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
+        (*self).make_segs(out, base_indent)
+    }
+}
+
+impl<F: Fn(&mut MakeSegsState, &Alignment) -> SplitGroupIdx> Formattable for F {
+    fn has_attrs(&self) -> bool {
+        false
+    }
+
+    fn make_segs(&self, line: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
+        self(line, base_indent)
+    }
+}
+
+impl Formattable for Ident {
+    fn has_attrs(&self) -> bool {
+        false
+    }
+
+    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
+        new_sg_lit(out, Some((base_indent, vec![self.span().start()])), self)
+    }
 }

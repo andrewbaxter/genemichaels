@@ -1,20 +1,20 @@
 use {
     aargvark::{
-        vark,
         Aargvark,
+        vark,
     },
     flowcontrol::shed,
     genemichaels_lib::{
-        format_str,
         FormatConfig,
+        format_str,
     },
     loga::{
-        ea,
-        fatal,
         DebugDisplay,
         ErrContext,
         Log,
         ResultContext,
+        ea,
+        fatal,
     },
     serde::de::DeserializeOwned,
     std::{
@@ -22,8 +22,8 @@ use {
         env::current_dir,
         ffi::OsStr,
         fs::{
-            self,
             read,
+            self,
         },
         io::Read,
         path::{
@@ -43,114 +43,104 @@ const CARGO_TOML: &str = "Cargo.toml";
 const CONFIG_JSON: &str = ".genemichaels.json";
 const CONFIG_JSON2: &str = "genemichaels.json";
 
-#[derive(Aargvark)]
-enum Logging {
-    /// Don't output anything except formatted output. Exit code is the only way to
-    /// identify an error.
-    Silent,
-    /// Do detailed logging.
-    Debug,
-}
-
 /// A deterministic, simple, rule based Rust source code formatter. Even formats
 /// macros!
 #[derive(Aargvark)]
 struct Args {
-    /// Formats each listed file, overwriting with the formatted version. If empty,
-    /// formats the project specified by `Cargo.toml` in the current directory.  If
-    /// `--stdin` is used, this should be empty.
-    files: Vec<PathBuf>,
-    /// Format stdin, writing formatted data to stdout.
-    stdin: Option<()>,
     /// Explicitly specify a config file path. If not specified, will look for
     /// `.genemichaels.json` or `genemichaels.json` in the current directory and all
     /// parent directories, then in the system config directory. See the readme for
     /// options.
     config: Option<PathBuf>,
+    /// Formats each listed file, overwriting with the formatted version. If empty,
+    /// formats the project specified by `Cargo.toml` in the current directory.  If
+    /// `--stdin` is used, this should be empty.
+    files: Vec<PathBuf>,
     /// Change the log level.
     log: Option<Logging>,
+    /// Format stdin, writing formatted data to stdout.
+    stdin: Option<()>,
     /// Override how many threads to use for formatting multiple files. Defaults to the
     /// number of cores on the system.
     thread_count: Option<usize>,
 }
 
-fn skip(src: &str) -> bool {
-    src.lines().take(5).any(|l| l.contains("`nogenemichaels`"))
+struct FormatPool {
+    config: FormatConfig,
+    errors: Arc<Mutex<Vec<loga::Error>>>,
+    log: Log,
+    pool: ThreadPool,
 }
 
-/// Using existing code that's not quite jsonc, but I think we might as well move
-/// to jsonc at some point.
-fn maybe_load_almost_jsonc<T: DeserializeOwned>(path: &Path) -> Result<Option<T>, loga::Error> {
-    let log = Log::new().fork(ea!(path = path.to_string_lossy()));
-    let log = &log;
-    let body = match read(path) {
-        Ok(b) => b,
-        Err(e) => {
-            match e.kind() {
-                std::io::ErrorKind::NotADirectory | std::io::ErrorKind::NotFound => {
-                    return Ok(None);
-                },
-                _ => {
-                    return Err(e.stack_context(log, "Failed to read JSON file"));
+impl FormatPool {
+    fn join(&mut self) -> Result<(), loga::Error> {
+        self.pool.join();
+        if self.pool.panic_count() > 0 {
+            return Err(self.log.err("Panic(s) occurred during formatting."));
+        }
+        let errors = self.errors.lock().unwrap();
+        if !errors.is_empty() {
+            return Err(loga::agg_err("Errors encountered during formatting.", errors.clone()));
+        }
+        Ok(())
+    }
+
+    fn new(log: &Log, thread_count: Option<usize>, config: FormatConfig) -> FormatPool {
+        return FormatPool {
+            log: log.clone(),
+            config: config,
+            pool: {
+                let mut p = threadpool::Builder::new();
+                if let Some(t) = thread_count {
+                    p = p.num_threads(t);
+                }
+                p.build()
+            },
+            errors: Arc::new(Mutex::new(vec![])),
+        };
+    }
+
+    fn process_file(&mut self, file: PathBuf) {
+        let log = self.log.fork(ea!(file = file.to_string_lossy()));
+        log.log_with(loga::INFO, "Processing file", ea!());
+        let config = self.config.clone();
+        let errors = self.errors.clone();
+        self.pool.execute(move || {
+            let log = &log;
+            let res = || -> Result<(), loga::Error> {
+                let source = fs::read_to_string(&file).context("Failed to read source file")?;
+                if skip(&source) {
+                    log.log_with(loga::INFO, "Skipping due to skip comment", ea!());
+                    return Ok(());
+                }
+                let processed = process_file_contents(log, &config, &source).context("Error doing formatting")?;
+                if source != processed {
+                    log.log_with(loga::INFO, "Writing newly formatted file", ea!());
+                    fs::write(&file, processed.as_bytes()).context("Error writing formatted code back")?;
+                }
+                return Ok(());
+            }().stack_context(log, "Error formatting file");
+            match res {
+                Ok(_) => (),
+                Err(e) => {
+                    errors.lock().unwrap().push(e);
                 },
             }
-        },
-    };
-    return Ok(
-        serde_json::from_str(
-            &String::from_utf8(body).stack_context(log, "Failed to decode JSON file as utf8")?.lines().filter(|l| {
-                if l.trim_start().starts_with("//") {
-                    return false;
-                }
-                return true;
-            }).collect::<Vec<&str>>().join("\n"),
-        ).stack_context(log, "Failed to parse JSON file")?,
-    );
+        });
+    }
 }
 
 fn load_almost_jsonc<T: DeserializeOwned>(path: &Path) -> Result<T, loga::Error> {
     return Ok(maybe_load_almost_jsonc(path)?.context_with("Path does not exist", ea!(path = path.dbg_str()))?);
 }
 
-fn process_file_contents(log: &Log, config: &FormatConfig, source: &str) -> Result<String, loga::Error> {
-    let res = format_str(source, config)?;
-    if !res.lost_comments.is_empty() {
-        return Err(
-            log.err_with(
-                "Encountered a bug; some comments were lost during formatting",
-                ea!(comments = res.lost_comments.values().flatten().collect::<Vec<_>>().dbg_str()),
-            ),
-        );
-    }
-    for warn in res.warnings {
-        log.log_err(loga::WARN, warn);
-    }
-    match syn::parse_file(&res.rendered) {
-        Ok(_) => { },
-        Err(e) => {
-            return Err(
-                log.err_with(
-                    "Encountered a bug; formatted source code couldn't be re-parsed in verification step",
-                    ea!(
-                        line = e.span().start().line,
-                        column = e.span().start().column,
-                        err = e,
-                        snippet =
-                            res
-                                .rendered
-                                .lines()
-                                .enumerate()
-                                .skip(e.span().start().line.saturating_sub(5))
-                                .take(10)
-                                .map(|(ln, l)| format!("{:0>4} {}", ln + 1, l))
-                                .collect::<Vec<String>>()
-                                .join("\n")
-                    ),
-                ),
-            );
-        },
-    };
-    Ok(res.rendered)
+#[derive(Aargvark)]
+enum Logging {
+    /// Do detailed logging.
+    Debug,
+    /// Don't output anything except formatted output. Exit code is the only way to
+    /// identify an error.
+    Silent,
 }
 
 fn main() {
@@ -244,8 +234,8 @@ fn main() {
             };
 
             struct DirSearch {
-                seen: HashSet<PathBuf>,
                 pool: FormatPool,
+                seen: HashSet<PathBuf>,
             }
 
             fn process_dir(search: &mut DirSearch, dir: PathBuf) {
@@ -375,67 +365,77 @@ fn main() {
     }
 }
 
-struct FormatPool {
-    log: Log,
-    config: FormatConfig,
-    pool: ThreadPool,
-    errors: Arc<Mutex<Vec<loga::Error>>>,
-}
-
-impl FormatPool {
-    fn new(log: &Log, thread_count: Option<usize>, config: FormatConfig) -> FormatPool {
-        return FormatPool {
-            log: log.clone(),
-            config: config,
-            pool: {
-                let mut p = threadpool::Builder::new();
-                if let Some(t) = thread_count {
-                    p = p.num_threads(t);
-                }
-                p.build()
-            },
-            errors: Arc::new(Mutex::new(vec![])),
-        };
-    }
-
-    fn process_file(&mut self, file: PathBuf) {
-        let log = self.log.fork(ea!(file = file.to_string_lossy()));
-        log.log_with(loga::INFO, "Processing file", ea!());
-        let config = self.config.clone();
-        let errors = self.errors.clone();
-        self.pool.execute(move || {
-            let log = &log;
-            let res = || -> Result<(), loga::Error> {
-                let source = fs::read_to_string(&file).context("Failed to read source file")?;
-                if skip(&source) {
-                    log.log_with(loga::INFO, "Skipping due to skip comment", ea!());
-                    return Ok(());
-                }
-                let processed = process_file_contents(log, &config, &source).context("Error doing formatting")?;
-                if source != processed {
-                    log.log_with(loga::INFO, "Writing newly formatted file", ea!());
-                    fs::write(&file, processed.as_bytes()).context("Error writing formatted code back")?;
-                }
-                return Ok(());
-            }().stack_context(log, "Error formatting file");
-            match res {
-                Ok(_) => (),
-                Err(e) => {
-                    errors.lock().unwrap().push(e);
+/// Using existing code that's not quite jsonc, but I think we might as well move
+/// to jsonc at some point.
+fn maybe_load_almost_jsonc<T: DeserializeOwned>(path: &Path) -> Result<Option<T>, loga::Error> {
+    let log = Log::new().fork(ea!(path = path.to_string_lossy()));
+    let log = &log;
+    let body = match read(path) {
+        Ok(b) => b,
+        Err(e) => {
+            match e.kind() {
+                std::io::ErrorKind::NotADirectory | std::io::ErrorKind::NotFound => {
+                    return Ok(None);
+                },
+                _ => {
+                    return Err(e.stack_context(log, "Failed to read JSON file"));
                 },
             }
-        });
-    }
+        },
+    };
+    return Ok(
+        serde_json::from_str(
+            &String::from_utf8(body).stack_context(log, "Failed to decode JSON file as utf8")?.lines().filter(|l| {
+                if l.trim_start().starts_with("//") {
+                    return false;
+                }
+                return true;
+            }).collect::<Vec<&str>>().join("\n"),
+        ).stack_context(log, "Failed to parse JSON file")?,
+    );
+}
 
-    fn join(&mut self) -> Result<(), loga::Error> {
-        self.pool.join();
-        if self.pool.panic_count() > 0 {
-            return Err(self.log.err("Panic(s) occurred during formatting."));
-        }
-        let errors = self.errors.lock().unwrap();
-        if !errors.is_empty() {
-            return Err(loga::agg_err("Errors encountered during formatting.", errors.clone()));
-        }
-        Ok(())
+fn process_file_contents(log: &Log, config: &FormatConfig, source: &str) -> Result<String, loga::Error> {
+    let res = format_str(source, config)?;
+    if !res.lost_comments.is_empty() {
+        return Err(
+            log.err_with(
+                "Encountered a bug; some comments were lost during formatting",
+                ea!(comments = res.lost_comments.values().flatten().collect::<Vec<_>>().dbg_str()),
+            ),
+        );
     }
+    for warn in res.warnings {
+        log.log_err(loga::WARN, warn);
+    }
+    match syn::parse_file(&res.rendered) {
+        Ok(_) => { },
+        Err(e) => {
+            return Err(
+                log.err_with(
+                    "Encountered a bug; formatted source code couldn't be re-parsed in verification step",
+                    ea!(
+                        line = e.span().start().line,
+                        column = e.span().start().column,
+                        err = e,
+                        snippet =
+                            res
+                                .rendered
+                                .lines()
+                                .enumerate()
+                                .skip(e.span().start().line.saturating_sub(5))
+                                .take(10)
+                                .map(|(ln, l)| format!("{:0>4} {}", ln + 1, l))
+                                .collect::<Vec<String>>()
+                                .join("\n")
+                    ),
+                ),
+            );
+        },
+    };
+    Ok(res.rendered)
+}
+
+fn skip(src: &str) -> bool {
+    src.lines().take(5).any(|l| l.contains("`nogenemichaels`"))
 }

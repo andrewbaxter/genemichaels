@@ -24,6 +24,57 @@ use {
     },
 };
 
+fn cmp_key_for_import_node(
+    item: &ItemUse,
+    whitespaces: &BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)>,
+) -> (String, String, String) {
+    let get_ws = |span: proc_macro2::Span| {
+        let mut s = String::new();
+        if let Some((_, ws)) = whitespaces.get(&HashLineColumn(span.start())) {
+            for w in ws.iter() {
+                match &w.mode {
+                    WhitespaceMode::Comment(c) => {
+                        s.push_str(&c.lines);
+                    },
+                    WhitespaceMode::BlankLines(l) => {
+                        s.push_str(&l.to_string());
+                    },
+                }
+            }
+        }
+        s
+    };
+
+    fn get_ts_ws(
+        ts: proc_macro2::TokenStream,
+        whitespaces: &BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)>,
+        get_ws: &impl Fn(proc_macro2::Span) -> String,
+    ) -> String {
+        let mut s = String::new();
+        for tt in ts {
+            match tt {
+                proc_macro2::TokenTree::Group(g) => {
+                    s.push_str(&get_ws(g.span_open()));
+                    s.push_str(&get_ts_ws(g.stream(), whitespaces, get_ws));
+                    s.push_str(&get_ws(g.span_close()));
+                },
+                _ => {
+                    s.push_str(&get_ws(tt.span()));
+                },
+            }
+        }
+        s
+    }
+
+    let mut key = String::new();
+    key.push_str(&item.vis.to_token_stream().to_string());
+    for attr in &item.attrs {
+        key.push_str(&attr.to_token_stream().to_string());
+        key.push_str(&get_ts_ws(attr.to_token_stream(), whitespaces, &get_ws));
+    }
+    return (key, get_ws(item.use_token.span).to_string(), get_ws(item.semi_token.span).to_string());
+}
+
 fn cmp_use_tree(a: &syn::UseTree, b: &syn::UseTree) -> std::cmp::Ordering {
     fn get_rank(tree: &syn::UseTree) -> u8 {
         match tree {
@@ -81,55 +132,9 @@ fn cmp_use_tree(a: &syn::UseTree, b: &syn::UseTree) -> std::cmp::Ordering {
     }
 }
 
-fn cmp_key_for_import_node(
-    item: &ItemUse,
-    whitespaces: &BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)>,
-) -> (String, String, String) {
-    let get_ws = |span: proc_macro2::Span| {
-        let mut s = String::new();
-        if let Some((_, ws)) = whitespaces.get(&HashLineColumn(span.start())) {
-            for w in ws.iter() {
-                match &w.mode {
-                    WhitespaceMode::Comment(c) => {
-                        s.push_str(&c.lines);
-                    },
-                    WhitespaceMode::BlankLines(l) => {
-                        s.push_str(&l.to_string());
-                    },
-                }
-            }
-        }
-        s
-    };
-
-    fn get_ts_ws(
-        ts: proc_macro2::TokenStream,
-        whitespaces: &BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)>,
-        get_ws: &impl Fn(proc_macro2::Span) -> String,
-    ) -> String {
-        let mut s = String::new();
-        for tt in ts {
-            match tt {
-                proc_macro2::TokenTree::Group(g) => {
-                    s.push_str(&get_ws(g.span_open()));
-                    s.push_str(&get_ts_ws(g.stream(), whitespaces, get_ws));
-                    s.push_str(&get_ws(g.span_close()));
-                },
-                _ => {
-                    s.push_str(&get_ws(tt.span()));
-                },
-            }
-        }
-        s
-    }
-
-    let mut key = String::new();
-    key.push_str(&item.vis.to_token_stream().to_string());
-    for attr in &item.attrs {
-        key.push_str(&attr.to_token_stream().to_string());
-        key.push_str(&get_ts_ws(attr.to_token_stream(), whitespaces, &get_ws));
-    }
-    return (key, get_ws(item.use_token.span).to_string(), get_ws(item.semi_token.span).to_string());
+pub(crate) struct ImportNormalizer<'a> {
+    pub(crate) config: &'a FormatConfig,
+    pub(crate) whitespaces: &'a mut BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)>,
 }
 
 fn process_item_uses(
@@ -168,11 +173,15 @@ fn process_item_uses(
                     continue;
                 }
 
-                // Move the `use`/`;` whitespace onto the first child to avoid
-                // losing it. Only needed when merging multiple `use` statements
-                // (whose use/semi tokens disappear); for a single `use { ... };`
-                // the tokens are preserved in the template.
-                for item in if subgroup.len() > 1 { subgroup.iter() } else { [].iter() } {
+                // Move the `use`/`;` whitespace onto the first child to avoid losing it. Only
+                // needed when merging multiple `use` statements (whose use/semi tokens
+                // disappear); for a single `use { ... };` the tokens are preserved in the
+                // template.
+                for item in if subgroup.len() > 1 {
+                    subgroup.iter()
+                } else {
+                    [].iter()
+                } {
                     let tree_start = HashLineColumn(item.tree.span().start());
                     for span in [item.use_token.span, item.semi_token.span] {
                         let hl = HashLineColumn(span.start());
@@ -189,8 +198,8 @@ fn process_item_uses(
                 // Identify/split apart all leaf imports
                 #[derive(Clone)]
                 struct ImportLeaf {
-                    path: Vec<syn::UsePath>,
                     leaf: syn::UseTree,
+                    path: Vec<syn::UsePath>,
                 }
 
                 fn collect_leaves(tree: UseTree, current_path: &mut Vec<syn::UsePath>, out: &mut Vec<ImportLeaf>) {
@@ -313,8 +322,8 @@ fn process_item_uses(
             // Recursively gather all leaf imports
             #[derive(Clone)]
             struct ImportLeaf {
-                path: Vec<syn::Ident>,
                 leaf: syn::UseTree,
+                path: Vec<syn::Ident>,
             }
 
             impl PartialEq for ImportLeaf {
@@ -443,11 +452,6 @@ fn process_item_uses(
     }
 }
 
-pub(crate) struct ImportNormalizer<'a> {
-    pub(crate) config: &'a FormatConfig,
-    pub(crate) whitespaces: &'a mut BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)>,
-}
-
 impl<'a> ImportNormalizer<'a> {
     fn process_items(&mut self, items: &mut Vec<Item>) {
         let mut new_items = Vec::new();
@@ -507,6 +511,11 @@ impl<'a> ImportNormalizer<'a> {
 }
 
 impl<'a> VisitMut for ImportNormalizer<'a> {
+    fn visit_block_mut(&mut self, i: &mut Block) {
+        self.process_stmts(&mut i.stmts);
+        syn::visit_mut::visit_block_mut(self, i);
+    }
+
     fn visit_file_mut(&mut self, i: &mut File) {
         self.process_items(&mut i.items);
         syn::visit_mut::visit_file_mut(self, i);
@@ -517,10 +526,5 @@ impl<'a> VisitMut for ImportNormalizer<'a> {
             self.process_items(items);
         }
         syn::visit_mut::visit_item_mod_mut(self, i);
-    }
-
-    fn visit_block_mut(&mut self, i: &mut Block) {
-        self.process_stmts(&mut i.stmts);
-        syn::visit_mut::visit_block_mut(self, i);
     }
 }

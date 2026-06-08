@@ -1,10 +1,10 @@
-use quote::ToTokens;
 use {
     crate::{
         DeclarationNormalizationCategory,
         DeclarationNormalizationMode,
         FormatConfig,
     },
+    quote::ToTokens,
     std::collections::BTreeMap,
     syn::{
         Field,

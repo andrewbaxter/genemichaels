@@ -1,15 +1,24 @@
-use {
-    crate::{
-        base::{
-            VarkState,
-            R,
-        },
-        help::{
-            HelpPattern,
-            HelpState,
-        },
+use crate::{
+    base::{
+        R,
+        VarkState,
+    },
+    help::{
+        HelpPattern,
+        HelpState,
     },
 };
+
+/// Anything that implements this trait can be parsed and used as a field in other
+/// parsable enums/structs.
+pub trait AargvarkTrait: Sized {
+    /// Called when `-h` is specified.
+    fn build_help_pattern(state: &mut HelpState) -> HelpPattern;
+
+    /// Called when this argument is reached. Should parse data until no more data can
+    /// be parsed.
+    fn vark(state: &mut VarkState) -> R<Self>;
+}
 
 /// This method provides completions when `vark()` is invoked in the completion
 /// mode.
@@ -29,15 +38,4 @@ pub type AargvarkCompleter = Box<dyn Fn() -> Vec<Vec<String>>>;
 /// completion functionality.
 pub fn empty_completer() -> AargvarkCompleter {
     return Box::new(|| vec![]);
-}
-
-/// Anything that implements this trait can be parsed and used as a field in other
-/// parsable enums/structs.
-pub trait AargvarkTrait: Sized {
-    /// Called when this argument is reached. Should parse data until no more data can
-    /// be parsed.
-    fn vark(state: &mut VarkState) -> R<Self>;
-
-    /// Called when `-h` is specified.
-    fn build_help_pattern(state: &mut HelpState) -> HelpPattern;
 }
