@@ -562,7 +562,7 @@ pub enum ImportNormalizationMode {
 
 #[derive(Debug, Copy, Clone, Deserialize, Serialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
-pub enum DeclarationSortCategory {
+pub enum DeclarationNormalizationCategory {
     Mod,
     Use,
     Macro,
@@ -574,12 +574,12 @@ pub enum DeclarationSortCategory {
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
-pub enum DeclarationSortMode {
+pub enum DeclarationNormalizationMode {
     #[default]
     None,
     Auto,
     ByName,
-    ByCategory(Vec<DeclarationSortCategory>),
+    ByCategory(Vec<DeclarationNormalizationCategory>),
 }
 
 fn default_true() -> bool {
@@ -609,7 +609,7 @@ pub struct FormatConfig {
     pub indent_unit: IndentUnit,
     pub explicit_markdown_comments: bool,
     pub import_normalization: ImportNormalizationMode,
-    pub declaration_sort: DeclarationSortMode,
+    pub declaration_normalization: DeclarationNormalizationMode,
     pub external_formatters: BTreeMap<String, ExternalFormatterConfig>,
 }
 
@@ -628,7 +628,7 @@ impl Default for FormatConfig {
             indent_unit: IndentUnit::Spaces,
             explicit_markdown_comments: false,
             import_normalization: ImportNormalizationMode::None,
-            declaration_sort: DeclarationSortMode::None,
+            declaration_normalization: DeclarationNormalizationMode::None,
             external_formatters: BTreeMap::new(),
         }
     }

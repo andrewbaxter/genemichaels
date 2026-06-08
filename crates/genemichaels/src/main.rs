@@ -63,8 +63,9 @@ struct Args {
     /// Format stdin, writing formatted data to stdout.
     stdin: Option<()>,
     /// Explicitly specify a config file path. If not specified, will look for
-    /// `.genemichaels.json` next to the `Config.toml` if formatting a project or in
-    /// the current directory otherwise. See the readme for options.
+    /// `.genemichaels.json` or `genemichaels.json` in the current directory and all
+    /// parent directories, then in the system config directory. See the readme for
+    /// options.
     config: Option<PathBuf>,
     /// Change the log level.
     log: Option<Logging>,

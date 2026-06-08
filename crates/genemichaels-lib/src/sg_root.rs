@@ -35,7 +35,7 @@ impl Formattable for File {
     }
 
     fn normalize_declarations(&mut self, config: &crate::FormatConfig) {
-        if config.declaration_sort != crate::DeclarationSortMode::None {
+        if config.declaration_normalization != crate::DeclarationNormalizationMode::None {
             let mut normalizer = crate::normalize_declarations::DeclarationNormalizer { config };
             syn::visit_mut::VisitMut::visit_file_mut(&mut normalizer, self);
         }

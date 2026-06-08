@@ -1,7 +1,7 @@
 use {
     genemichaels_lib::{
-        DeclarationSortCategory,
-        DeclarationSortMode,
+        DeclarationNormalizationCategory,
+        DeclarationNormalizationMode,
         ExternalFormatterConfig,
         FormatConfig,
         format_str,
@@ -675,7 +675,7 @@ fn ow_vec_macro_trailing_comma_split() {
 }
 
 #[test]
-fn ow_declaration_sort_none() {
+fn ow_declaration_normalization_none() {
     owc(r#"fn b() { }
 
 fn a() { }
@@ -683,13 +683,13 @@ fn a() { }
 
 fn a() { }
 "#, &FormatConfig {
-        declaration_sort: DeclarationSortMode::None,
+        declaration_normalization: DeclarationNormalizationMode::None,
         ..Default::default()
     });
 }
 
 #[test]
-fn ow_declaration_sort_by_name() {
+fn ow_declaration_normalization_by_name() {
     owc(r#"fn b() { }
 
 fn a() { }
@@ -701,13 +701,13 @@ fn a() { }
 
 fn b() { }
 "#, &FormatConfig {
-        declaration_sort: DeclarationSortMode::ByName,
+        declaration_normalization: DeclarationNormalizationMode::ByName,
         ..Default::default()
     });
 }
 
 #[test]
-fn ow_declaration_sort_by_name_case_insensitive() {
+fn ow_declaration_normalization_by_name_case_insensitive() {
     owc(r#"fn Zebra() { }
 
 fn apple() { }
@@ -715,13 +715,13 @@ fn apple() { }
 
 fn Zebra() { }
 "#, &FormatConfig {
-        declaration_sort: DeclarationSortMode::ByName,
+        declaration_normalization: DeclarationNormalizationMode::ByName,
         ..Default::default()
     });
 }
 
 #[test]
-fn ow_declaration_sort_auto() {
+fn ow_declaration_normalization_auto() {
     owc(r#"fn my_func() { }
 
 struct MyStruct { }
@@ -745,13 +745,13 @@ fn my_func() { }
 
 struct MyStruct {}
 "#, &FormatConfig {
-        declaration_sort: DeclarationSortMode::Auto,
+        declaration_normalization: DeclarationNormalizationMode::Auto,
         ..Default::default()
     });
 }
 
 #[test]
-fn ow_declaration_sort_auto_impl_follows_type() {
+fn ow_declaration_normalization_auto_impl_follows_type() {
     owc(r#"impl MyStruct {
     fn method(&self) { }
 }
@@ -763,13 +763,13 @@ impl MyStruct {
     fn method(&self) { }
 }
 "#, &FormatConfig {
-        declaration_sort: DeclarationSortMode::Auto,
+        declaration_normalization: DeclarationNormalizationMode::Auto,
         ..Default::default()
     });
 }
 
 #[test]
-fn ow_declaration_sort_by_category_custom_order() {
+fn ow_declaration_normalization_by_category_custom_order() {
     owc(r#"fn my_func() { }
 
 use std::fmt;
@@ -781,15 +781,15 @@ use std::fmt;
 
 fn my_func() { }
 "#, &FormatConfig {
-        declaration_sort: DeclarationSortMode::ByCategory(
-            vec![DeclarationSortCategory::Const, DeclarationSortCategory::Use, DeclarationSortCategory::Concrete],
+        declaration_normalization: DeclarationNormalizationMode::ByCategory(
+            vec![DeclarationNormalizationCategory::Const, DeclarationNormalizationCategory::Use, DeclarationNormalizationCategory::Concrete],
         ),
         ..Default::default()
     });
 }
 
 #[test]
-fn ow_declaration_sort_by_name_comments_move_with_items() {
+fn ow_declaration_normalization_by_name_comments_move_with_items() {
     owc(r#"// Comment for b
 fn b() { }
 
@@ -801,27 +801,27 @@ fn a() { }
 // Comment for b
 fn b() { }
 "#, &FormatConfig {
-        declaration_sort: DeclarationSortMode::ByName,
+        declaration_normalization: DeclarationNormalizationMode::ByName,
         ..Default::default()
     });
 }
 
 #[test]
-fn ow_declaration_sort_by_name_comments_no_lost() {
+fn ow_declaration_normalization_by_name_comments_no_lost() {
     let res = format_str(r#"// Comment for b
 fn b() { }
 
 // Comment for a
 fn a() { }
 "#, &FormatConfig {
-        declaration_sort: DeclarationSortMode::ByName,
+        declaration_normalization: DeclarationNormalizationMode::ByName,
         ..Default::default()
     }).unwrap();
     assert!(res.lost_comments.is_empty(), "Lost comments: {:?}", res.lost_comments);
 }
 
 #[test]
-fn ow_declaration_sort_auto_comments_move_with_items() {
+fn ow_declaration_normalization_auto_comments_move_with_items() {
     owc(r#"// My function
 fn my_func() { }
 
@@ -839,13 +839,13 @@ use std::fmt;
 // My function
 fn my_func() { }
 "#, &FormatConfig {
-        declaration_sort: DeclarationSortMode::Auto,
+        declaration_normalization: DeclarationNormalizationMode::Auto,
         ..Default::default()
     });
 }
 
 #[test]
-fn ow_declaration_sort_auto_comments_no_lost() {
+fn ow_declaration_normalization_auto_comments_no_lost() {
     let res = format_str(r#"// My function
 fn my_func() { }
 
@@ -855,14 +855,14 @@ use std::fmt;
 // My module
 mod mymod;
 "#, &FormatConfig {
-        declaration_sort: DeclarationSortMode::Auto,
+        declaration_normalization: DeclarationNormalizationMode::Auto,
         ..Default::default()
     }).unwrap();
     assert!(res.lost_comments.is_empty(), "Lost comments: {:?}", res.lost_comments);
 }
 
 #[test]
-fn ow_declaration_sort_by_name_doc_comments_move_with_items() {
+fn ow_declaration_normalization_by_name_doc_comments_move_with_items() {
     owc(r#"/// Documentation for b
 fn b() { }
 
@@ -874,13 +874,13 @@ fn a() { }
 /// Documentation for b
 fn b() { }
 "#, &FormatConfig {
-        declaration_sort: DeclarationSortMode::ByName,
+        declaration_normalization: DeclarationNormalizationMode::ByName,
         ..Default::default()
     });
 }
 
 #[test]
-fn ow_declaration_sort_by_name_multiline_comments() {
+fn ow_declaration_normalization_by_name_multiline_comments() {
     owc(r#"// First line for z
 // Second line for z
 fn z() { }
@@ -893,7 +893,138 @@ fn a() { }
 // First line for z Second line for z
 fn z() { }
 "#, &FormatConfig {
-        declaration_sort: DeclarationSortMode::ByName,
+        declaration_normalization: DeclarationNormalizationMode::ByName,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_declaration_normalization_impl_by_name() {
+    owc(r#"struct Foo { }
+
+impl Foo {
+    fn z() { }
+
+    fn a() { }
+}
+"#, r#"struct Foo {}
+
+impl Foo {
+    fn a() { }
+
+    fn z() { }
+}
+"#, &FormatConfig {
+        declaration_normalization: DeclarationNormalizationMode::ByName,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_declaration_normalization_impl_auto() {
+    owc(r#"struct Foo { }
+
+impl Foo {
+    fn my_func() { }
+
+    type Bar = i32;
+
+    const Z: i32 = 1;
+}
+"#, r#"struct Foo {}
+
+impl Foo {
+    const Z: i32 = 1;
+    type Bar = i32;
+
+    fn my_func() { }
+}
+"#, &FormatConfig {
+        declaration_normalization: DeclarationNormalizationMode::Auto,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_declaration_normalization_trait_by_name() {
+    owc(r#"trait Foo {
+    fn z();
+
+    fn a();
+}
+"#, r#"trait Foo {
+    fn a();
+    fn z();
+}
+"#, &FormatConfig {
+        declaration_normalization: DeclarationNormalizationMode::ByName,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_declaration_normalization_trait_auto() {
+    owc(r#"trait Foo {
+    fn my_func();
+
+    type Bar;
+
+    const Z: i32;
+}
+"#, r#"trait Foo {
+    const Z: i32;
+    type Bar;
+
+    fn my_func();
+}
+"#, &FormatConfig {
+        declaration_normalization: DeclarationNormalizationMode::Auto,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_declaration_normalization_enum_by_name() {
+    owc(r#"enum Foo {
+    Zebra,
+    Apple,
+    Mango,
+}
+"#, r#"enum Foo {
+    Apple,
+    Mango,
+    Zebra,
+}
+"#, &FormatConfig {
+        declaration_normalization: DeclarationNormalizationMode::ByName,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_declaration_normalization_struct_named_fields_by_name() {
+    owc(r#"struct Foo {
+    z: i32,
+    a: String,
+    m: bool,
+}
+"#, r#"struct Foo {
+    a: String,
+    m: bool,
+    z: i32,
+}
+"#, &FormatConfig {
+        declaration_normalization: DeclarationNormalizationMode::ByName,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_declaration_normalization_struct_tuple_unchanged() {
+    owc(r#"struct Foo(i32, String);
+"#, r#"struct Foo(i32, String);
+"#, &FormatConfig {
+        declaration_normalization: DeclarationNormalizationMode::ByName,
         ..Default::default()
     });
 }
