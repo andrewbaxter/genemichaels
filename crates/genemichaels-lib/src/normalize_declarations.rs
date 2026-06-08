@@ -70,6 +70,17 @@ fn is_impl_for_type(impl_item: &syn::ItemImpl, type_name: &str) -> bool {
     impl_item.self_ty.to_token_stream().to_string().to_lowercase() == type_name
 }
 
+fn has_macro_use(item: &Item) -> bool {
+    let attrs = match item {
+        Item::ExternCrate(i) => &i.attrs,
+        Item::Use(i) => &i.attrs,
+        Item::Mod(i) => &i.attrs,
+        Item::Macro(i) => &i.attrs,
+        _ => return false,
+    };
+    attrs.iter().any(|a| a.path().is_ident("macro_use"))
+}
+
 fn is_macro_call(item: &Item) -> bool {
     match item {
         Item::Macro(m) => m.ident.is_none(),
@@ -289,10 +300,21 @@ impl<'a> DeclarationNormalizer<'a> {
     fn sort_by_category(&mut self, items: &mut Vec<Item>) {
         let category_order = resolve_category_order(self.config);
 
+        // Extract #[macro_use] items first, preserving their original order
+        let mut macro_use_items: Vec<Item> = Vec::new();
+        let mut remaining: Vec<Item> = Vec::new();
+        for item in items.drain(..) {
+            if has_macro_use(&item) {
+                macro_use_items.push(item);
+            } else {
+                remaining.push(item);
+            }
+        }
+
         // Group items by category, keeping impls attached to their concrete types
         let mut categorized: BTreeMap<usize, Vec<Item>> = BTreeMap::new();
         let mut impl_items: Vec<Item> = Vec::new();
-        for item in items.drain(..) {
+        for item in remaining.drain(..) {
             if let Item::Impl(_) = &item {
                 impl_items.push(item);
             } else {
@@ -310,7 +332,8 @@ impl<'a> DeclarationNormalizer<'a> {
         // Sort impls by their type name
         impl_items.sort_by(|a, b| item_sort_name(a).cmp(&item_sort_name(b)));
 
-        // Build final list. For "concrete" category, interleave impls after their types.
+        // Build final list. #[macro_use] items first (original order), then categorized.
+        items.extend(macro_use_items);
         let concrete_rank = category_rank(&DeclarationNormalizationCategory::Concrete, &category_order);
         for (rank, group) in &categorized {
             if *rank == concrete_rank {
@@ -362,17 +385,23 @@ impl<'a> DeclarationNormalizer<'a> {
     }
 
     fn sort_by_name(&mut self, items: &mut Vec<Item>) {
-        // Partition: use items first, then everything else sorted by name
+        // Extract #[macro_use] items first, preserving their original order
+        let mut macro_use_items: Vec<Item> = Vec::new();
         let mut uses: Vec<Item> = Vec::new();
         let mut rest: Vec<Item> = Vec::new();
         for item in items.drain(..) {
-            match &item {
-                Item::Use(_) | Item::ExternCrate(_) => uses.push(item),
-                _ => rest.push(item),
+            if has_macro_use(&item) {
+                macro_use_items.push(item);
+            } else {
+                match &item {
+                    Item::Use(_) | Item::ExternCrate(_) => uses.push(item),
+                    _ => rest.push(item),
+                }
             }
         }
         uses.sort_by(|a, b| item_sort_name(a).cmp(&item_sort_name(b)));
         rest.sort_by(|a, b| item_sort_name(a).cmp(&item_sort_name(b)));
+        items.extend(macro_use_items);
         items.extend(uses);
         items.extend(rest);
     }
