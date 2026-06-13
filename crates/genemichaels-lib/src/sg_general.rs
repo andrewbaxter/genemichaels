@@ -337,12 +337,116 @@ pub(crate) fn append_macro_bracketed(
     }
 }
 
+fn is_quote_macro(path: &syn::Path, config: &crate::FormatConfig) -> bool {
+    match path.segments.last() {
+        Some(seg) => {
+            let name = seg.ident.to_string();
+            if matches!(
+                name.as_str(),
+                // quote, genco, proc-quote, safe-quote, template-quote, squote, proc_macro::quote
+                "quote" | 
+                    // quote, proc-quote, safe-quote, template-quote
+                    "quote_spanned" | 
+                    // genco
+                    "quote_in" | 
+                    // quote_into
+                    "quote_into" | 
+                    // template-quote
+                    "quote_configured" | 
+                    // ts_quote
+                    "ts_quote" | 
+                    // quote-alias
+                    "quote_alias"
+            ) {
+                return true;
+            }
+            config.verbatim_macro_names.split(',').any(|n| n.trim() == name)
+        },
+        None => false,
+    }
+}
+
+fn drain_whitespaces_in_range(out: &mut MakeSegsState, start: LineColumn, end: LineColumn) {
+    let start_key = HashLineColumn(start);
+    let end_key = HashLineColumn(end);
+    let keys: Vec<HashLineColumn> = out.whitespaces.range(start_key ..= end_key).map(|(k, _)| *k).collect();
+    for key in keys {
+        out.whitespaces.remove(&key);
+    }
+}
+
 pub(crate) fn new_sg_macro(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
     mac: &Macro,
     semi: bool,
 ) -> SplitGroupIdx {
+    if is_quote_macro(&mac.path, &out.config) && out.source_map.is_some() {
+        let mut sg = new_sg(out);
+
+        // Extract verbatim text for the entire macro invocation (path + ! + body) from
+        // source
+        let path_start = mac.path.segments.first().unwrap().ident.span().start();
+        let close_span = match &mac.delimiter {
+            syn::MacroDelimiter::Paren(x) => x.span.close(),
+            syn::MacroDelimiter::Brace(x) => x.span.close(),
+            syn::MacroDelimiter::Bracket(x) => x.span.close(),
+        };
+        let sm = out.source_map.as_ref().unwrap();
+        let start = sm.source_offset(path_start);
+        let end = sm.source_offset(close_span.end());
+        let verbatim = sm.source[start .. end].to_string();
+        let lines: Vec<&str> = verbatim.split('\n').collect();
+        if lines.len() <= 1 {
+            // Single-line macro (e.g. `quote!(expr)`), emit as one segment
+            sg.seg(out, verbatim);
+        } else {
+            // Multi-line macro: emit first line, then re-indent subsequent lines. Compute the
+            // indentation of the source line containing the macro invocation (i.e. leading
+            // whitespace count), NOT the column of the path itself (which may be further
+            // right if there's code before it on the line).
+            let sm = out.source_map.as_ref().unwrap();
+            let line_start = sm.line_lookup[path_start.line - 1];
+            let ws_chars = sm.source[line_start..].chars().take_while(|c| *c == ' ' || *c == '\t').count();
+            let orig_indent_bytes: usize =
+                sm.source[line_start..]
+                    .char_indices()
+                    .nth(ws_chars)
+                    .map(|(i, _)| i)
+                    .unwrap_or(sm.source.len() - line_start);
+            sg.seg(out, lines[0]);
+            for (i, line) in lines[1..].iter().enumerate() {
+                let is_last = i == lines.len() - 2;
+
+                // Skip empty trailing line (from trailing newline)
+                if is_last && line.is_empty() {
+                    break;
+                }
+                sg.split_always(out, base_indent.clone(), false);
+
+                // Empty/whitespace-only lines: just emit the break (no indent on blank lines)
+                if line.trim().is_empty() {
+                    continue;
+                }
+
+                // Strip up to `orig_indent_bytes` bytes of leading whitespace
+                let stripped = if line.len() > orig_indent_bytes {
+                    &line[orig_indent_bytes..]
+                } else {
+                    line.trim_start()
+                };
+                sg.seg_verbatim(out, stripped);
+            }
+        }
+
+        // Drain whitespace entries within the macro span to avoid lost_comments false
+        // positives
+        drain_whitespaces_in_range(out, path_start, close_span.end());
+        if semi {
+            sg.seg(out, ";");
+        }
+        return sg.build(out);
+    }
     let mut sg = new_sg(out);
     sg.child(build_path(out, base_indent, &mac.path));
     sg.seg(out, "!");
