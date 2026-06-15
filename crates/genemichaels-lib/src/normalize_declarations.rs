@@ -1,8 +1,12 @@
 use {
     crate::{
+        CommentMode,
         DeclarationNormalizationCategory,
         DeclarationNormalizationMode,
         FormatConfig,
+        Whitespace,
+        WhitespaceMode,
+        whitespace::HashLineColumn,
     },
     quote::ToTokens,
     std::collections::BTreeMap,
@@ -18,6 +22,7 @@ use {
         ItemTrait,
         TraitItem,
         Variant,
+        spanned::Spanned,
         visit_mut::VisitMut,
     },
 };
@@ -39,10 +44,22 @@ fn category_rank(category: &DeclarationNormalizationCategory, order: &[Declarati
 
 pub(crate) struct DeclarationNormalizer<'a> {
     pub(crate) config: &'a FormatConfig,
+    pub(crate) whitespaces: &'a mut BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)>,
 }
 
 fn field_sort_name(f: &Field) -> String {
     f.ident.as_ref().map(|i| i.to_string().to_lowercase()).unwrap_or_default()
+}
+
+fn has_macro_use(item: &Item) -> bool {
+    let attrs = match item {
+        Item::ExternCrate(i) => &i.attrs,
+        Item::Use(i) => &i.attrs,
+        Item::Mod(i) => &i.attrs,
+        Item::Macro(i) => &i.attrs,
+        _ => return false,
+    };
+    attrs.iter().any(|a| a.path().is_ident("macro_use"))
 }
 
 fn impl_item_category(item: &ImplItem) -> SubItemCategory {
@@ -68,17 +85,6 @@ fn impl_item_sort_name(item: &ImplItem) -> String {
 
 fn is_impl_for_type(impl_item: &syn::ItemImpl, type_name: &str) -> bool {
     impl_item.self_ty.to_token_stream().to_string().to_lowercase() == type_name
-}
-
-fn has_macro_use(item: &Item) -> bool {
-    let attrs = match item {
-        Item::ExternCrate(i) => &i.attrs,
-        Item::Use(i) => &i.attrs,
-        Item::Mod(i) => &i.attrs,
-        Item::Macro(i) => &i.attrs,
-        _ => return false,
-    };
-    attrs.iter().any(|a| a.path().is_ident("macro_use"))
 }
 
 fn is_macro_call(item: &Item) -> bool {
@@ -249,14 +255,40 @@ impl<'a> DeclarationNormalizer<'a> {
         if items.is_empty() {
             return;
         }
+
+        // Remove //! inner doc comments from the first item's whitespace before sorting
+        let first_key = HashLineColumn(items[0].span().start());
+        let mut inner_docs = Vec::new();
+        if let Some((_, ws_list)) = self.whitespaces.get_mut(&first_key) {
+            let mut rest = Vec::new();
+            for ws in ws_list.drain(..) {
+                match &ws.mode {
+                    WhitespaceMode::Comment(c) if c.mode == CommentMode::DocInner => {
+                        inner_docs.push(ws);
+                    },
+                    _ => {
+                        rest.push(ws);
+                    },
+                }
+            }
+            *ws_list = rest;
+        }
         match &self.config.declaration_normalization {
-            DeclarationNormalizationMode::None => return,
+            DeclarationNormalizationMode::None => { },
             DeclarationNormalizationMode::ByName => {
                 self.sort_by_name(items);
             },
             DeclarationNormalizationMode::Auto | DeclarationNormalizationMode::ByCategory(_) => {
                 self.sort_by_category(items);
             },
+        }
+
+        // Re-add //! inner doc comments to the (possibly new) first item
+        if !inner_docs.is_empty() {
+            let new_first_key = HashLineColumn(items[0].span().start());
+            let entry = self.whitespaces.entry(new_first_key).or_insert_with(|| (1, Vec::new()));
+            inner_docs.extend(entry.1.drain(..));
+            entry.1 = inner_docs;
         }
     }
 

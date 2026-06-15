@@ -106,6 +106,35 @@ impl MyStruct {
 }
 
 #[test]
+fn ow_declaration_normalization_auto_macro_use_first() {
+    owc(r#"fn my_func() { }
+
+#[macro_use]
+extern crate log;
+
+use std::fmt;
+
+#[macro_use]
+extern crate serde;
+
+struct MyStruct { }
+"#, r#"#[macro_use]
+extern crate log;
+#[macro_use]
+extern crate serde;
+
+use std::fmt;
+
+fn my_func() { }
+
+struct MyStruct {}
+"#, &FormatConfig {
+        declaration_normalization: DeclarationNormalizationMode::Auto,
+        ..Default::default()
+    });
+}
+
+#[test]
 fn ow_declaration_normalization_by_category_custom_order() {
     owc(r#"fn my_func() { }
 
@@ -212,6 +241,35 @@ fn b() { }
 }
 
 #[test]
+fn ow_declaration_normalization_by_name_macro_use_first() {
+    owc(r#"fn z_func() { }
+
+#[macro_use]
+extern crate serde;
+
+use std::fmt;
+
+#[macro_use]
+extern crate log;
+
+fn a_func() { }
+"#, r#"#[macro_use]
+extern crate serde;
+#[macro_use]
+extern crate log;
+
+use std::fmt;
+
+fn a_func() { }
+
+fn z_func() { }
+"#, &FormatConfig {
+        declaration_normalization: DeclarationNormalizationMode::ByName,
+        ..Default::default()
+    });
+}
+
+#[test]
 fn ow_declaration_normalization_by_name_multiline_comments() {
     owc(r#"// First line for z
 // Second line for z
@@ -291,6 +349,42 @@ impl Foo {
 }
 "#, &FormatConfig {
         declaration_normalization: DeclarationNormalizationMode::ByName,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_declaration_normalization_inner_doc_comment_stays_at_top() {
+    // //! comments stay at top even when items are reordered
+    owc(r#"//! Module documentation
+
+fn z_func() { }
+
+fn a_func() { }
+"#, r#"//! Module documentation
+fn a_func() { }
+
+fn z_func() { }
+"#, &FormatConfig {
+        declaration_normalization: DeclarationNormalizationMode::ByName,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_declaration_normalization_inner_doc_comment_stays_at_top_auto() {
+    // //! comments stay at top with auto category sorting
+    owc(r#"//! Module documentation
+
+fn z_func() { }
+
+use std::fmt;
+"#, r#"//! Module documentation
+use std::fmt;
+
+fn z_func() { }
+"#, &FormatConfig {
+        declaration_normalization: DeclarationNormalizationMode::Auto,
         ..Default::default()
     });
 }
@@ -1031,62 +1125,4 @@ fn rt_external_formatter_raw_string() {
     "#;
 }
 "##, res.rendered);
-}
-
-#[test]
-fn ow_declaration_normalization_auto_macro_use_first() {
-    owc(r#"fn my_func() { }
-
-#[macro_use]
-extern crate log;
-
-use std::fmt;
-
-#[macro_use]
-extern crate serde;
-
-struct MyStruct { }
-"#, r#"#[macro_use]
-extern crate log;
-#[macro_use]
-extern crate serde;
-
-use std::fmt;
-
-fn my_func() { }
-
-struct MyStruct {}
-"#, &FormatConfig {
-        declaration_normalization: DeclarationNormalizationMode::Auto,
-        ..Default::default()
-    });
-}
-
-#[test]
-fn ow_declaration_normalization_by_name_macro_use_first() {
-    owc(r#"fn z_func() { }
-
-#[macro_use]
-extern crate serde;
-
-use std::fmt;
-
-#[macro_use]
-extern crate log;
-
-fn a_func() { }
-"#, r#"#[macro_use]
-extern crate serde;
-#[macro_use]
-extern crate log;
-
-use std::fmt;
-
-fn a_func() { }
-
-fn z_func() { }
-"#, &FormatConfig {
-        declaration_normalization: DeclarationNormalizationMode::ByName,
-        ..Default::default()
-    });
 }

@@ -69,9 +69,17 @@ impl Formattable for File {
         }
     }
 
-    fn normalize_declarations(&mut self, config: &crate::FormatConfig) {
+    fn normalize_declarations(
+        &mut self,
+        config: &crate::FormatConfig,
+        whitespaces:
+            &mut std::collections::BTreeMap<crate::whitespace::HashLineColumn, (usize, Vec<crate::Whitespace>)>,
+    ) {
         if config.declaration_normalization != crate::DeclarationNormalizationMode::None {
-            let mut normalizer = crate::normalize_declarations::DeclarationNormalizer { config };
+            let mut normalizer = crate::normalize_declarations::DeclarationNormalizer {
+                config: config,
+                whitespaces: whitespaces,
+            };
             syn::visit_mut::VisitMut::visit_file_mut(&mut normalizer, self);
         }
     }

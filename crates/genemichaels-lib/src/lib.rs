@@ -9,10 +9,10 @@ pub(crate) mod sg_statement;
 pub(crate) mod sg_type;
 pub(crate) mod whitespace;
 
-pub use whitespace::extract_whitespaces;
 pub use whitespace::{
-    format_md,
     HashLineColumn,
+    extract_whitespaces,
+    format_md,
 };
 use {
     loga::{
@@ -52,7 +52,13 @@ pub trait Formattable {
     fn has_attrs(&self) -> bool;
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx;
 
-    fn normalize_declarations(&mut self, _config: &FormatConfig) { }
+    fn normalize_declarations(
+        &mut self,
+        _config: &FormatConfig,
+        _whitespaces: &mut BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)>,
+    ) {
+
+    }
 
     fn normalize_imports(
         &mut self,
@@ -176,7 +182,7 @@ pub fn format_ast(
     let mut whitespaces: BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)> =
         whitespaces.into_iter().map(|(k, v)| (k, (1, v))).collect();
     ast.normalize_imports(config, &mut whitespaces);
-    ast.normalize_declarations(config);
+    ast.normalize_declarations(config, &mut whitespaces);
 
     // Ensure any orphaned whitespace from import normalization (e.g. removed commas)
     // is preserved in order to alert for formatting bugs (i.e. import normalization
