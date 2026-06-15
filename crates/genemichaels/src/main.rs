@@ -47,6 +47,9 @@ const CONFIG_JSON2: &str = "genemichaels.json";
 /// macros!
 #[derive(Aargvark)]
 struct Args {
+    /// Format all `.rs` files in the current directory and below, skipping `.git`
+    /// directories.
+    all: Option<()>,
     /// Explicitly specify a config file path. If not specified, will look for
     /// `.genemichaels.json` or `genemichaels.json` in the current directory and all
     /// parent directories, then in the system config directory. See the readme for
@@ -187,7 +190,29 @@ fn main() {
             // No config, use default settings
             break Default::default();
         };
-        if args.stdin.is_some() {
+        if args.all.is_some() {
+            if args.stdin.is_some() || !args.files.is_empty() {
+                return Err(log.err("--all can't be combined with --stdin or explicit files"));
+            }
+            let cwd = current_dir().context("Error determining current directory")?;
+            let mut pool = FormatPool::new(log, args.thread_count, config);
+            for entry in walkdir::WalkDir::new(&cwd).into_iter().filter_entry(|e| {
+                e.file_name() != ".git"
+            }) {
+                match entry {
+                    Ok(entry) => {
+                        let path = entry.path().to_path_buf();
+                        if path.extension() == Some(OsStr::new("rs")) {
+                            pool.process_file(path);
+                        }
+                    },
+                    Err(e) => {
+                        eprintln!("Error while scanning: {}", e);
+                    },
+                }
+            }
+            pool.join()?;
+        } else if args.stdin.is_some() {
             if !args.files.is_empty() {
                 return Err(
                     log.err_with(
