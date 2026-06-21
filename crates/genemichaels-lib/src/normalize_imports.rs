@@ -137,6 +137,83 @@ pub(crate) struct ImportNormalizer<'a> {
     pub(crate) whitespaces: &'a mut BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)>,
 }
 
+impl<'a> ImportNormalizer<'a> {
+    fn process_items(&mut self, items: &mut Vec<Item>) {
+        let mut new_items = Vec::new();
+        let mut consecutive_imports = Vec::new();
+        for item in items.drain(..) {
+            if let Item::Use(u) = item {
+                consecutive_imports.push(u);
+            } else {
+                // Process and flush the current use group
+                let mut uses = Vec::new();
+                process_item_uses(&mut consecutive_imports, &mut uses, self.config, self.whitespaces);
+                for u in uses {
+                    new_items.push(Item::Use(u));
+                }
+
+                // Now handle the non-import item itself
+                new_items.push(item);
+            }
+        }
+
+        // Flush the final group
+        let mut uses = Vec::new();
+        process_item_uses(&mut consecutive_imports, &mut uses, self.config, self.whitespaces);
+        for u in uses {
+            new_items.push(Item::Use(u));
+        }
+        *items = new_items;
+    }
+
+    fn process_stmts(&mut self, stmts: &mut Vec<Stmt>) {
+        let mut new_stmts = Vec::new();
+        let mut consecutive_imports = Vec::new();
+        for stmt in stmts.drain(..) {
+            if let Stmt::Item(Item::Use(u)) = stmt {
+                consecutive_imports.push(u);
+            } else {
+                // Process and flush the current use group
+                let mut uses = Vec::new();
+                process_item_uses(&mut consecutive_imports, &mut uses, self.config, self.whitespaces);
+                for u in uses {
+                    new_stmts.push(Stmt::Item(Item::Use(u)));
+                }
+
+                // Now handle the non-import item itself
+                new_stmts.push(stmt);
+            }
+        }
+
+        // Flush the final group
+        let mut uses = Vec::new();
+        process_item_uses(&mut consecutive_imports, &mut uses, self.config, self.whitespaces);
+        for u in uses {
+            new_stmts.push(Stmt::Item(Item::Use(u)));
+        }
+        *stmts = new_stmts;
+    }
+}
+
+impl<'a> VisitMut for ImportNormalizer<'a> {
+    fn visit_block_mut(&mut self, i: &mut Block) {
+        self.process_stmts(&mut i.stmts);
+        syn::visit_mut::visit_block_mut(self, i);
+    }
+
+    fn visit_file_mut(&mut self, i: &mut File) {
+        self.process_items(&mut i.items);
+        syn::visit_mut::visit_file_mut(self, i);
+    }
+
+    fn visit_item_mod_mut(&mut self, i: &mut ItemMod) {
+        if let Some((_, items)) = &mut i.content {
+            self.process_items(items);
+        }
+        syn::visit_mut::visit_item_mod_mut(self, i);
+    }
+}
+
 fn process_item_uses(
     imports: &mut Vec<ItemUse>,
     new_items: &mut Vec<ItemUse>,
@@ -449,82 +526,5 @@ fn process_item_uses(
                 new_items.push(new_item);
             }
         },
-    }
-}
-
-impl<'a> ImportNormalizer<'a> {
-    fn process_items(&mut self, items: &mut Vec<Item>) {
-        let mut new_items = Vec::new();
-        let mut consecutive_imports = Vec::new();
-        for item in items.drain(..) {
-            if let Item::Use(u) = item {
-                consecutive_imports.push(u);
-            } else {
-                // Process and flush the current use group
-                let mut uses = Vec::new();
-                process_item_uses(&mut consecutive_imports, &mut uses, self.config, self.whitespaces);
-                for u in uses {
-                    new_items.push(Item::Use(u));
-                }
-
-                // Now handle the non-import item itself
-                new_items.push(item);
-            }
-        }
-
-        // Flush the final group
-        let mut uses = Vec::new();
-        process_item_uses(&mut consecutive_imports, &mut uses, self.config, self.whitespaces);
-        for u in uses {
-            new_items.push(Item::Use(u));
-        }
-        *items = new_items;
-    }
-
-    fn process_stmts(&mut self, stmts: &mut Vec<Stmt>) {
-        let mut new_stmts = Vec::new();
-        let mut consecutive_imports = Vec::new();
-        for stmt in stmts.drain(..) {
-            if let Stmt::Item(Item::Use(u)) = stmt {
-                consecutive_imports.push(u);
-            } else {
-                // Process and flush the current use group
-                let mut uses = Vec::new();
-                process_item_uses(&mut consecutive_imports, &mut uses, self.config, self.whitespaces);
-                for u in uses {
-                    new_stmts.push(Stmt::Item(Item::Use(u)));
-                }
-
-                // Now handle the non-import item itself
-                new_stmts.push(stmt);
-            }
-        }
-
-        // Flush the final group
-        let mut uses = Vec::new();
-        process_item_uses(&mut consecutive_imports, &mut uses, self.config, self.whitespaces);
-        for u in uses {
-            new_stmts.push(Stmt::Item(Item::Use(u)));
-        }
-        *stmts = new_stmts;
-    }
-}
-
-impl<'a> VisitMut for ImportNormalizer<'a> {
-    fn visit_block_mut(&mut self, i: &mut Block) {
-        self.process_stmts(&mut i.stmts);
-        syn::visit_mut::visit_block_mut(self, i);
-    }
-
-    fn visit_file_mut(&mut self, i: &mut File) {
-        self.process_items(&mut i.items);
-        syn::visit_mut::visit_file_mut(self, i);
-    }
-
-    fn visit_item_mod_mut(&mut self, i: &mut ItemMod) {
-        if let Some((_, items)) = &mut i.content {
-            self.process_items(items);
-        }
-        syn::visit_mut::visit_item_mod_mut(self, i);
     }
 }

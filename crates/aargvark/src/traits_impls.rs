@@ -114,6 +114,52 @@ pub trait AargvarkFromStr: Sized {
     fn from_str(s: &str) -> Result<Self, String>;
 }
 
+impl AargvarkFromStr for bool {
+    fn build_completer(arg: &str) -> AargvarkCompleter {
+        let arg = arg.to_string();
+        return Box::new(move || {
+            let mut out = vec![];
+            for l in BOOL_LITERALS {
+                if l.starts_with(&arg) {
+                    out.push(vec![l.to_string()]);
+                }
+            }
+            return out;
+        });
+    }
+
+    fn build_help_pattern(_state: &mut HelpState) -> HelpPattern {
+        return HelpPattern(
+            vec![
+                HelpPatternElement::Variant(
+                    BOOL_LITERALS
+                        .iter()
+                        .map(|l| HelpPattern(vec![HelpPatternElement::Literal(l.to_string())]))
+                        .collect(),
+                ),
+            ],
+        );
+    }
+
+    fn from_str(s: &str) -> Result<Self, String> {
+        return <Self as std::str::FromStr>::from_str(s).map_err(|e| e.to_string());
+    }
+}
+
+impl AargvarkFromStr for PathBuf {
+    fn build_completer(arg: &str) -> AargvarkCompleter {
+        return pathbuf_completer(arg);
+    }
+
+    fn build_help_pattern(_state: &mut HelpState) -> HelpPattern {
+        return HelpPattern(vec![HelpPatternElement::Type("PATH".to_string())]);
+    }
+
+    fn from_str(s: &str) -> Result<Self, String> {
+        return <Self as std::str::FromStr>::from_str(s).map_err(|e| e.to_string());
+    }
+}
+
 /// This parses a path (or - for stdin) passed on the command line into bytes.
 pub struct AargvarkFile {
     pub source: Source,
@@ -168,6 +214,47 @@ pub struct AargvarkJson<T> {
     pub value: T,
 }
 
+#[cfg(feature = "serde_json")]
+impl<T: Clone> Clone for AargvarkJson<T> {
+    fn clone(&self) -> Self {
+        return AargvarkJson {
+            value: self.value.clone(),
+            source: self.source.clone(),
+        };
+    }
+}
+
+#[cfg(feature = "serde_json")]
+impl<T: for<'a> serde::Deserialize<'a>> AargvarkFromStr for AargvarkJson<T> {
+    fn build_completer(arg: &str) -> AargvarkCompleter {
+        return pathbuf_completer(arg);
+    }
+
+    fn build_help_pattern(state: &mut HelpState) -> HelpPattern {
+        return HelpPattern(
+            vec![
+                HelpPatternElement::Variant(
+                    vec![
+                        <PathBuf as AargvarkTrait>::build_help_pattern(state),
+                        HelpPattern(vec![HelpPatternElement::Literal("-".to_string())]),
+                    ],
+                ),
+            ],
+        );
+    }
+
+    fn from_str(s: &str) -> Result<Self, String> {
+        let b = AargvarkFile::from_str(s)?;
+        match serde_path_to_error::deserialize(&mut serde_json::Deserializer::from_slice(&b.value)) {
+            Ok(v) => return Ok(Self {
+                value: v,
+                source: b.source,
+            }),
+            Err(e) => return Err(e.to_string()),
+        };
+    }
+}
+
 /// A key-value argument type (single argument) that takes the format `K=V` where
 /// both `K` and `V` need to be string-parsable types. The argument is split at the
 /// first unescaped `=` - additional `=` in the key can be escaped with `\`.
@@ -179,6 +266,57 @@ pub struct AargvarkKV<K, V> {
     pub value: V,
 }
 
+impl<K: AargvarkFromStr, V: AargvarkFromStr> AargvarkTrait for AargvarkKV<K, V> {
+    fn build_help_pattern(_state: &mut HelpState) -> HelpPattern {
+        return HelpPattern(vec![HelpPatternElement::Literal("K=V".to_string())]);
+    }
+
+    fn vark(state: &mut VarkState) -> R<Self> {
+        let res = String::vark(state);
+        let res = match res {
+            R::Err => return R::Err,
+            R::Help(b) => return R::Help(b),
+            R::Ok(r) => r,
+        };
+        let mut res = res.chars().into_iter();
+        let mut k = vec![];
+        let mut escape = false;
+        let mut at_value = false;
+        for c in &mut res {
+            if escape {
+                k.push(c);
+                escape = false;
+            } else {
+                if c == '\\' {
+                    escape = true;
+                } else if c == '=' {
+                    at_value = true;
+                    break;
+                } else {
+                    k.push(c);
+                }
+            }
+        }
+        let k = k.into_iter().collect::<String>();
+        let key = match K::from_str(&k) {
+            Ok(r) => r,
+            Err(e) => return state.r_err(format!("Error parsing map key: {}", e), Some(K::build_completer(&k))),
+        };
+        if !at_value {
+            return state.r_err(format!("Missing value in K=V argument"), Some(K::build_completer(&k)));
+        }
+        let v = res.collect::<String>();
+        let value = match V::from_str(&v) {
+            Ok(r) => r,
+            Err(e) => return state.r_err(format!("Error parsing map value: {}", e), Some(V::build_completer(&v))),
+        };
+        return state.r_ok(AargvarkKV {
+            key: key,
+            value: value,
+        }, Some(V::build_completer(&v)));
+    }
+}
+
 /// This parses a path (or - for stdin) passed on the command line as toml into the
 /// specified type.
 #[cfg(feature = "serde_toml")]
@@ -187,12 +325,98 @@ pub struct AargvarkToml<T> {
     pub value: T,
 }
 
+#[cfg(feature = "serde_toml")]
+impl<T: Clone> Clone for AargvarkToml<T> {
+    fn clone(&self) -> Self {
+        return AargvarkToml {
+            value: self.value.clone(),
+            source: self.source.clone(),
+        };
+    }
+}
+
+#[cfg(feature = "serde_toml")]
+impl<T: for<'a> serde::Deserialize<'a>> AargvarkFromStr for AargvarkToml<T> {
+    fn build_completer(arg: &str) -> AargvarkCompleter {
+        return pathbuf_completer(arg);
+    }
+
+    fn build_help_pattern(state: &mut HelpState) -> HelpPattern {
+        return HelpPattern(
+            vec![
+                HelpPatternElement::Variant(
+                    vec![
+                        <PathBuf as AargvarkTrait>::build_help_pattern(state),
+                        HelpPattern(vec![HelpPatternElement::Literal("-".to_string())]),
+                    ],
+                ),
+            ],
+        );
+    }
+
+    fn from_str(s: &str) -> Result<Self, String> {
+        let b = AargvarkFile::from_str(s)?;
+        match serde_path_to_error::deserialize(
+            toml::Deserializer::new(
+                &String::from_utf8(b.value).map_err(|e| format!("TOML document at {} isn't valid UTF-8: {}", s, e))?,
+            ),
+        ) {
+            Ok(v) => return Ok(Self {
+                value: v,
+                source: b.source,
+            }),
+            Err(e) => return Err(e.to_string()),
+        };
+    }
+}
+
 /// This parses a path (or - for stdin) passed on the command line as yaml into the
 /// specified type.
 #[cfg(feature = "serde_yaml")]
 pub struct AargvarkYaml<T> {
     pub source: Source,
     pub value: T,
+}
+
+#[cfg(feature = "serde_yaml")]
+impl<T: Clone> Clone for AargvarkYaml<T> {
+    fn clone(&self) -> Self {
+        return AargvarkYaml {
+            value: self.value.clone(),
+            source: self.source.clone(),
+        };
+    }
+}
+
+#[cfg(feature = "serde_yaml")]
+impl<T: for<'a> serde::Deserialize<'a>> AargvarkFromStr for AargvarkYaml<T> {
+    fn build_completer(arg: &str) -> AargvarkCompleter {
+        return pathbuf_completer(arg);
+    }
+
+    fn build_help_pattern(state: &mut HelpState) -> HelpPattern {
+        return HelpPattern(
+            vec![
+                HelpPatternElement::Variant(
+                    vec![
+                        <PathBuf as AargvarkTrait>::build_help_pattern(state),
+                        HelpPattern(vec![HelpPatternElement::Literal("-".to_string())]),
+                    ],
+                ),
+            ],
+        );
+    }
+
+    fn from_str(s: &str) -> Result<Self, String> {
+        let b = AargvarkFile::from_str(s)?;
+        match serde_path_to_error::deserialize(serde_yaml::Deserializer::from_slice(&b.value)) {
+            Ok(v) => return Ok(Self {
+                value: v,
+                source: b.source,
+            }),
+            Err(e) => return Err(e.to_string()),
+        };
+    }
 }
 
 /// A simple wrapper around `String` that only accepts strings that don't start
@@ -351,216 +575,6 @@ pub fn vark_from_iter<T: AargvarkTrait, C: FromIterator<T>>(state: &mut VarkStat
     }
 }
 
-#[cfg(feature = "serde_json")]
-impl<T: for<'a> serde::Deserialize<'a>> AargvarkFromStr for AargvarkJson<T> {
-    fn build_completer(arg: &str) -> AargvarkCompleter {
-        return pathbuf_completer(arg);
-    }
-
-    fn build_help_pattern(state: &mut HelpState) -> HelpPattern {
-        return HelpPattern(
-            vec![
-                HelpPatternElement::Variant(
-                    vec![
-                        <PathBuf as AargvarkTrait>::build_help_pattern(state),
-                        HelpPattern(vec![HelpPatternElement::Literal("-".to_string())]),
-                    ],
-                ),
-            ],
-        );
-    }
-
-    fn from_str(s: &str) -> Result<Self, String> {
-        let b = AargvarkFile::from_str(s)?;
-        match serde_path_to_error::deserialize(&mut serde_json::Deserializer::from_slice(&b.value)) {
-            Ok(v) => return Ok(Self {
-                value: v,
-                source: b.source,
-            }),
-            Err(e) => return Err(e.to_string()),
-        };
-    }
-}
-
-#[cfg(feature = "serde_json")]
-impl<T: Clone> Clone for AargvarkJson<T> {
-    fn clone(&self) -> Self {
-        return AargvarkJson {
-            value: self.value.clone(),
-            source: self.source.clone(),
-        };
-    }
-}
-
-impl<K: AargvarkFromStr, V: AargvarkFromStr> AargvarkTrait for AargvarkKV<K, V> {
-    fn build_help_pattern(_state: &mut HelpState) -> HelpPattern {
-        return HelpPattern(vec![HelpPatternElement::Literal("K=V".to_string())]);
-    }
-
-    fn vark(state: &mut VarkState) -> R<Self> {
-        let res = String::vark(state);
-        let res = match res {
-            R::Err => return R::Err,
-            R::Help(b) => return R::Help(b),
-            R::Ok(r) => r,
-        };
-        let mut res = res.chars().into_iter();
-        let mut k = vec![];
-        let mut escape = false;
-        let mut at_value = false;
-        for c in &mut res {
-            if escape {
-                k.push(c);
-                escape = false;
-            } else {
-                if c == '\\' {
-                    escape = true;
-                } else if c == '=' {
-                    at_value = true;
-                    break;
-                } else {
-                    k.push(c);
-                }
-            }
-        }
-        let k = k.into_iter().collect::<String>();
-        let key = match K::from_str(&k) {
-            Ok(r) => r,
-            Err(e) => return state.r_err(format!("Error parsing map key: {}", e), Some(K::build_completer(&k))),
-        };
-        if !at_value {
-            return state.r_err(format!("Missing value in K=V argument"), Some(K::build_completer(&k)));
-        }
-        let v = res.collect::<String>();
-        let value = match V::from_str(&v) {
-            Ok(r) => r,
-            Err(e) => return state.r_err(format!("Error parsing map value: {}", e), Some(V::build_completer(&v))),
-        };
-        return state.r_ok(AargvarkKV {
-            key: key,
-            value: value,
-        }, Some(V::build_completer(&v)));
-    }
-}
-
-#[cfg(feature = "serde_toml")]
-impl<T: for<'a> serde::Deserialize<'a>> AargvarkFromStr for AargvarkToml<T> {
-    fn build_completer(arg: &str) -> AargvarkCompleter {
-        return pathbuf_completer(arg);
-    }
-
-    fn build_help_pattern(state: &mut HelpState) -> HelpPattern {
-        return HelpPattern(
-            vec![
-                HelpPatternElement::Variant(
-                    vec![
-                        <PathBuf as AargvarkTrait>::build_help_pattern(state),
-                        HelpPattern(vec![HelpPatternElement::Literal("-".to_string())]),
-                    ],
-                ),
-            ],
-        );
-    }
-
-    fn from_str(s: &str) -> Result<Self, String> {
-        let b = AargvarkFile::from_str(s)?;
-        match serde_path_to_error::deserialize(
-            toml::Deserializer::new(
-                &String::from_utf8(b.value).map_err(|e| format!("TOML document at {} isn't valid UTF-8: {}", s, e))?,
-            ),
-        ) {
-            Ok(v) => return Ok(Self {
-                value: v,
-                source: b.source,
-            }),
-            Err(e) => return Err(e.to_string()),
-        };
-    }
-}
-
-#[cfg(feature = "serde_toml")]
-impl<T: Clone> Clone for AargvarkToml<T> {
-    fn clone(&self) -> Self {
-        return AargvarkToml {
-            value: self.value.clone(),
-            source: self.source.clone(),
-        };
-    }
-}
-
-#[cfg(feature = "serde_yaml")]
-impl<T: for<'a> serde::Deserialize<'a>> AargvarkFromStr for AargvarkYaml<T> {
-    fn build_completer(arg: &str) -> AargvarkCompleter {
-        return pathbuf_completer(arg);
-    }
-
-    fn build_help_pattern(state: &mut HelpState) -> HelpPattern {
-        return HelpPattern(
-            vec![
-                HelpPatternElement::Variant(
-                    vec![
-                        <PathBuf as AargvarkTrait>::build_help_pattern(state),
-                        HelpPattern(vec![HelpPatternElement::Literal("-".to_string())]),
-                    ],
-                ),
-            ],
-        );
-    }
-
-    fn from_str(s: &str) -> Result<Self, String> {
-        let b = AargvarkFile::from_str(s)?;
-        match serde_path_to_error::deserialize(serde_yaml::Deserializer::from_slice(&b.value)) {
-            Ok(v) => return Ok(Self {
-                value: v,
-                source: b.source,
-            }),
-            Err(e) => return Err(e.to_string()),
-        };
-    }
-}
-
-#[cfg(feature = "serde_yaml")]
-impl<T: Clone> Clone for AargvarkYaml<T> {
-    fn clone(&self) -> Self {
-        return AargvarkYaml {
-            value: self.value.clone(),
-            source: self.source.clone(),
-        };
-    }
-}
-
-impl AargvarkFromStr for bool {
-    fn build_completer(arg: &str) -> AargvarkCompleter {
-        let arg = arg.to_string();
-        return Box::new(move || {
-            let mut out = vec![];
-            for l in BOOL_LITERALS {
-                if l.starts_with(&arg) {
-                    out.push(vec![l.to_string()]);
-                }
-            }
-            return out;
-        });
-    }
-
-    fn build_help_pattern(_state: &mut HelpState) -> HelpPattern {
-        return HelpPattern(
-            vec![
-                HelpPatternElement::Variant(
-                    BOOL_LITERALS
-                        .iter()
-                        .map(|l| HelpPattern(vec![HelpPatternElement::Literal(l.to_string())]))
-                        .collect(),
-                ),
-            ],
-        );
-    }
-
-    fn from_str(s: &str) -> Result<Self, String> {
-        return <Self as std::str::FromStr>::from_str(s).map_err(|e| e.to_string());
-    }
-}
-
 impl<K: AargvarkFromStr + Eq + std::hash::Hash, V: AargvarkFromStr> AargvarkTrait for HashMap<K, V> {
     fn build_help_pattern(state: &mut HelpState) -> HelpPattern {
         return <Vec<AargvarkKV<K, V>>>::build_help_pattern(state);
@@ -583,20 +597,6 @@ impl<T: AargvarkTrait + Eq + std::hash::Hash> AargvarkTrait for HashSet<T> {
 
     fn vark(state: &mut VarkState) -> R<Self> {
         return vark_from_iter(state);
-    }
-}
-
-impl AargvarkFromStr for PathBuf {
-    fn build_completer(arg: &str) -> AargvarkCompleter {
-        return pathbuf_completer(arg);
-    }
-
-    fn build_help_pattern(_state: &mut HelpState) -> HelpPattern {
-        return HelpPattern(vec![HelpPatternElement::Type("PATH".to_string())]);
-    }
-
-    fn from_str(s: &str) -> Result<Self, String> {
-        return <Self as std::str::FromStr>::from_str(s).map_err(|e| e.to_string());
     }
 }
 
