@@ -69,6 +69,36 @@ pub trait Formattable {
     }
 }
 
+impl Formattable for &Ident {
+    fn has_attrs(&self) -> bool {
+        false
+    }
+
+    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
+        (*self).make_segs(out, base_indent)
+    }
+}
+
+impl<F: Fn(&mut MakeSegsState, &Alignment) -> SplitGroupIdx> Formattable for F {
+    fn has_attrs(&self) -> bool {
+        false
+    }
+
+    fn make_segs(&self, line: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
+        self(line, base_indent)
+    }
+}
+
+impl Formattable for Ident {
+    fn has_attrs(&self) -> bool {
+        false
+    }
+
+    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
+        new_sg_lit(out, Some((base_indent, vec![self.span().start()])), self)
+    }
+}
+
 pub(crate) trait FormattablePunct {
     fn span_start(&self) -> LineColumn;
 }
@@ -1126,34 +1156,4 @@ pub struct Whitespace {
 pub enum WhitespaceMode {
     BlankLines(usize),
     Comment(Comment),
-}
-
-impl Formattable for &Ident {
-    fn has_attrs(&self) -> bool {
-        false
-    }
-
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
-        (*self).make_segs(out, base_indent)
-    }
-}
-
-impl<F: Fn(&mut MakeSegsState, &Alignment) -> SplitGroupIdx> Formattable for F {
-    fn has_attrs(&self) -> bool {
-        false
-    }
-
-    fn make_segs(&self, line: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
-        self(line, base_indent)
-    }
-}
-
-impl Formattable for Ident {
-    fn has_attrs(&self) -> bool {
-        false
-    }
-
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
-        new_sg_lit(out, Some((base_indent, vec![self.span().start()])), self)
-    }
 }

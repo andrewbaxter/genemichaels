@@ -106,6 +106,176 @@ impl MyStruct {
 }
 
 #[test]
+fn ow_declaration_normalization_auto_impl_follows_type_generic() {
+    owc(r#"impl<T: Clone + Send> Foo<T> {
+    fn generic_clone_send(&self) { }
+}
+
+impl Foo<i32> {
+    fn concrete_i32(&self) { }
+}
+
+impl<T> std::fmt::Display for &Foo<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Ok(())
+    }
+}
+
+impl<T> std::fmt::Display for Rc<Foo<T>> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Ok(())
+    }
+}
+
+impl Foo<String> {
+    fn concrete_string(&self) { }
+}
+
+impl<T: Clone> Foo<T> {
+    fn generic_clone(&self) { }
+}
+
+impl<T> Foo<T> {
+    fn generic(&self) { }
+}
+
+struct Foo<T> {
+    value: T,
+}
+
+impl<T> std::fmt::Display for Foo<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Ok(())
+    }
+}
+"#, r#"struct Foo<T> {
+    value: T,
+}
+
+impl Foo<i32> {
+    fn concrete_i32(&self) { }
+}
+
+impl Foo<String> {
+    fn concrete_string(&self) { }
+}
+
+impl<T> Foo<T> {
+    fn generic(&self) { }
+}
+
+impl<T: Clone> Foo<T> {
+    fn generic_clone(&self) { }
+}
+
+impl<T: Clone + Send> Foo<T> {
+    fn generic_clone_send(&self) { }
+}
+
+impl<T> std::fmt::Display for Foo<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Ok(())
+    }
+}
+
+impl<T> std::fmt::Display for &Foo<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Ok(())
+    }
+}
+
+impl<T> std::fmt::Display for Rc<Foo<T>> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Ok(())
+    }
+}
+"#, &FormatConfig {
+        declaration_normalization: DeclarationNormalizationMode::Auto,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_declaration_normalization_auto_impl_for_external_type_and_trait() {
+    owc(r#"impl SomeExternalTrait for SomeExternalStruct {
+    fn do_thing(&self) { }
+}
+
+impl SomeExternalStruct {
+    fn helper(&self) { }
+}
+
+fn other_func() { }
+"#, r#"fn other_func() { }
+
+impl SomeExternalStruct {
+    fn helper(&self) { }
+}
+
+impl SomeExternalTrait for SomeExternalStruct {
+    fn do_thing(&self) { }
+}
+"#, &FormatConfig {
+        declaration_normalization: DeclarationNormalizationMode::Auto,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_declaration_normalization_auto_impl_ref_rc() {
+    owc(r#"impl std::fmt::Display for Rc<MyStruct> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Ok(())
+    }
+}
+
+impl std::fmt::Display for &MyStruct {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Ok(())
+    }
+}
+
+impl MyStruct {
+    fn method(&self) { }
+}
+
+struct MyStruct { }
+
+impl std::fmt::Display for MyStruct {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Ok(())
+    }
+}
+"#, r#"struct MyStruct {}
+
+impl MyStruct {
+    fn method(&self) { }
+}
+
+impl std::fmt::Display for MyStruct {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Ok(())
+    }
+}
+
+impl std::fmt::Display for &MyStruct {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Ok(())
+    }
+}
+
+impl std::fmt::Display for Rc<MyStruct> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Ok(())
+    }
+}
+"#, &FormatConfig {
+        declaration_normalization: DeclarationNormalizationMode::Auto,
+        ..Default::default()
+    });
+}
+
+#[test]
 fn ow_declaration_normalization_auto_macro_use_first() {
     owc(r#"fn my_func() { }
 
@@ -128,6 +298,112 @@ use std::fmt;
 fn my_func() { }
 
 struct MyStruct {}
+"#, &FormatConfig {
+        declaration_normalization: DeclarationNormalizationMode::Auto,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_declaration_normalization_auto_multiple_structs_with_impls() {
+    owc(r#"impl Bravo {
+    fn b(&self) { }
+}
+
+impl Alpha {
+    fn a(&self) { }
+}
+
+struct Charlie { }
+
+impl Charlie {
+    fn c(&self) { }
+}
+
+struct Alpha { }
+
+struct Bravo { }
+"#, r#"struct Alpha {}
+
+impl Alpha {
+    fn a(&self) { }
+}
+
+struct Bravo {}
+
+impl Bravo {
+    fn b(&self) { }
+}
+
+struct Charlie {}
+
+impl Charlie {
+    fn c(&self) { }
+}
+"#, &FormatConfig {
+        declaration_normalization: DeclarationNormalizationMode::Auto,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_declaration_normalization_auto_multiple_traits_with_impls() {
+    owc(r#"impl Zebra for u8 { }
+
+impl Alpha for u8 { }
+
+trait Zebra { }
+
+impl Mango for u8 { }
+
+trait Mango { }
+
+trait Alpha { }
+"#, r#"trait Alpha { }
+
+impl Alpha for u8 { }
+
+trait Mango { }
+
+impl Mango for u8 { }
+
+trait Zebra { }
+
+impl Zebra for u8 { }
+"#, &FormatConfig {
+        declaration_normalization: DeclarationNormalizationMode::Auto,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_declaration_normalization_auto_trait_impl_follows_struct() {
+    owc(r#"struct Aardvark { }
+
+trait MyTrait { }
+
+struct Zebra { }
+
+impl MyTrait for Camel { }
+
+struct Camel { }
+
+impl MyTrait for Aardvark { }
+
+impl MyTrait for Zebra { }
+"#, r#"trait MyTrait { }
+
+struct Aardvark {}
+
+impl MyTrait for Aardvark { }
+
+struct Camel {}
+
+impl MyTrait for Camel { }
+
+struct Zebra {}
+
+impl MyTrait for Zebra { }
 "#, &FormatConfig {
         declaration_normalization: DeclarationNormalizationMode::Auto,
         ..Default::default()
