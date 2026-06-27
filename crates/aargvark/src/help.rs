@@ -11,42 +11,17 @@ use {
     },
 };
 
-fn style_usage(s: impl AsRef<str>) -> String {
-    return s.as_ref().to_string();
+pub struct HelpField {
+    pub description: String,
+    pub id: String,
+    pub pattern: HelpPattern,
 }
 
-fn style_description(s: impl AsRef<str>) -> String {
-    return s.as_ref().to_string();
-}
-
-fn style_id(s: impl AsRef<str>) -> String {
-    return console::Style::new().blue().dim().apply_to(s.as_ref()).to_string();
-}
-
-fn style_type(s: impl AsRef<str>) -> String {
-    return console::Style::new().magenta().apply_to(s.as_ref()).to_string();
-}
-
-fn style_logical(s: impl AsRef<str>) -> String {
-    return console::Style::new().dim().apply_to(s.as_ref()).to_string();
-}
-
-fn style_literal(s: impl AsRef<str>) -> String {
-    return console::Style::new().bold().apply_to(s.as_ref()).to_string();
-}
-
-#[doc(hidden)]
-#[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
-pub struct HelpProductionKey {
-    type_id: TypeId,
-    variant: usize,
-}
-
-#[doc(hidden)]
-pub struct HelpProduction {
-    id: String,
-    description: String,
-    content: HelpProductionType,
+pub struct HelpFlagField {
+    pub description: String,
+    pub flags: Vec<String>,
+    pub option: bool,
+    pub pattern: HelpPattern,
 }
 
 #[doc(hidden)]
@@ -56,6 +31,10 @@ pub enum HelpPartialContent {
 }
 
 impl HelpPartialContent {
+    pub fn enum_(variants: Vec<HelpVariant>) -> Self {
+        return HelpPartialContent::Production(HelpProductionType::Enum(Rc::new(RefCell::new(variants))));
+    }
+
     pub fn struct_(fields: Vec<HelpField>, optional_fields: Vec<HelpFlagField>) -> Self {
         return HelpPartialContent::Production(
             HelpProductionType::Struct(Rc::new(RefCell::new(HelpProductionTypeStruct {
@@ -64,44 +43,11 @@ impl HelpPartialContent {
             }))),
         );
     }
-
-    pub fn enum_(variants: Vec<HelpVariant>) -> Self {
-        return HelpPartialContent::Production(HelpProductionType::Enum(Rc::new(RefCell::new(variants))));
-    }
 }
 
 /// State for a partially-parsed field for rendering help.
 pub struct HelpPartialProduction {
-    pub description: String,
     pub content: HelpPartialContent,
-}
-
-pub enum HelpProductionType {
-    Struct(Rc<RefCell<HelpProductionTypeStruct>>),
-    Enum(Rc<RefCell<Vec<HelpVariant>>>),
-}
-
-pub struct HelpProductionTypeStruct {
-    pub fields: Vec<HelpField>,
-    pub flag_fields: Vec<HelpFlagField>,
-}
-
-pub struct HelpField {
-    pub id: String,
-    pub pattern: HelpPattern,
-    pub description: String,
-}
-
-pub struct HelpFlagField {
-    pub option: bool,
-    pub flags: Vec<String>,
-    pub pattern: HelpPattern,
-    pub description: String,
-}
-
-pub struct HelpVariant {
-    pub literal: String,
-    pub pattern: HelpPattern,
     pub description: String,
 }
 
@@ -125,19 +71,19 @@ impl HelpPattern {
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum HelpPatternElement {
+    // `XYZ[ ...]` - indicates a pattern can be repeated, space separated
+    Array(HelpPattern),
     // xyz - denotes literal text user must type
     Literal(String),
-    // `<XYZ>` - denotes type of data for user
-    Type(String),
-    // XYZ - refers to another section of help output
-    Reference(HelpProductionKey),
+    // `[XYZ]` - indicates a pattern is optional
+    Option(HelpPattern),
     // Like reference, but the other section might not exist.  Used for `...` when
     // using `help_break` to limit output.
     PseudoReference(String),
-    // `[XYZ]` - indicates a pattern is optional
-    Option(HelpPattern),
-    // `XYZ[ ...]` - indicates a pattern can be repeated, space separated
-    Array(HelpPattern),
+    // XYZ - refers to another section of help output
+    Reference(HelpProductionKey),
+    // `<XYZ>` - denotes type of data for user
+    Type(String),
     // `xyz | abc` - indicates one of multiple patterns can be selected
     Variant(Vec<HelpPattern>),
 }
@@ -169,6 +115,30 @@ impl HelpPatternElement {
                 .join(&style_logical(" | ")),
         }
     }
+}
+
+#[doc(hidden)]
+pub struct HelpProduction {
+    content: HelpProductionType,
+    description: String,
+    id: String,
+}
+
+#[doc(hidden)]
+#[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
+pub struct HelpProductionKey {
+    type_id: TypeId,
+    variant: usize,
+}
+
+pub enum HelpProductionType {
+    Enum(Rc<RefCell<Vec<HelpVariant>>>),
+    Struct(Rc<RefCell<HelpProductionTypeStruct>>),
+}
+
+pub struct HelpProductionTypeStruct {
+    pub fields: Vec<HelpField>,
+    pub flag_fields: Vec<HelpFlagField>,
 }
 
 #[doc(hidden)]
@@ -206,6 +176,18 @@ impl HelpState {
         return key;
     }
 
+    pub fn add_enum(
+        &mut self,
+        type_id: TypeId,
+        type_id_variant: usize,
+        id: impl ToString,
+        description: impl ToString,
+    ) -> (HelpProductionKey, Rc<RefCell<Vec<HelpVariant>>>) {
+        let out = Rc::new(RefCell::new(vec![]));
+        let key = self.add(type_id, type_id_variant, id, description, HelpProductionType::Enum(out.clone()));
+        return (key, out);
+    }
+
     pub fn add_struct(
         &mut self,
         type_id: TypeId,
@@ -220,26 +202,44 @@ impl HelpState {
         let key = self.add(type_id, type_id_variant, id, description, HelpProductionType::Struct(out.clone()));
         return (key, out);
     }
+}
 
-    pub fn add_enum(
-        &mut self,
-        type_id: TypeId,
-        type_id_variant: usize,
-        id: impl ToString,
-        description: impl ToString,
-    ) -> (HelpProductionKey, Rc<RefCell<Vec<HelpVariant>>>) {
-        let out = Rc::new(RefCell::new(vec![]));
-        let key = self.add(type_id, type_id_variant, id, description, HelpProductionType::Enum(out.clone()));
-        return (key, out);
-    }
+pub struct HelpVariant {
+    pub description: String,
+    pub literal: String,
+    pub pattern: HelpPattern,
+}
+
+fn style_description(s: impl AsRef<str>) -> String {
+    return s.as_ref().to_string();
+}
+
+fn style_id(s: impl AsRef<str>) -> String {
+    return console::Style::new().blue().dim().apply_to(s.as_ref()).to_string();
+}
+
+fn style_literal(s: impl AsRef<str>) -> String {
+    return console::Style::new().bold().apply_to(s.as_ref()).to_string();
+}
+
+fn style_logical(s: impl AsRef<str>) -> String {
+    return console::Style::new().dim().apply_to(s.as_ref()).to_string();
+}
+
+fn style_type(s: impl AsRef<str>) -> String {
+    return console::Style::new().magenta().apply_to(s.as_ref()).to_string();
+}
+
+fn style_usage(s: impl AsRef<str>) -> String {
+    return s.as_ref().to_string();
 }
 
 /// State required for building a help string.
 pub struct VarkRetHelp {
-    pub(crate) command: Option<String>,
     pub(crate) args: Vec<String>,
-    pub(crate) consumed_args: usize,
     pub(crate) builder: Box<dyn FnOnce(&mut HelpState) -> HelpPartialProduction>,
+    pub(crate) command: Option<String>,
+    pub(crate) consumed_args: usize,
 }
 
 impl VarkRetHelp {
@@ -307,7 +307,7 @@ impl VarkRetHelp {
                                 comfy_table::Cell::new(
                                     format!("   {}: {}", style_id(&f.id), f.pattern.render(stack, help_state)),
                                 ),
-                                Cell::new(style_description(&f.description))
+                                Cell::new(style_description(&f.description)),
                             ],
                         );
                     }
@@ -325,14 +325,14 @@ impl VarkRetHelp {
                                 table.add_row(
                                     vec![
                                         comfy_table::Cell::new(left_col),
-                                        Cell::new(style_description(&f.description))
+                                        Cell::new(style_description(&f.description)),
                                     ],
                                 );
                             } else {
                                 table.add_row(
                                     vec![
                                         comfy_table::Cell::new(left_col),
-                                        Cell::new(style_description(&format!("(synonym for `{}`)", first_flag)))
+                                        Cell::new(style_description(&format!("(synonym for `{}`)", first_flag))),
                                     ],
                                 );
                             }
@@ -346,7 +346,7 @@ impl VarkRetHelp {
                                 comfy_table::Cell::new(
                                     format!("   {} {}", style_literal(&f.literal), f.pattern.render(stack, help_state)),
                                 ),
-                                Cell::new(style_description(&f.description))
+                                Cell::new(style_description(&f.description)),
                             ],
                         );
                     }

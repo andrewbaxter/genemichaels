@@ -2,7 +2,11 @@ use {
     crate::{
         Alignment,
         Formattable,
+        IncMacroDepth,
         MakeSegsState,
+        Segment,
+        SegmentContent,
+        SegmentMode,
         SplitGroupIdx,
         check_split_brace_threshold,
         new_sg,
@@ -34,6 +38,8 @@ use {
             build_ref,
         },
     },
+    loga::ea,
+    proc_macro2::Literal,
     quote::ToTokens,
     syn::{
         Expr,
@@ -59,6 +65,14 @@ enum Dotted<'a> {
 enum DottedRes<'a> {
     Dotted(Dotted<'a>),
     Leaf(&'a Expr),
+}
+
+fn gather_dotted<'a, 'b: 'a>(out: &'a mut Vec<Dotted<'b>>, root: Dotted<'b>) -> &'b dyn Formattable {
+    out.push(root.clone());
+    match get_dotted2(&root) {
+        DottedRes::Dotted(d) => gather_dotted(out, d),
+        DottedRes::Leaf(l) => l,
+    }
 }
 
 #[allow(clippy::needless_lifetimes)]
@@ -121,14 +135,6 @@ fn get_dotted2<'a>(d: &Dotted<'a>) -> DottedRes<'a> {
         Dotted::Field(x) => get_dotted(&x.base),
         Dotted::Method(x) => get_dotted(&x.receiver),
         Dotted::Try(_, e) => get_dotted2(e.as_ref()),
-    }
-}
-
-fn gather_dotted<'a, 'b: 'a>(out: &'a mut Vec<Dotted<'b>>, root: Dotted<'b>) -> &'b dyn Formattable {
-    out.push(root.clone());
-    match get_dotted2(&root) {
-        DottedRes::Dotted(d) => gather_dotted(out, d),
-        DottedRes::Leaf(l) => l,
     }
 }
 
@@ -227,17 +233,54 @@ fn new_sg_dotted(out: &mut MakeSegsState, base_indent: &Alignment, root: Dotted)
     sg.build(out)
 }
 
-impl Formattable for Expr {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
-        (&self).make_segs(out, base_indent)
-    }
-
-    fn has_attrs(&self) -> bool {
-        (&self).has_attrs()
-    }
-}
-
 impl Formattable for &Expr {
+    fn has_attrs(&self) -> bool {
+        #[deny(clippy::wildcard_enum_match_arm)]
+        match self {
+            Expr::Array(x) => !x.attrs.is_empty(),
+            Expr::Assign(x) => !x.attrs.is_empty(),
+            Expr::Async(x) => !x.attrs.is_empty(),
+            Expr::Await(x) => !x.attrs.is_empty(),
+            Expr::Binary(x) => !x.attrs.is_empty(),
+            Expr::Block(x) => !x.attrs.is_empty(),
+            Expr::Break(x) => !x.attrs.is_empty(),
+            Expr::Call(x) => !x.attrs.is_empty(),
+            Expr::Cast(x) => !x.attrs.is_empty(),
+            Expr::Closure(x) => !x.attrs.is_empty(),
+            Expr::Continue(x) => !x.attrs.is_empty(),
+            Expr::Field(x) => !x.attrs.is_empty(),
+            Expr::ForLoop(x) => !x.attrs.is_empty(),
+            Expr::Group(x) => !x.attrs.is_empty(),
+            Expr::If(x) => !x.attrs.is_empty(),
+            Expr::Index(x) => !x.attrs.is_empty(),
+            Expr::Let(x) => !x.attrs.is_empty(),
+            Expr::Lit(x) => !x.attrs.is_empty(),
+            Expr::Loop(x) => !x.attrs.is_empty(),
+            Expr::Macro(x) => !x.attrs.is_empty(),
+            Expr::Match(x) => !x.attrs.is_empty(),
+            Expr::MethodCall(x) => !x.attrs.is_empty(),
+            Expr::Paren(x) => !x.attrs.is_empty(),
+            Expr::Path(x) => !x.attrs.is_empty(),
+            Expr::Range(x) => !x.attrs.is_empty(),
+            Expr::Reference(x) => !x.attrs.is_empty(),
+            Expr::Repeat(x) => !x.attrs.is_empty(),
+            Expr::Return(x) => !x.attrs.is_empty(),
+            Expr::Struct(x) => !x.attrs.is_empty(),
+            Expr::Try(x) => !x.attrs.is_empty(),
+            Expr::TryBlock(x) => !x.attrs.is_empty(),
+            Expr::Tuple(x) => !x.attrs.is_empty(),
+            Expr::Unary(x) => !x.attrs.is_empty(),
+            Expr::Unsafe(x) => !x.attrs.is_empty(),
+            Expr::Verbatim(_) => false,
+            Expr::While(x) => !x.attrs.is_empty(),
+            Expr::Yield(x) => !x.attrs.is_empty(),
+            Expr::Const(x) => !x.attrs.is_empty(),
+            Expr::Infer(x) => !x.attrs.is_empty(),
+            Expr::RawAddr(x) => !x.attrs.is_empty(),
+            _ => unreachable!(),
+        }
+    }
+
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
         #[deny(clippy::wildcard_enum_match_arm)]
         match self {
@@ -600,18 +643,179 @@ impl Formattable for &Expr {
                     sg.build(out)
                 },
             ),
-            Expr::Lit(e) => new_sg_outer_attrs(
-                out,
-                base_indent,
-                &e.attrs,
-                self.span(),
-                |out: &mut MakeSegsState, _base_indent: &Alignment| {
-                    let mut node = new_sg(out);
-                    append_whitespace(out, base_indent, &mut node, e.lit.span().start());
-                    node.seg(out, e.lit.to_token_stream());
-                    node.build(out)
-                },
-            ),
+            Expr::Lit(e) => {
+                let external_formatted: Option<(String, bool)> = 'ext: {
+                    let syn::Lit::Str(lit_str) = &e.lit else {
+                        break 'ext None;
+                    };
+                    let formatter_name = {
+                        let mut found = None;
+                        let hl = crate::whitespace::HashLineColumn(e.lit.span().start());
+                        if let Some((_, ws_list)) = out.whitespaces.get(&hl) {
+                            'comment_search: for ws in ws_list {
+                                let crate::WhitespaceMode::Comment(comment) = &ws.mode else {
+                                    continue;
+                                };
+                                if comment.mode != crate::CommentMode::Directive {
+                                    continue;
+                                }
+                                for line in comment.lines.lines() {
+                                    if let Some(name) = line.trim().strip_prefix("genemichaels-external:") {
+                                        found = Some(name.trim().to_string());
+                                        break 'comment_search;
+                                    }
+                                }
+                            }
+                        }
+                        let Some(name) = found else {
+                            break 'ext None;
+                        };
+                        name
+                    };
+                    let formatter = {
+                        let Some(cfg) = out.config.external_formatters.get(&formatter_name).cloned() else {
+                            out
+                                .warnings
+                                .push(
+                                    loga::err_with(
+                                        "External formatter referenced but not configured",
+                                        ea!(name = formatter_name),
+                                    ),
+                                );
+                            break 'ext None;
+                        };
+                        cfg
+                    };
+                    let source_text = lit_str.token().to_string();
+                    let is_raw = source_text.starts_with('r');
+                    let content = lit_str.value();
+                    let rebuild_lit = |formatted: &str| {
+                        if is_raw || formatted.contains('\n') {
+                            let n_hashes = {
+                                let bytes = formatted.as_bytes();
+                                let mut max = 0usize;
+                                let mut i = 0usize;
+                                while i < bytes.len() {
+                                    if bytes[i] == b'"' {
+                                        let mut h = 0usize;
+                                        while i + 1 + h < bytes.len() && bytes[i + 1 + h] == b'#' {
+                                            h += 1;
+                                        }
+                                        if h > max {
+                                            max = h;
+                                        }
+                                    }
+                                    i += 1;
+                                }
+                                max + 1
+                            };
+                            let hashes = "#".repeat(n_hashes);
+                            format!("r{}\"{}\"{}", hashes, formatted, hashes)
+                        } else {
+                            Literal::string(formatted).to_string()
+                        }
+                    };
+                    if formatter.adjust_indent {
+                        // Strip indentation equal to the source column where string content starts (span
+                        // start column + opening delimiter length), then store as RawTextAdjustIndent so
+                        // the renderer re-indents at the correct column.
+                        let content_start_col = lit_str.span().start().column + source_text.find('"').map(|i| i + 1).unwrap_or(1);
+                        let stripped_content = {
+                            let mut first_line_start = None;
+                            for (i, line) in content.split('\n').enumerate() {
+                                if !line.trim().is_empty() {
+                                    if i == 0 {
+                                        first_line_start =
+                                            Some(
+                                                content_start_col + line.chars().take_while(|&c| c == ' ').count(),
+                                            );
+                                    } else {
+                                        first_line_start = Some(line.chars().take_while(|&c| c == ' ').count());
+                                    }
+                                    break;
+                                }
+                            }
+                            let strip_amount = if let Some(first_start) = first_line_start {
+                                let mut min_indent = first_start;
+                                let mut found_first = false;
+                                for (i, line) in content.split('\n').enumerate() {
+                                    if !line.trim().is_empty() {
+                                        if !found_first {
+                                            found_first = true;
+                                            continue;
+                                        }
+                                        if i > 0 {
+                                            min_indent =
+                                                min_indent.min(line.chars().take_while(|&c| c == ' ').count());
+                                        }
+                                    }
+                                }
+                                min_indent
+                            } else {
+                                content_start_col
+                            };
+                            let mut result = String::new();
+                            for (i, line) in content.split('\n').enumerate() {
+                                if i > 0 {
+                                    result.push('\n');
+                                    let leading_spaces =
+                                        line.chars().take_while(|&c| c == ' ').count().min(strip_amount);
+                                    result.push_str(&line[leading_spaces..]);
+                                } else {
+                                    result.push_str(line);
+                                }
+                            }
+                            result
+                        };
+                        let formatted =
+                            match crate::run_external_formatter(&formatter.commandline, &stripped_content) {
+                                Ok(f) => f,
+                                Err(e) => {
+                                    out.warnings.push(e);
+                                    break 'ext None;
+                                },
+                            };
+                        Some((rebuild_lit(&formatted), true))
+                    } else {
+                        // Run the external formatter
+                        let formatted = match crate::run_external_formatter(&formatter.commandline, &content) {
+                            Ok(f) => f,
+                            Err(e) => {
+                                out.warnings.push(e);
+                                break 'ext None;
+                            },
+                        };
+                        Some((rebuild_lit(&formatted), false))
+                    }
+                };
+                new_sg_outer_attrs(
+                    out,
+                    base_indent,
+                    &e.attrs,
+                    self.span(),
+                    |out: &mut MakeSegsState, _base_indent: &Alignment| {
+                        let mut node = new_sg(out);
+                        append_whitespace(out, base_indent, &mut node, e.lit.span().start());
+                        match &external_formatted {
+                            Some((text, true)) => {
+                                node.add(out, Segment {
+                                    node: node.node,
+                                    line: None,
+                                    mode: SegmentMode::All,
+                                    content: SegmentContent::RawTextAdjustIndent(text.clone()),
+                                });
+                            },
+                            Some((text, false)) => {
+                                node.seg(out, text.as_str());
+                            },
+                            None => {
+                                node.seg(out, e.lit.to_token_stream());
+                            },
+                        }
+                        node.build(out)
+                    },
+                )
+            },
             Expr::Loop(e) => new_sg_outer_attrs(
                 out,
                 base_indent,
@@ -966,6 +1170,7 @@ impl Formattable for &Expr {
                 },
             ),
             Expr::Verbatim(e) => {
+                let _in_macro = IncMacroDepth::new(out);
                 let mut sg = new_sg(out);
                 append_macro_body(out, base_indent, &mut sg, e.clone());
                 sg.build(out)
@@ -1062,56 +1267,23 @@ impl Formattable for &Expr {
             _ => unreachable!(),
         }
     }
+}
 
+impl Formattable for Expr {
     fn has_attrs(&self) -> bool {
-        #[deny(clippy::wildcard_enum_match_arm)]
-        match self {
-            Expr::Array(x) => !x.attrs.is_empty(),
-            Expr::Assign(x) => !x.attrs.is_empty(),
-            Expr::Async(x) => !x.attrs.is_empty(),
-            Expr::Await(x) => !x.attrs.is_empty(),
-            Expr::Binary(x) => !x.attrs.is_empty(),
-            Expr::Block(x) => !x.attrs.is_empty(),
-            Expr::Break(x) => !x.attrs.is_empty(),
-            Expr::Call(x) => !x.attrs.is_empty(),
-            Expr::Cast(x) => !x.attrs.is_empty(),
-            Expr::Closure(x) => !x.attrs.is_empty(),
-            Expr::Continue(x) => !x.attrs.is_empty(),
-            Expr::Field(x) => !x.attrs.is_empty(),
-            Expr::ForLoop(x) => !x.attrs.is_empty(),
-            Expr::Group(x) => !x.attrs.is_empty(),
-            Expr::If(x) => !x.attrs.is_empty(),
-            Expr::Index(x) => !x.attrs.is_empty(),
-            Expr::Let(x) => !x.attrs.is_empty(),
-            Expr::Lit(x) => !x.attrs.is_empty(),
-            Expr::Loop(x) => !x.attrs.is_empty(),
-            Expr::Macro(x) => !x.attrs.is_empty(),
-            Expr::Match(x) => !x.attrs.is_empty(),
-            Expr::MethodCall(x) => !x.attrs.is_empty(),
-            Expr::Paren(x) => !x.attrs.is_empty(),
-            Expr::Path(x) => !x.attrs.is_empty(),
-            Expr::Range(x) => !x.attrs.is_empty(),
-            Expr::Reference(x) => !x.attrs.is_empty(),
-            Expr::Repeat(x) => !x.attrs.is_empty(),
-            Expr::Return(x) => !x.attrs.is_empty(),
-            Expr::Struct(x) => !x.attrs.is_empty(),
-            Expr::Try(x) => !x.attrs.is_empty(),
-            Expr::TryBlock(x) => !x.attrs.is_empty(),
-            Expr::Tuple(x) => !x.attrs.is_empty(),
-            Expr::Unary(x) => !x.attrs.is_empty(),
-            Expr::Unsafe(x) => !x.attrs.is_empty(),
-            Expr::Verbatim(_) => false,
-            Expr::While(x) => !x.attrs.is_empty(),
-            Expr::Yield(x) => !x.attrs.is_empty(),
-            Expr::Const(x) => !x.attrs.is_empty(),
-            Expr::Infer(x) => !x.attrs.is_empty(),
-            Expr::RawAddr(x) => !x.attrs.is_empty(),
-            _ => unreachable!(),
-        }
+        (&self).has_attrs()
+    }
+
+    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
+        (&self).make_segs(out, base_indent)
     }
 }
 
 impl Formattable for FieldValue {
+    fn has_attrs(&self) -> bool {
+        !self.attrs.is_empty()
+    }
+
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
         new_sg_outer_attrs(
             out,
@@ -1138,9 +1310,5 @@ impl Formattable for FieldValue {
                 sg.build(out)
             },
         )
-    }
-
-    fn has_attrs(&self) -> bool {
-        !self.attrs.is_empty()
     }
 }

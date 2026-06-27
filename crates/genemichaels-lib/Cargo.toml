@@ -11,13 +11,14 @@ readme = "./readme.md"
 markdown = { version = "=1.0.0-alpha.21" }
 proc-macro2 = { version = "1", features = ["span-locations"] }
 quote = "1"
-syn = { workspace = true }
+syn = { version = "2", features = ["full", "visit-mut", "clone-impls", "fold", "extra-traits"] }
 cargo-manifest = "0.19"
 derive_more = { version = "2", features = ["full"] }
 loga = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 regex = "1"
+tempfile = "3"
 
 [dev-dependencies]
 pretty_assertions = "1"

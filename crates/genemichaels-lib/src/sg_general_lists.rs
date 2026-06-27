@@ -10,133 +10,27 @@
 //!
 //! * curly bracketed: `{ a, b, c }` - inline within brackets with spaces
 use {
-    proc_macro2::LineColumn,
-    quote::ToTokens,
-    syn::{
-        punctuated::Punctuated,
-        Expr,
-    },
     crate::{
+        Alignment,
         Formattable,
         FormattablePunct,
         MakeSegsState,
-        Alignment,
         SplitGroupBuilder,
+        SplitGroupIdx,
+        new_sg,
         sg_general::{
             append_whitespace,
             has_comments,
         },
-        SplitGroupIdx,
-        new_sg,
         whitespace::HashLineColumn,
     },
+    proc_macro2::LineColumn,
+    quote::ToTokens,
+    syn::{
+        Expr,
+        punctuated::Punctuated,
+    },
 };
-
-pub(crate) enum InlineListSuffix<T: Formattable> {
-    // _Must_ have no final punctuation, like in `A: X + Y + C` (can't have final
-    // `+`), `|` in where clauses
-    None,
-    // Add final punctuation as long as not empty (most `,` separated lists)
-    Punct,
-    // Keep existing final punctuation, mostly for macros where this is significant
-    VerbatimPunct,
-    // Unit tuples only - final punctuation mandatory
-    UnitPunct,
-    // _Must_ have final punctuation, but followed by an extra pseudo-element like
-    // `..Default::default()`
-    Extra(T),
-}
-
-pub(crate) fn append_inline_list_raw<
-    E: Formattable + ToTokens,
-    T: FormattablePunct,
-    F: Formattable,
->(
-    out: &mut MakeSegsState,
-    base_indent: &Alignment,
-    sg: &mut SplitGroupBuilder,
-    punct: &str,
-    exprs: &Punctuated<E, T>,
-    suffix: InlineListSuffix<F>,
-) {
-    if exprs
-        .pairs()
-        .any(|s| has_comments(out, s.value()) || (s.value().has_attrs() && out.config.split_attributes)) {
-        sg.initial_split();
-    }
-    let mut next_punct: Option<&T> = None;
-    for (i, pair) in exprs.pairs().enumerate() {
-        if i > 0 {
-            if let Some(p) = next_punct.take() {
-                append_whitespace(out, base_indent, sg, p.span_start());
-                sg.seg(out, punct);
-            }
-            sg.split(out, base_indent.clone(), true);
-            sg.seg_unsplit(out, " ");
-        }
-        sg.child(pair.value().make_segs(out, base_indent));
-        next_punct = pair.punct().copied();
-    }
-    match suffix {
-        InlineListSuffix::None => {
-            if let Some(p) = next_punct {
-                append_whitespace(out, base_indent, sg, p.span_start());
-            }
-        },
-        InlineListSuffix::UnitPunct if exprs.len() == 1 => {
-            if let Some(p) = next_punct {
-                append_whitespace(out, base_indent, sg, p.span_start());
-                sg.seg(out, punct);
-            } else if !exprs.is_empty() {
-                sg.seg(out, punct);
-            }
-        },
-        InlineListSuffix::Punct | InlineListSuffix::UnitPunct => {
-            if let Some(p) = next_punct {
-                append_whitespace(out, base_indent, sg, p.span_start());
-                sg.seg_split(out, punct);
-            } else if !exprs.is_empty() {
-                sg.seg_split(out, punct);
-            }
-        },
-        InlineListSuffix::VerbatimPunct => {
-            if let Some(p) = next_punct {
-                append_whitespace(out, base_indent, sg, p.span_start());
-                sg.seg(out, punct);
-            }
-        },
-        InlineListSuffix::Extra(e) => {
-            if let Some(p) = next_punct {
-                append_whitespace(out, base_indent, sg, p.span_start());
-                sg.seg(out, punct);
-            } else if !exprs.is_empty() {
-                sg.seg(out, punct);
-            }
-            if !exprs.is_empty() {
-                sg.split(out, base_indent.clone(), true);
-                sg.seg_unsplit(out, " ");
-            }
-            e.make_segs(out, base_indent);
-        },
-    }
-}
-
-pub(crate) fn append_inline_list<
-    E: Formattable + ToTokens,
-    T: FormattablePunct,
-    F: Formattable,
->(
-    out: &mut MakeSegsState,
-    base_indent: &Alignment,
-    sg: &mut SplitGroupBuilder,
-    punct: &str,
-    exprs: &Punctuated<E, T>,
-    suffix: InlineListSuffix<F>,
-) {
-    let indent = base_indent.indent();
-    sg.split(out, indent.clone(), true);
-    append_inline_list_raw(out, &indent, sg, punct, exprs, suffix);
-}
 
 pub(crate) fn append_bracketed_list<
     E: Formattable + ToTokens,
@@ -231,6 +125,112 @@ pub(crate) fn append_bracketed_list_curly<
             InlineListSuffix::VerbatimPunct
         },
     }, suffix_start, "}")
+}
+
+pub(crate) fn append_inline_list<
+    E: Formattable + ToTokens,
+    T: FormattablePunct,
+    F: Formattable,
+>(
+    out: &mut MakeSegsState,
+    base_indent: &Alignment,
+    sg: &mut SplitGroupBuilder,
+    punct: &str,
+    exprs: &Punctuated<E, T>,
+    suffix: InlineListSuffix<F>,
+) {
+    let indent = base_indent.indent();
+    sg.split(out, indent.clone(), true);
+    append_inline_list_raw(out, &indent, sg, punct, exprs, suffix);
+}
+
+pub(crate) fn append_inline_list_raw<
+    E: Formattable + ToTokens,
+    T: FormattablePunct,
+    F: Formattable,
+>(
+    out: &mut MakeSegsState,
+    base_indent: &Alignment,
+    sg: &mut SplitGroupBuilder,
+    punct: &str,
+    exprs: &Punctuated<E, T>,
+    suffix: InlineListSuffix<F>,
+) {
+    if exprs
+        .pairs()
+        .any(|s| has_comments(out, s.value()) || (s.value().has_attrs() && out.config.split_attributes)) {
+        sg.initial_split();
+    }
+    let mut next_punct: Option<&T> = None;
+    for (i, pair) in exprs.pairs().enumerate() {
+        if i > 0 {
+            if let Some(p) = next_punct.take() {
+                append_whitespace(out, base_indent, sg, p.span_start());
+                sg.seg(out, punct);
+            }
+            sg.split(out, base_indent.clone(), true);
+            sg.seg_unsplit(out, " ");
+        }
+        sg.child(pair.value().make_segs(out, base_indent));
+        next_punct = pair.punct().copied();
+    }
+    match suffix {
+        InlineListSuffix::None => {
+            if let Some(p) = next_punct {
+                append_whitespace(out, base_indent, sg, p.span_start());
+            }
+        },
+        InlineListSuffix::UnitPunct if exprs.len() == 1 => {
+            if let Some(p) = next_punct {
+                append_whitespace(out, base_indent, sg, p.span_start());
+                sg.seg(out, punct);
+            } else if !exprs.is_empty() {
+                sg.seg(out, punct);
+            }
+        },
+        InlineListSuffix::Punct | InlineListSuffix::UnitPunct => {
+            if let Some(p) = next_punct {
+                append_whitespace(out, base_indent, sg, p.span_start());
+                sg.seg_split(out, punct);
+            } else if !exprs.is_empty() {
+                sg.seg_split(out, punct);
+            }
+        },
+        InlineListSuffix::VerbatimPunct => {
+            if let Some(p) = next_punct {
+                append_whitespace(out, base_indent, sg, p.span_start());
+                sg.seg(out, punct);
+            }
+        },
+        InlineListSuffix::Extra(e) => {
+            if let Some(p) = next_punct {
+                append_whitespace(out, base_indent, sg, p.span_start());
+                sg.seg(out, punct);
+            } else if !exprs.is_empty() {
+                sg.seg(out, punct);
+            }
+            if !exprs.is_empty() {
+                sg.split(out, base_indent.clone(), true);
+                sg.seg_unsplit(out, " ");
+            }
+            e.make_segs(out, base_indent);
+        },
+    }
+}
+
+pub(crate) enum InlineListSuffix<T: Formattable> {
+    // _Must_ have final punctuation, but followed by an extra pseudo-element like
+    // `..Default::default()`
+    Extra(T),
+    // _Must_ have no final punctuation, like in `A: X + Y + C` (can't have final
+    // `+`), `|` in where clauses
+    None,
+    // Add final punctuation as long as not empty (most `,` separated lists)
+    Punct,
+    // Unit tuples only - final punctuation mandatory
+    UnitPunct,
+    // Keep existing final punctuation, mostly for macros where this is significant
+    VerbatimPunct,
 }
 
 pub(crate) fn new_sg_bracketed_list<

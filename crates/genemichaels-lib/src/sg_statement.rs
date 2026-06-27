@@ -1,45 +1,45 @@
 use {
     crate::{
+        Alignment,
+        Formattable,
+        FormattableStmt,
+        IncMacroDepth,
+        MakeSegsState,
+        MarginGroup,
+        SplitGroupBuilder,
+        SplitGroupIdx,
+        check_split_brace_threshold,
         new_sg,
         new_sg_lit,
         sg_general::{
             append_binary,
             append_bracketed_statement_list,
-            append_whitespace,
             append_macro_body,
-            new_sg_outer_attrs,
+            append_macro_bracketed,
+            append_whitespace,
             new_sg_binary,
             new_sg_block,
             new_sg_macro,
-            append_macro_bracketed,
+            new_sg_outer_attrs,
+        },
+        sg_general_lists::{
+            InlineListSuffix,
+            append_bracketed_list,
+            append_bracketed_list_common,
+            append_bracketed_list_curly,
+            append_inline_list,
+            new_sg_bracketed_list,
         },
         sg_type::{
-            append_path,
-            build_path,
-            build_generics_part_b,
-            append_generics_part_a,
             append_generics,
-        },
-        Alignment,
-        Formattable,
-        FormattableStmt,
-        MakeSegsState,
-        MarginGroup,
-        SplitGroupBuilder,
-        check_split_brace_threshold,
-        SplitGroupIdx,
-        sg_general_lists::{
-            append_inline_list,
-            append_bracketed_list,
-            append_bracketed_list_curly,
-            new_sg_bracketed_list,
-            append_bracketed_list_common,
-            InlineListSuffix,
+            append_generics_part_a,
+            append_path,
+            build_generics_part_b,
+            build_path,
         },
     },
     quote::ToTokens,
     syn::{
-        spanned::Spanned,
         Expr,
         Field,
         ForeignItem,
@@ -53,6 +53,7 @@ use {
         UseTree,
         Variant,
         Visibility,
+        spanned::Spanned,
     },
 };
 
@@ -151,102 +152,97 @@ fn new_sg_sig(out: &mut MakeSegsState, base_indent: &Alignment, sig: &Signature)
     sg.build(out)
 }
 
-impl FormattableStmt for Stmt {
-    fn want_margin(&self) -> (MarginGroup, bool) {
-        match self {
-            Stmt::Local(_) => (MarginGroup::None, false),
-            Stmt::Item(i) => i.want_margin(),
-            Stmt::Expr(_, _) => (MarginGroup::None, false),
-            Stmt::Macro(_) => (MarginGroup::None, false),
-        }
-    }
-}
-
-impl Formattable for Stmt {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
-        match self {
-            Stmt::Local(l) => new_sg_outer_attrs(
-                out,
-                base_indent,
-                &l.attrs,
-                self.span(),
-                |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut sg = new_sg(out);
-                    append_whitespace(out, base_indent, &mut sg, l.let_token.span.start());
-                    sg.seg(out, &format!("{} ", l.let_token.to_token_stream()));
-                    sg.child(l.pat.make_segs(out, base_indent));
-                    if let Some(init) = &l.init {
-                        append_binary(
-                            out,
-                            base_indent,
-                            &mut sg,
-                            &format!(" {}", &init.eq_token.to_token_stream()),
-                            |out: &mut MakeSegsState, base_indent: &Alignment| {
-                                let mut sg = new_sg(out);
-                                sg.child(init.expr.make_segs(out, base_indent));
-                                if let Some((t, else_branch)) = &init.diverge {
-                                    append_whitespace(out, base_indent, &mut sg, t.span.start());
-                                    sg.seg(out, &format!(" {} ", t.to_token_stream()));
-                                    sg.child(else_branch.make_segs(out, base_indent));
-                                }
-                                sg.build(out)
-                            },
-                        );
-                    }
-                    append_whitespace(out, base_indent, &mut sg, l.semi_token.span.start());
-                    sg.seg(out, &l.semi_token.to_token_stream());
-                    sg.build(out)
-                },
-            ),
-            Stmt::Item(i) => i.make_segs(out, base_indent),
-            Stmt::Expr(e, semi) => {
-                if let Some(semi) = semi {
-                    let mut sg = new_sg(out);
-                    sg.child(e.make_segs(out, base_indent));
-                    append_whitespace(out, base_indent, &mut sg, semi.span.start());
-                    sg.seg(out, semi.to_token_stream().to_string());
-                    sg.build(out)
-                } else {
-                    e.make_segs(out, base_indent)
-                }
-            },
-            Stmt::Macro(e) => new_sg_outer_attrs(
-                out,
-                base_indent,
-                &e.attrs,
-                self.span(),
-                |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    if let Some(semi) = &e.semi_token {
-                        let mut sg = new_sg(out);
-                        sg.child(new_sg_macro(out, base_indent, &e.mac, false));
-                        append_whitespace(out, base_indent, &mut sg, semi.span.start());
-                        sg.seg(out, ";");
-                        sg.build(out)
-                    } else {
-                        new_sg_macro(out, base_indent, &e.mac, false)
-                    }
-                },
-            ),
-        }
-    }
-
+impl Formattable for &UseTree {
     fn has_attrs(&self) -> bool {
+        false
+    }
+
+    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
+        let mut sg = new_sg(out);
         match self {
-            Stmt::Local(l) => !l.attrs.is_empty(),
-            Stmt::Item(i) => i.has_attrs(),
-            Stmt::Expr(e, _) => e.has_attrs(),
-            Stmt::Macro(e) => !e.attrs.is_empty(),
+            syn::UseTree::Path(x) => {
+                append_whitespace(out, base_indent, &mut sg, x.ident.span().start());
+                sg.seg(out, &format!("{}::", x.ident));
+                sg.child(x.tree.make_segs(out, &base_indent.indent()));
+            },
+            syn::UseTree::Name(x) => {
+                append_whitespace(out, base_indent, &mut sg, x.ident.span().start());
+                sg.seg(out, &x.ident.to_string());
+            },
+            syn::UseTree::Rename(x) => {
+                append_whitespace(out, base_indent, &mut sg, x.ident.span().start());
+                append_whitespace(out, base_indent, &mut sg, x.rename.span().start());
+                sg.seg(out, format!("{} as {}", x.ident, x.rename));
+            },
+            syn::UseTree::Glob(g) => {
+                append_whitespace(out, base_indent, &mut sg, g.star_token.span().start());
+                sg.seg(out, "*");
+            },
+            syn::UseTree::Group(x) => {
+                if check_split_brace_threshold(out, x.items.len()) {
+                    sg.initial_split();
+                }
+                append_bracketed_list(
+                    out,
+                    base_indent,
+                    &mut sg,
+                    x.brace_token.span.open().start(),
+                    "{",
+                    true,
+                    ",",
+                    &x.items,
+                    if out.macro_depth.get() == 0 {
+                        InlineListSuffix::<Expr>::Punct
+                    } else {
+                        InlineListSuffix::VerbatimPunct
+                    },
+                    x.brace_token.span.close().start(),
+                    "}",
+                );
+            },
         }
+        sg.build(out)
     }
 }
 
-impl FormattableStmt for ForeignItem {
-    fn want_margin(&self) -> (MarginGroup, bool) {
-        (MarginGroup::None, false)
+impl Formattable for Field {
+    fn has_attrs(&self) -> bool {
+        !self.attrs.is_empty()
+    }
+
+    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
+        new_sg_outer_attrs(
+            out,
+            base_indent,
+            &self.attrs,
+            self.span(),
+            |out: &mut MakeSegsState, base_indent: &Alignment| {
+                let mut sg = new_sg(out);
+                append_vis(out, base_indent, &mut sg, &self.vis);
+                if let Some(n) = &self.ident {
+                    append_whitespace(out, base_indent, &mut sg, n.span().start());
+                    sg.seg(out, &format!("{}: ", n));
+                }
+                sg.child(self.ty.make_segs(out, base_indent));
+                sg.build(out)
+            },
+        )
     }
 }
 
 impl Formattable for ForeignItem {
+    fn has_attrs(&self) -> bool {
+        #[deny(clippy::wildcard_enum_match_arm)]
+        match self {
+            ForeignItem::Fn(x) => !x.attrs.is_empty(),
+            ForeignItem::Static(x) => !x.attrs.is_empty(),
+            ForeignItem::Type(x) => !x.attrs.is_empty(),
+            ForeignItem::Macro(x) => !x.attrs.is_empty(),
+            ForeignItem::Verbatim(_) => false,
+            _ => unreachable!(),
+        }
+    }
+
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
         #[deny(clippy::wildcard_enum_match_arm)]
         match self {
@@ -315,6 +311,7 @@ impl Formattable for ForeignItem {
                 },
             ),
             ForeignItem::Verbatim(x) => {
+                let _in_macro = IncMacroDepth::new(out);
                 let mut sg = new_sg(out);
                 append_macro_body(out, base_indent, &mut sg, x.clone());
                 sg.build(out)
@@ -322,35 +319,27 @@ impl Formattable for ForeignItem {
             _ => unreachable!(),
         }
     }
-
-    fn has_attrs(&self) -> bool {
-        #[deny(clippy::wildcard_enum_match_arm)]
-        match self {
-            ForeignItem::Fn(x) => !x.attrs.is_empty(),
-            ForeignItem::Static(x) => !x.attrs.is_empty(),
-            ForeignItem::Type(x) => !x.attrs.is_empty(),
-            ForeignItem::Macro(x) => !x.attrs.is_empty(),
-            ForeignItem::Verbatim(_) => false,
-            _ => unreachable!(),
-        }
-    }
 }
 
-impl FormattableStmt for ImplItem {
+impl FormattableStmt for ForeignItem {
     fn want_margin(&self) -> (MarginGroup, bool) {
-        #[deny(clippy::wildcard_enum_match_arm)]
-        match self {
-            ImplItem::Const(_) => (MarginGroup::None, false),
-            ImplItem::Fn(_) => (MarginGroup::BlockDef, true),
-            ImplItem::Type(_) => (MarginGroup::None, false),
-            ImplItem::Macro(_) => (MarginGroup::BlockDef, true),
-            ImplItem::Verbatim(_) => (MarginGroup::None, false),
-            _ => unreachable!(),
-        }
+        (MarginGroup::None, false)
     }
 }
 
 impl Formattable for ImplItem {
+    fn has_attrs(&self) -> bool {
+        #[deny(clippy::wildcard_enum_match_arm)]
+        match self {
+            ImplItem::Const(x) => !x.attrs.is_empty(),
+            ImplItem::Fn(x) => !x.attrs.is_empty(),
+            ImplItem::Type(x) => !x.attrs.is_empty(),
+            ImplItem::Macro(x) => !x.attrs.is_empty(),
+            ImplItem::Verbatim(_) => false,
+            _ => unreachable!(),
+        }
+    }
+
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
         #[deny(clippy::wildcard_enum_match_arm)]
         match self {
@@ -447,6 +436,7 @@ impl Formattable for ImplItem {
                 },
             ),
             ImplItem::Verbatim(x) => {
+                let _in_macro = IncMacroDepth::new(out);
                 let mut sg = new_sg(out);
                 append_macro_body(out, base_indent, &mut sg, x.clone());
                 sg.build(out)
@@ -454,220 +444,46 @@ impl Formattable for ImplItem {
             _ => unreachable!(),
         }
     }
-
-    fn has_attrs(&self) -> bool {
-        #[deny(clippy::wildcard_enum_match_arm)]
-        match self {
-            ImplItem::Const(x) => !x.attrs.is_empty(),
-            ImplItem::Fn(x) => !x.attrs.is_empty(),
-            ImplItem::Type(x) => !x.attrs.is_empty(),
-            ImplItem::Macro(x) => !x.attrs.is_empty(),
-            ImplItem::Verbatim(_) => false,
-            _ => unreachable!(),
-        }
-    }
 }
 
-impl FormattableStmt for TraitItem {
+impl FormattableStmt for ImplItem {
     fn want_margin(&self) -> (MarginGroup, bool) {
         #[deny(clippy::wildcard_enum_match_arm)]
         match self {
-            TraitItem::Const(_) => (MarginGroup::None, false),
-            TraitItem::Fn(m) => (MarginGroup::BlockDef, m.default.is_some()),
-            TraitItem::Type(_) => (MarginGroup::None, false),
-            TraitItem::Macro(_) => (MarginGroup::BlockDef, true),
-            TraitItem::Verbatim(_) => (MarginGroup::None, false),
-            _ => unreachable!(),
-        }
-    }
-}
-
-impl Formattable for TraitItem {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
-        #[deny(clippy::wildcard_enum_match_arm)]
-        match self {
-            TraitItem::Const(x) => new_sg_outer_attrs(
-                out,
-                base_indent,
-                &x.attrs,
-                self.span(),
-                |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut sg = new_sg(out);
-                    sg.child({
-                        let build_base = |out: &mut MakeSegsState, base_indent: &Alignment| {
-                            let mut sg = new_sg(out);
-                            append_whitespace(out, base_indent, &mut sg, x.const_token.span.start());
-                            let mut prefix = String::new();
-                            prefix.push_str(&format!("{} ", x.const_token.to_token_stream()));
-                            prefix.push_str(&x.ident.to_string());
-                            sg.seg(out, &prefix);
-                            append_binary(out, base_indent, &mut sg, ":", &x.ty);
-                            sg.build(out)
-                        };
-                        if let Some(d) = &x.default {
-                            new_sg_binary(out, base_indent, |out: &mut MakeSegsState, base_indent: &Alignment| {
-                                build_base(out, base_indent)
-                            }, d.0.span.start(), " =", &d.1)
-                        } else {
-                            build_base(out, base_indent)
-                        }
-                    });
-                    append_whitespace(out, base_indent, &mut sg, x.semi_token.span.start());
-                    sg.seg(out, ";");
-                    sg.build(out)
-                },
-            ),
-            TraitItem::Fn(x) => new_sg_outer_attrs(
-                out,
-                base_indent,
-                &x.attrs,
-                self.span(),
-                |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut sg = new_sg(out);
-                    sg.child(new_sg_sig(out, base_indent, &x.sig));
-                    if let Some(d) = &x.default {
-                        sg.child(
-                            new_sg_block(
-                                out,
-                                base_indent,
-                                d.brace_token.span.open().start(),
-                                " {",
-                                None,
-                                &d.stmts,
-                                d.brace_token.span.close().start(),
-                            ),
-                        );
-                        sg.reverse_children();
-                        sg.build(out)
-                    } else {
-                        append_whitespace(out, base_indent, &mut sg, x.semi_token.unwrap().span.start());
-                        sg.seg(out, ";");
-                        sg.build(out)
-                    }
-                },
-            ),
-            TraitItem::Type(x) => new_sg_outer_attrs(
-                out,
-                base_indent,
-                &x.attrs,
-                self.span(),
-                |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let build_base = |out: &mut MakeSegsState, base_indent: &Alignment| {
-                        let mut sg = new_sg(out);
-                        append_whitespace(out, base_indent, &mut sg, x.type_token.span.start());
-                        let mut prefix = String::new();
-                        prefix.push_str("type ");
-                        prefix.push_str(&x.ident.to_string());
-                        sg.seg(out, &prefix);
-                        append_generics_part_a(out, base_indent, &mut sg, &x.generics);
-                        if let Some(c) = &x.colon_token {
-                            append_whitespace(out, base_indent, &mut sg, c.span.start());
-                            append_binary(
-                                out,
-                                base_indent,
-                                &mut sg,
-                                ":",
-                                |out: &mut MakeSegsState, base_indent: &Alignment| {
-                                    let mut node = new_sg(out);
-                                    append_inline_list(
-                                        out,
-                                        base_indent,
-                                        &mut node,
-                                        " +",
-                                        &x.bounds,
-                                        InlineListSuffix::<Expr>::None,
-                                    );
-                                    node.build(out)
-                                },
-                            );
-                        }
-                        sg.build(out)
-                    };
-                    let mut sg = new_sg(out);
-                    sg.child({
-                        match &x.default {
-                            Some(d) => new_sg_binary(
-                                out,
-                                base_indent,
-                                |out: &mut MakeSegsState, base_indent: &Alignment| {
-                                    build_base(out, base_indent)
-                                },
-                                d.0.span.start(),
-                                " =",
-                                &d.1,
-                            ),
-                            None => build_base(out, base_indent),
-                        }
-                    });
-                    if let Some(wh) = &x.generics.where_clause {
-                        sg.child(build_generics_part_b(out, base_indent, wh));
-                    }
-                    append_whitespace(out, base_indent, &mut sg, x.semi_token.span.start());
-                    sg.seg(out, ";");
-                    sg.build(out)
-                },
-            ),
-            TraitItem::Macro(x) => new_sg_outer_attrs(
-                out,
-                base_indent,
-                &x.attrs,
-                self.span(),
-                |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    new_sg_macro(out, base_indent, &x.mac, x.semi_token.is_some())
-                },
-            ),
-            TraitItem::Verbatim(x) => {
-                let mut sg = new_sg(out);
-                append_macro_body(out, base_indent, &mut sg, x.clone());
-                sg.build(out)
-            },
-            _ => unreachable!(),
-        }
-    }
-
-    fn has_attrs(&self) -> bool {
-        #[deny(clippy::wildcard_enum_match_arm)]
-        match self {
-            TraitItem::Const(x) => !x.attrs.is_empty(),
-            TraitItem::Fn(x) => !x.attrs.is_empty(),
-            TraitItem::Type(x) => !x.attrs.is_empty(),
-            TraitItem::Macro(x) => !x.attrs.is_empty(),
-            TraitItem::Verbatim(_) => false,
-            _ => unreachable!(),
-        }
-    }
-}
-
-impl FormattableStmt for Item {
-    fn want_margin(&self) -> (MarginGroup, bool) {
-        #[deny(clippy::wildcard_enum_match_arm)]
-        match self {
-            Item::Const(_) => (MarginGroup::None, false),
-            Item::Enum(_) => (MarginGroup::BlockDef, true),
-            Item::ExternCrate(_) => (MarginGroup::None, false),
-            Item::Fn(_) => (MarginGroup::BlockDef, true),
-            Item::ForeignMod(_) => (MarginGroup::BlockDef, true),
-            Item::Impl(_) => (MarginGroup::BlockDef, true),
-            Item::Macro(_) => (MarginGroup::BlockDef, true),
-            Item::Mod(m) => (MarginGroup::BlockDef, m.content.is_some()),
-            Item::Static(_) => (MarginGroup::None, false),
-            Item::Struct(s) => (MarginGroup::BlockDef, match &s.fields {
-                syn::Fields::Named(_) => true,
-                syn::Fields::Unnamed(_) => true,
-                syn::Fields::Unit => false,
-            }),
-            Item::Trait(_) => (MarginGroup::BlockDef, true),
-            Item::TraitAlias(_) => (MarginGroup::None, false),
-            Item::Type(_) => (MarginGroup::None, false),
-            Item::Union(_) => (MarginGroup::BlockDef, true),
-            Item::Use(_) => (MarginGroup::Import, false),
-            Item::Verbatim(_) => (MarginGroup::None, false),
+            ImplItem::Const(_) => (MarginGroup::None, false),
+            ImplItem::Fn(_) => (MarginGroup::BlockDef, true),
+            ImplItem::Type(_) => (MarginGroup::None, false),
+            ImplItem::Macro(_) => (MarginGroup::BlockDef, true),
+            ImplItem::Verbatim(_) => (MarginGroup::None, false),
             _ => unreachable!(),
         }
     }
 }
 
 impl Formattable for Item {
+    fn has_attrs(&self) -> bool {
+        #[deny(clippy::wildcard_enum_match_arm)]
+        match self {
+            Item::Const(x) => !x.attrs.is_empty(),
+            Item::Enum(x) => !x.attrs.is_empty(),
+            Item::ExternCrate(x) => !x.attrs.is_empty(),
+            Item::Fn(x) => !x.attrs.is_empty(),
+            Item::ForeignMod(x) => !x.attrs.is_empty(),
+            Item::Impl(x) => !x.attrs.is_empty(),
+            Item::Macro(x) => !x.attrs.is_empty(),
+            Item::Mod(x) => !x.attrs.is_empty(),
+            Item::Static(x) => !x.attrs.is_empty(),
+            Item::Struct(x) => !x.attrs.is_empty(),
+            Item::Trait(x) => !x.attrs.is_empty(),
+            Item::TraitAlias(x) => !x.attrs.is_empty(),
+            Item::Type(x) => !x.attrs.is_empty(),
+            Item::Union(x) => !x.attrs.is_empty(),
+            Item::Use(x) => !x.attrs.is_empty(),
+            Item::Verbatim(_) => false,
+            _ => unreachable!(),
+        }
+    }
+
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
         #[deny(clippy::wildcard_enum_match_arm)]
         match self {
@@ -1114,6 +930,7 @@ impl Formattable for Item {
                 },
             ),
             Item::Verbatim(x) => {
+                let _in_macro = IncMacroDepth::new(out);
                 let mut sg = new_sg(out);
                 append_macro_body(out, base_indent, &mut sg, x.clone());
                 sg.build(out)
@@ -1121,32 +938,312 @@ impl Formattable for Item {
             _ => unreachable!(),
         }
     }
+}
 
-    fn has_attrs(&self) -> bool {
+impl FormattableStmt for Item {
+    fn want_margin(&self) -> (MarginGroup, bool) {
         #[deny(clippy::wildcard_enum_match_arm)]
         match self {
-            Item::Const(x) => !x.attrs.is_empty(),
-            Item::Enum(x) => !x.attrs.is_empty(),
-            Item::ExternCrate(x) => !x.attrs.is_empty(),
-            Item::Fn(x) => !x.attrs.is_empty(),
-            Item::ForeignMod(x) => !x.attrs.is_empty(),
-            Item::Impl(x) => !x.attrs.is_empty(),
-            Item::Macro(x) => !x.attrs.is_empty(),
-            Item::Mod(x) => !x.attrs.is_empty(),
-            Item::Static(x) => !x.attrs.is_empty(),
-            Item::Struct(x) => !x.attrs.is_empty(),
-            Item::Trait(x) => !x.attrs.is_empty(),
-            Item::TraitAlias(x) => !x.attrs.is_empty(),
-            Item::Type(x) => !x.attrs.is_empty(),
-            Item::Union(x) => !x.attrs.is_empty(),
-            Item::Use(x) => !x.attrs.is_empty(),
-            Item::Verbatim(_) => false,
+            Item::Const(_) => (MarginGroup::None, false),
+            Item::Enum(_) => (MarginGroup::BlockDef, true),
+            Item::ExternCrate(_) => (MarginGroup::None, false),
+            Item::Fn(_) => (MarginGroup::BlockDef, true),
+            Item::ForeignMod(_) => (MarginGroup::BlockDef, true),
+            Item::Impl(_) => (MarginGroup::BlockDef, true),
+            Item::Macro(_) => (MarginGroup::BlockDef, true),
+            Item::Mod(m) => (MarginGroup::BlockDef, m.content.is_some()),
+            Item::Static(_) => (MarginGroup::None, false),
+            Item::Struct(s) => (MarginGroup::BlockDef, match &s.fields {
+                syn::Fields::Named(_) => true,
+                syn::Fields::Unnamed(_) => true,
+                syn::Fields::Unit => false,
+            }),
+            Item::Trait(_) => (MarginGroup::BlockDef, true),
+            Item::TraitAlias(_) => (MarginGroup::None, false),
+            Item::Type(_) => (MarginGroup::None, false),
+            Item::Union(_) => (MarginGroup::BlockDef, true),
+            Item::Use(_) => (MarginGroup::Import, false),
+            Item::Verbatim(_) => (MarginGroup::None, false),
             _ => unreachable!(),
         }
     }
 }
 
+impl Formattable for Stmt {
+    fn has_attrs(&self) -> bool {
+        match self {
+            Stmt::Local(l) => !l.attrs.is_empty(),
+            Stmt::Item(i) => i.has_attrs(),
+            Stmt::Expr(e, _) => e.has_attrs(),
+            Stmt::Macro(e) => !e.attrs.is_empty(),
+        }
+    }
+
+    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
+        match self {
+            Stmt::Local(l) => new_sg_outer_attrs(
+                out,
+                base_indent,
+                &l.attrs,
+                self.span(),
+                |out: &mut MakeSegsState, base_indent: &Alignment| {
+                    let mut sg = new_sg(out);
+                    append_whitespace(out, base_indent, &mut sg, l.let_token.span.start());
+                    sg.seg(out, &format!("{} ", l.let_token.to_token_stream()));
+                    sg.child(l.pat.make_segs(out, base_indent));
+                    if let Some(init) = &l.init {
+                        append_binary(
+                            out,
+                            base_indent,
+                            &mut sg,
+                            &format!(" {}", &init.eq_token.to_token_stream()),
+                            |out: &mut MakeSegsState, base_indent: &Alignment| {
+                                let mut sg = new_sg(out);
+                                sg.child(init.expr.make_segs(out, base_indent));
+                                if let Some((t, else_branch)) = &init.diverge {
+                                    append_whitespace(out, base_indent, &mut sg, t.span.start());
+                                    sg.seg(out, &format!(" {} ", t.to_token_stream()));
+                                    sg.child(else_branch.make_segs(out, base_indent));
+                                }
+                                sg.build(out)
+                            },
+                        );
+                    }
+                    append_whitespace(out, base_indent, &mut sg, l.semi_token.span.start());
+                    sg.seg(out, &l.semi_token.to_token_stream());
+                    sg.build(out)
+                },
+            ),
+            Stmt::Item(i) => i.make_segs(out, base_indent),
+            Stmt::Expr(e, semi) => {
+                if let Some(semi) = semi {
+                    let mut sg = new_sg(out);
+                    sg.child(e.make_segs(out, base_indent));
+                    append_whitespace(out, base_indent, &mut sg, semi.span.start());
+                    sg.seg(out, semi.to_token_stream().to_string());
+                    sg.build(out)
+                } else {
+                    e.make_segs(out, base_indent)
+                }
+            },
+            Stmt::Macro(e) => new_sg_outer_attrs(
+                out,
+                base_indent,
+                &e.attrs,
+                self.span(),
+                |out: &mut MakeSegsState, base_indent: &Alignment| {
+                    if let Some(semi) = &e.semi_token {
+                        let mut sg = new_sg(out);
+                        sg.child(new_sg_macro(out, base_indent, &e.mac, false));
+                        append_whitespace(out, base_indent, &mut sg, semi.span.start());
+                        sg.seg(out, ";");
+                        sg.build(out)
+                    } else {
+                        new_sg_macro(out, base_indent, &e.mac, false)
+                    }
+                },
+            ),
+        }
+    }
+}
+
+impl FormattableStmt for Stmt {
+    fn want_margin(&self) -> (MarginGroup, bool) {
+        match self {
+            Stmt::Local(_) => (MarginGroup::None, false),
+            Stmt::Item(i) => i.want_margin(),
+            Stmt::Expr(_, _) => (MarginGroup::None, false),
+            Stmt::Macro(_) => (MarginGroup::None, false),
+        }
+    }
+}
+
+impl Formattable for TraitItem {
+    fn has_attrs(&self) -> bool {
+        #[deny(clippy::wildcard_enum_match_arm)]
+        match self {
+            TraitItem::Const(x) => !x.attrs.is_empty(),
+            TraitItem::Fn(x) => !x.attrs.is_empty(),
+            TraitItem::Type(x) => !x.attrs.is_empty(),
+            TraitItem::Macro(x) => !x.attrs.is_empty(),
+            TraitItem::Verbatim(_) => false,
+            _ => unreachable!(),
+        }
+    }
+
+    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
+        #[deny(clippy::wildcard_enum_match_arm)]
+        match self {
+            TraitItem::Const(x) => new_sg_outer_attrs(
+                out,
+                base_indent,
+                &x.attrs,
+                self.span(),
+                |out: &mut MakeSegsState, base_indent: &Alignment| {
+                    let mut sg = new_sg(out);
+                    sg.child({
+                        let build_base = |out: &mut MakeSegsState, base_indent: &Alignment| {
+                            let mut sg = new_sg(out);
+                            append_whitespace(out, base_indent, &mut sg, x.const_token.span.start());
+                            let mut prefix = String::new();
+                            prefix.push_str(&format!("{} ", x.const_token.to_token_stream()));
+                            prefix.push_str(&x.ident.to_string());
+                            sg.seg(out, &prefix);
+                            append_binary(out, base_indent, &mut sg, ":", &x.ty);
+                            sg.build(out)
+                        };
+                        if let Some(d) = &x.default {
+                            new_sg_binary(out, base_indent, |out: &mut MakeSegsState, base_indent: &Alignment| {
+                                build_base(out, base_indent)
+                            }, d.0.span.start(), " =", &d.1)
+                        } else {
+                            build_base(out, base_indent)
+                        }
+                    });
+                    append_whitespace(out, base_indent, &mut sg, x.semi_token.span.start());
+                    sg.seg(out, ";");
+                    sg.build(out)
+                },
+            ),
+            TraitItem::Fn(x) => new_sg_outer_attrs(
+                out,
+                base_indent,
+                &x.attrs,
+                self.span(),
+                |out: &mut MakeSegsState, base_indent: &Alignment| {
+                    let mut sg = new_sg(out);
+                    sg.child(new_sg_sig(out, base_indent, &x.sig));
+                    if let Some(d) = &x.default {
+                        sg.child(
+                            new_sg_block(
+                                out,
+                                base_indent,
+                                d.brace_token.span.open().start(),
+                                " {",
+                                None,
+                                &d.stmts,
+                                d.brace_token.span.close().start(),
+                            ),
+                        );
+                        sg.reverse_children();
+                        sg.build(out)
+                    } else {
+                        append_whitespace(out, base_indent, &mut sg, x.semi_token.unwrap().span.start());
+                        sg.seg(out, ";");
+                        sg.build(out)
+                    }
+                },
+            ),
+            TraitItem::Type(x) => new_sg_outer_attrs(
+                out,
+                base_indent,
+                &x.attrs,
+                self.span(),
+                |out: &mut MakeSegsState, base_indent: &Alignment| {
+                    let build_base = |out: &mut MakeSegsState, base_indent: &Alignment| {
+                        let mut sg = new_sg(out);
+                        append_whitespace(out, base_indent, &mut sg, x.type_token.span.start());
+                        let mut prefix = String::new();
+                        prefix.push_str("type ");
+                        prefix.push_str(&x.ident.to_string());
+                        sg.seg(out, &prefix);
+                        append_generics_part_a(out, base_indent, &mut sg, &x.generics);
+                        if let Some(c) = &x.colon_token {
+                            append_whitespace(out, base_indent, &mut sg, c.span.start());
+                            append_binary(
+                                out,
+                                base_indent,
+                                &mut sg,
+                                ":",
+                                |out: &mut MakeSegsState, base_indent: &Alignment| {
+                                    let mut node = new_sg(out);
+                                    append_inline_list(
+                                        out,
+                                        base_indent,
+                                        &mut node,
+                                        " +",
+                                        &x.bounds,
+                                        InlineListSuffix::<Expr>::None,
+                                    );
+                                    node.build(out)
+                                },
+                            );
+                        }
+                        sg.build(out)
+                    };
+                    let mut sg = new_sg(out);
+                    sg.child({
+                        match &x.default {
+                            Some(d) => new_sg_binary(
+                                out,
+                                base_indent,
+                                |out: &mut MakeSegsState, base_indent: &Alignment| {
+                                    build_base(out, base_indent)
+                                },
+                                d.0.span.start(),
+                                " =",
+                                &d.1,
+                            ),
+                            None => build_base(out, base_indent),
+                        }
+                    });
+                    if let Some(wh) = &x.generics.where_clause {
+                        sg.child(build_generics_part_b(out, base_indent, wh));
+                    }
+                    append_whitespace(out, base_indent, &mut sg, x.semi_token.span.start());
+                    sg.seg(out, ";");
+                    sg.build(out)
+                },
+            ),
+            TraitItem::Macro(x) => new_sg_outer_attrs(
+                out,
+                base_indent,
+                &x.attrs,
+                self.span(),
+                |out: &mut MakeSegsState, base_indent: &Alignment| {
+                    new_sg_macro(out, base_indent, &x.mac, x.semi_token.is_some())
+                },
+            ),
+            TraitItem::Verbatim(x) => {
+                let _in_macro = IncMacroDepth::new(out);
+                let mut sg = new_sg(out);
+                append_macro_body(out, base_indent, &mut sg, x.clone());
+                sg.build(out)
+            },
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl FormattableStmt for TraitItem {
+    fn want_margin(&self) -> (MarginGroup, bool) {
+        #[deny(clippy::wildcard_enum_match_arm)]
+        match self {
+            TraitItem::Const(_) => (MarginGroup::None, false),
+            TraitItem::Fn(m) => (MarginGroup::BlockDef, m.default.is_some()),
+            TraitItem::Type(_) => (MarginGroup::None, false),
+            TraitItem::Macro(_) => (MarginGroup::BlockDef, true),
+            TraitItem::Verbatim(_) => (MarginGroup::None, false),
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl Formattable for UseTree {
+    fn has_attrs(&self) -> bool {
+        (&self).has_attrs()
+    }
+
+    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
+        (&self).make_segs(out, base_indent)
+    }
+}
+
 impl Formattable for Variant {
+    fn has_attrs(&self) -> bool {
+        !self.attrs.is_empty()
+    }
+
     fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
         new_sg_outer_attrs(
             out,
@@ -1192,97 +1289,5 @@ impl Formattable for Variant {
                 sg.build(out)
             },
         )
-    }
-
-    fn has_attrs(&self) -> bool {
-        !self.attrs.is_empty()
-    }
-}
-
-impl Formattable for Field {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
-        new_sg_outer_attrs(
-            out,
-            base_indent,
-            &self.attrs,
-            self.span(),
-            |out: &mut MakeSegsState, base_indent: &Alignment| {
-                let mut sg = new_sg(out);
-                append_vis(out, base_indent, &mut sg, &self.vis);
-                if let Some(n) = &self.ident {
-                    append_whitespace(out, base_indent, &mut sg, n.span().start());
-                    sg.seg(out, &format!("{}: ", n));
-                }
-                sg.child(self.ty.make_segs(out, base_indent));
-                sg.build(out)
-            },
-        )
-    }
-
-    fn has_attrs(&self) -> bool {
-        !self.attrs.is_empty()
-    }
-}
-
-impl Formattable for &UseTree {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
-        let mut sg = new_sg(out);
-        match self {
-            syn::UseTree::Path(x) => {
-                append_whitespace(out, base_indent, &mut sg, x.ident.span().start());
-                sg.seg(out, &format!("{}::", x.ident));
-                sg.child(x.tree.make_segs(out, base_indent));
-            },
-            syn::UseTree::Name(x) => {
-                append_whitespace(out, base_indent, &mut sg, x.ident.span().start());
-                sg.seg(out, &x.ident.to_string());
-            },
-            syn::UseTree::Rename(x) => {
-                append_whitespace(out, base_indent, &mut sg, x.ident.span().start());
-                append_whitespace(out, base_indent, &mut sg, x.rename.span().start());
-                sg.seg(out, format!("{} as {}", x.ident, x.rename));
-            },
-            syn::UseTree::Glob(g) => {
-                append_whitespace(out, base_indent, &mut sg, g.star_token.span().start());
-                sg.seg(out, "*");
-            },
-            syn::UseTree::Group(x) => {
-                if check_split_brace_threshold(out, x.items.len()) {
-                    sg.initial_split();
-                }
-                append_bracketed_list(
-                    out,
-                    base_indent,
-                    &mut sg,
-                    x.brace_token.span.open().start(),
-                    "{",
-                    true,
-                    ",",
-                    &x.items,
-                    if out.macro_depth.get() == 0 {
-                        InlineListSuffix::<Expr>::Punct
-                    } else {
-                        InlineListSuffix::VerbatimPunct
-                    },
-                    x.brace_token.span.close().start(),
-                    "}",
-                );
-            },
-        }
-        sg.build(out)
-    }
-
-    fn has_attrs(&self) -> bool {
-        false
-    }
-}
-
-impl Formattable for UseTree {
-    fn make_segs(&self, out: &mut MakeSegsState, base_indent: &Alignment) -> SplitGroupIdx {
-        (&self).make_segs(out, base_indent)
-    }
-
-    fn has_attrs(&self) -> bool {
-        (&self).has_attrs()
     }
 }

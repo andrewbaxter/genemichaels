@@ -37,7 +37,7 @@ to use it with reckless abandon.
 
 ## Configuration
 
-Gene Michaels can be configured with a configuration file named `.genemichaels.json` in the current directory or any parent directory, or named `genemichaels.json` in your user configuration directory (ex: `~/.config/genemichaels.json`). If for some reason it doesn't find your config file you can double check it by running `genemichaels` with `strace`.
+Gene Michaels can be configured with a configuration file named `genemichaels.json` (or `.genemichaels.json`) in the current directory or any parent directory or in your user configuration directory (ex: `~/.config/genemichaels.json`). If for some reason it doesn't find your config file you can double check it by running `genemichaels` with `strace`.
 
 The configuration file is json, but it will strip lines starting with `//` first if you want to add comments.
 
@@ -73,7 +73,28 @@ Here is the default config - all values shown are defaults and can be omitted.
   // `//` (plain line-comments) won't be treated implicitly as markdown. In this case you can
   // use `//?` for explicitly markdown-formatted line-comments (these comments will work
   // regardless of the setting)
-  "explicit_markdown_comments": false
+  "explicit_markdown_comments": false,
+  // Normalize imports. By default, imports are untouched. With "combine" mode, all imports are
+  // combined into one `use {}` statement and sorted. With "split" mode all imports are split into
+  // individual `use x::y::z;` statements and sorted.
+  "import_normalization": "none",
+  // Normalize declarations at module level. By default, declarations are untouched ("none").
+  // - "by_name": Moves `use` to the top, then sorts everything else by name (case insensitive).
+  // - "auto": Groups by category with a predetermined order.
+  // - {"by_category": ["use", "const", ...]}: Like "auto" but with a user-specified category order.
+  //   Any omitted categories are appended in the "auto" order. Categories: "mod", "use", "macro",
+  //   "macro_call", "const", "trait", "concrete".
+  //   Within each category, sorts by name. Concrete types (structs, enums, unions, type aliases,
+  //   functions) are each followed by their impl blocks.
+  "declaration_normalization": "none",
+  // Define external formatters with names here, which will then be used to format strings with
+  // directive comment `//# genemichaels-external: name` as well as comment markdown blocks with "name"
+  // as the language.
+  //
+  // Entries are an array of arguments. If one argument is `{}` it will be replaced with the path
+  // to a file containing the text to format. Otherwise, the text to format will be provided on the
+  // command line. Formatted text is read from stdout.
+  "external_formatters": {},
 }
 ```
 
@@ -89,10 +110,10 @@ Since comments are assumed to be markdown they will be formatted per markdown ru
 
 ## Disabling formatting for specific files
 
-To skip specific files, in the first 5 lines of the source add a comment containing `nogenemichaels`, ex:
+To skip specific files, in the first 5 lines of the source add a directive comment containing the `genemichaels-file-skip` anywhere, ex:
 
 ```rust
-// nogenemichaels
+//# genemichaels-file-skip
 ...
 ```
 
@@ -115,9 +136,11 @@ This was a simplified explanation; there are a few other factors:
 - Alignments
 - Segments that change depending on whether their group is split or not (i.e. the `<break>` above which only breaks the line when the group is split, vs unconditional breaks)
 
-## Multi-threading
+## Skipping formatting
 
-By default Gene Michaels formats multiple files on all available cores, but this uses proportionally more memory. If you have a project with particularly large files you can restrict to a smaller number of cores in the configuration.
+Gene Michaels respects `#[rustfmt::skip]` attributes.
+
+You can also use `//# genemichaels-skip` comments to skip formatting of the expression following.
 
 ## Comments
 
