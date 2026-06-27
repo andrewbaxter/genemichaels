@@ -27,7 +27,7 @@ fn t_autocomplete_enum_empty() {
     }
 
     let v = vark_complete::<Yomo>(aargvark::CompleteCursorPosition::Partial, None, svec![]);
-    assert_eq!(v, vec![vec!["one".to_string()], vec!["ochre".to_string()], vec!["two".to_string()]]);
+    assert_eq!(v, vec![vec!["ochre".to_string()], vec!["one".to_string()], vec!["two".to_string()]]);
 }
 
 #[test]
@@ -40,7 +40,7 @@ fn t_autocomplete_enum_partial() {
     }
 
     let v = vark_complete::<Yomo>(aargvark::CompleteCursorPosition::Partial, None, svec!["o"]);
-    assert_eq!(v, vec![vec!["one".to_string()], vec!["ochre".to_string()]]);
+    assert_eq!(v, vec![vec!["ochre".to_string()], vec!["one".to_string()]]);
 }
 
 #[test]
