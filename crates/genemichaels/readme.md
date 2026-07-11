@@ -47,46 +47,76 @@ Here is the default config - all values shown are defaults and can be omitted.
 {
   // Ideal maximum line width. If there's an unbreakable element the line won't be split.
   "max_width": 120,
+
   // When breaking a child element, also break all parent elements.
   "root_splits": false,
+
   // Break a `()` or `{}` if it has greater than this number of children.  Set to `null` to
   // disable breaking due to high child counts.
   "split_brace_threshold": 1,
+
   // Break a `#[]` on a separate line before the element it's associated with.
   "split_attributes": true,
+
   // Put the `where` clause on a new line.
   "split_where": true,
+
   // Maximum relative line length for comments (past the comment indentation level). Can be
   // `null` to disable relative wrapping.  If disabled, still wraps at `max_width`.
   "comment_width": 80,
+
   // If reformatting comments results in an error, abort formatting the document.
   "comment_errors_fatal": false,
+
   // Genemichaels will replace line breaks with it's own deterministic line breaks.  You can
   // use this to keep extra line breaks (1 will keep up to 1 extra line break) during comment
   // extraction. This is unused during formatting.
   "keep_max_blank_lines": 0,
+
   // How much to indent at each split block. When using each split block is indented by one tab
   // but this value is used as the tab width for width/wrapping calculations.
   "indent_spaces": 4,
+
   // `"tabs"` or `"spaces"`. Write indents using spaces or tabs.
   "indent_unit": "spaces",
+
   // `//` (plain line-comments) won't be treated implicitly as markdown. In this case you can
   // use `//?` for explicitly markdown-formatted line-comments (these comments will work
   // regardless of the setting)
   "explicit_markdown_comments": false,
+
   // Normalize imports. By default, imports are untouched. With "combine" mode, all imports are
   // combined into one `use {}` statement and sorted. With "split" mode all imports are split into
   // individual `use x::y::z;` statements and sorted.
   "import_normalization": "none",
-  // Normalize declarations at module level. By default, declarations are untouched ("none").
+
+  // Normalize declarations in each module. By default, declarations are untouched ("none").
   // - "by_name": Moves `use` to the top, then sorts everything else by name (case insensitive).
   // - "auto": Groups by category with a predetermined order.
   // - {"by_category": ["use", "const", ...]}: Like "auto" but with a user-specified category order.
-  //   Any omitted categories are appended in the "auto" order. Categories: "mod", "use", "macro",
-  //   "macro_call", "const", "trait", "concrete".
-  //   Within each category, sorts by name. Concrete types (structs, enums, unions, type aliases,
-  //   functions) are each followed by their impl blocks.
+  //
+  //   Any omitted categories are appended in the "auto" order. Within a category declarations are
+  //   sorted by name. `impl` is placed next to the type (1st) then the trait (2nd) it's associated
+  //   with.
+  //
+  //   Categories:
+  //   - "mod"
+  //   - "use"
+  //   - "macro"
+  //   - "macro_call"
+  //   - "const"
+  //   - "trait"
+  //   - "struct"
+  //   - "enum"
+  //   - "union"
+  //   - "type_alias"
+  //   - "fn"
+  //   - "foreign_mod"
+  //   - "concrete"
+  //
+  //   "concrete" is a special category that unifies "struct", "enum", "union", "type_alias", "fn", and "foreign_mod".
   "declaration_normalization": "none",
+
   // Define external formatters with names here, which will then be used to format strings with
   // directive comment `//# genemichaels-external: name` as well as comment markdown blocks with "name"
   // as the language.

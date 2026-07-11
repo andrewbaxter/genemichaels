@@ -39,8 +39,15 @@ const AUTO_CATEGORY_ORDER: &[DeclarationNormalizationCategory] =
     ];
 const WRAPPER_TYPES: &[&str] = &["Arc", "Box", "Rc"];
 
-fn category_rank(category: &DeclarationNormalizationCategory, order: &[DeclarationNormalizationCategory]) -> usize {
-    order.iter().position(|c| c == category).unwrap_or(order.len())
+fn category_rank(
+    category: &DeclarationNormalizationCategory,
+    ranks: &BTreeMap<DeclarationNormalizationCategory, usize>,
+) -> usize {
+    if let Some(rank) = ranks.get(category) {
+        return *rank;
+    }
+    // `Concrete` is always inserted by `resolve_category_order` — leaves fall through here.
+    ranks[&DeclarationNormalizationCategory::Concrete]
 }
 
 fn classify_impls(
@@ -110,19 +117,17 @@ fn classify_impls(
     (type_impls, trait_impls, leftover_impls)
 }
 
-fn collect_local_names(items: &[Item]) -> (Vec<String>, Vec<String>) {
-    let local_type_names: Vec<String> = items.iter().filter_map(|item| match item {
-        Item::Struct(s) => Some(s.ident.to_string().to_lowercase()),
-        Item::Enum(e) => Some(e.ident.to_string().to_lowercase()),
-        Item::Union(u) => Some(u.ident.to_string().to_lowercase()),
-        Item::Type(t) => Some(t.ident.to_string().to_lowercase()),
-        _ => None,
-    }).collect();
-    let local_trait_names: Vec<String> = items.iter().filter_map(|item| match item {
-        Item::Trait(t) => Some(t.ident.to_string().to_lowercase()),
-        Item::TraitAlias(t) => Some(t.ident.to_string().to_lowercase()),
-        _ => None,
-    }).collect();
+fn collect_local_names<'a>(items: impl IntoIterator<Item = &'a Item>) -> (Vec<String>, Vec<String>) {
+    let mut local_type_names: Vec<String> = Vec::new();
+    let mut local_trait_names: Vec<String> = Vec::new();
+    for item in items {
+        let kind = item_kind(item);
+        if kind.is_data_type() {
+            local_type_names.push(item_sort_name(item));
+        } else if kind.is_trait_def() {
+            local_trait_names.push(item_sort_name(item));
+        }
+    }
     (local_type_names, local_trait_names)
 }
 
@@ -139,7 +144,7 @@ impl<'a> DeclarationNormalizer<'a> {
         out: &mut Vec<Item>,
     ) {
         out.push(item.clone());
-        if is_trait_def(item) {
+        if item_kind(item).is_trait_def() {
             let trait_name = item_sort_name(item);
             if let Some(impls) = trait_impls.remove(&trait_name) {
                 out.extend(impls);
@@ -149,7 +154,7 @@ impl<'a> DeclarationNormalizer<'a> {
 
     fn emit_with_type_impls(&self, item: &Item, type_impls: &mut BTreeMap<String, Vec<Item>>, out: &mut Vec<Item>) {
         out.push(item.clone());
-        if is_data_type(item) {
+        if item_kind(item).is_data_type() {
             let type_name = item_sort_name(item);
             if let Some(impls) = type_impls.remove(&type_name) {
                 out.extend(impls);
@@ -277,59 +282,49 @@ impl<'a> DeclarationNormalizer<'a> {
     fn sort_by_category(&mut self, items: &mut Vec<Item>) {
         let category_order = resolve_category_order(self.config);
 
-        // Extract #[macro_use] items first, preserving their original order
         let mut macro_use_items: Vec<Item> = Vec::new();
-        let mut remaining: Vec<Item> = Vec::new();
-        for item in items.drain(..) {
-            if has_macro_use(&item) {
-                macro_use_items.push(item);
-            } else {
-                remaining.push(item);
-            }
-        }
-
-        // Collect local type and trait names, then separate impls
-        let (local_type_names, local_trait_names) = collect_local_names(&remaining);
+        let mut trailing_items: Vec<Item> = Vec::new();
         let mut categorized: BTreeMap<usize, Vec<Item>> = BTreeMap::new();
         let mut all_impls: Vec<Item> = Vec::new();
-        for item in remaining.drain(..) {
-            if let Item::Impl(_) = &item {
-                all_impls.push(item);
-            } else {
-                let cat = item_category_with_macro_call(&item);
-                let rank = category_rank(&cat, &category_order);
-                categorized.entry(rank).or_default().push(item);
+        for item in items.drain(..) {
+            match item_kind(&item) {
+                ItemKind::Trailing => trailing_items.push(item),
+                ItemKind::Impl => all_impls.push(item),
+                ItemKind::Category(cat) => {
+                    if has_macro_use(&item) {
+                        macro_use_items.push(item);
+                    } else {
+                        let rank = category_rank(&cat, &category_order);
+                        categorized.entry(rank).or_default().push(item);
+                    }
+                },
             }
         }
 
-        // Sort within each category by name
+        let (local_type_names, local_trait_names) =
+            collect_local_names(categorized.values().flat_map(|g| g.iter()));
+
         for group in categorized.values_mut() {
             group.sort_by(|a, b| item_sort_name(a).cmp(&item_sort_name(b)));
         }
 
-        // Classify impls into type-attached, trait-attached, and leftover
         let (mut type_impls, mut trait_impls, leftover_impls) =
             classify_impls(all_impls, &local_type_names, &local_trait_names);
 
-        // Build final list
         items.extend(macro_use_items);
-        let concrete_rank = category_rank(&DeclarationNormalizationCategory::Concrete, &category_order);
-        let trait_rank = category_rank(&DeclarationNormalizationCategory::Trait, &category_order);
-        for (rank, group) in &categorized {
-            if *rank == concrete_rank {
-                for item in group {
+        for (_, group) in &categorized {
+            for item in group {
+                let kind = item_kind(item);
+                if kind.is_data_type() {
                     self.emit_with_type_impls(item, &mut type_impls, items);
-                }
-            } else if *rank == trait_rank {
-                for item in group {
+                } else if kind.is_trait_def() {
                     self.emit_with_trait_impls(item, &mut trait_impls, items);
+                } else {
+                    items.push(item.clone());
                 }
-            } else {
-                items.extend(group.iter().cloned());
             }
         }
 
-        // Collect any remaining impls (unmatched type/trait impls + leftovers)
         let mut remaining_impls: Vec<Item> = Vec::new();
         for (_, impls) in type_impls {
             remaining_impls.extend(impls);
@@ -340,50 +335,32 @@ impl<'a> DeclarationNormalizer<'a> {
         remaining_impls.extend(leftover_impls);
         if !remaining_impls.is_empty() {
             remaining_impls.sort_by(|a, b| item_sort_name(a).cmp(&item_sort_name(b)));
-            if !categorized.contains_key(&concrete_rank) {
-                // Insert at the proper position for the concrete category
-                let mut pos = 0;
-                for (rank, group) in &categorized {
-                    if *rank > concrete_rank {
-                        break;
-                    }
-                    pos += group.len();
-                }
-
-                // Account for macro_use items at the start
-                pos += items.len() - categorized.values().map(|g| g.len()).sum::<usize>();
-                for imp in remaining_impls.into_iter().rev() {
-                    items.insert(pos, imp);
-                }
-            } else {
-                items.extend(remaining_impls);
-            }
+            items.extend(remaining_impls);
         }
+
+        items.extend(trailing_items);
     }
 
     fn sort_by_name(&mut self, items: &mut Vec<Item>) {
-        // Extract #[macro_use] items first, preserving their original order
         let mut macro_use_items: Vec<Item> = Vec::new();
         let mut uses: Vec<Item> = Vec::new();
         let mut rest: Vec<Item> = Vec::new();
         for item in items.drain(..) {
             if has_macro_use(&item) {
                 macro_use_items.push(item);
+            } else if matches!(item_kind(&item), ItemKind::Category(DeclarationNormalizationCategory::Use)) {
+                uses.push(item);
             } else {
-                match &item {
-                    Item::Use(_) | Item::ExternCrate(_) => uses.push(item),
-                    _ => rest.push(item),
-                }
+                rest.push(item);
             }
         }
         uses.sort_by(|a, b| item_sort_name(a).cmp(&item_sort_name(b)));
 
-        // Separate impls from non-impl items
-        let (local_type_names, local_trait_names) = collect_local_names(&rest);
+        let (local_type_names, local_trait_names) = collect_local_names(rest.iter());
         let mut non_impls: Vec<Item> = Vec::new();
         let mut all_impls: Vec<Item> = Vec::new();
         for item in rest.drain(..) {
-            if let Item::Impl(_) = &item {
+            if matches!(item_kind(&item), ItemKind::Impl) {
                 all_impls.push(item);
             } else {
                 non_impls.push(item);
@@ -391,17 +368,16 @@ impl<'a> DeclarationNormalizer<'a> {
         }
         non_impls.sort_by(|a, b| item_sort_name(a).cmp(&item_sort_name(b)));
 
-        // Classify impls
         let (mut type_impls, mut trait_impls, leftover_impls) =
             classify_impls(all_impls, &local_type_names, &local_trait_names);
 
-        // Build final list: macro_use, uses, then non-impl items with impls interleaved
         items.extend(macro_use_items);
         items.extend(uses);
         for item in &non_impls {
-            if is_data_type(item) {
+            let kind = item_kind(item);
+            if kind.is_data_type() {
                 self.emit_with_type_impls(item, &mut type_impls, items);
-            } else if is_trait_def(item) {
+            } else if kind.is_trait_def() {
                 self.emit_with_trait_impls(item, &mut trait_impls, items);
             } else {
                 items.push(item.clone());
@@ -515,44 +491,50 @@ fn impl_item_sort_name(item: &ImplItem) -> String {
     }
 }
 
-fn is_data_type(item: &Item) -> bool {
-    matches!(item, Item::Struct(_) | Item::Enum(_) | Item::Union(_) | Item::Type(_))
+#[derive(Copy, Clone, PartialEq, Eq)]
+enum ItemKind {
+    Category(DeclarationNormalizationCategory),
+    Impl,
+    Trailing,
 }
 
-fn is_macro_call(item: &Item) -> bool {
+impl ItemKind {
+    fn is_data_type(self) -> bool {
+        matches!(
+            self,
+            ItemKind::Category(
+                DeclarationNormalizationCategory::Struct
+                | DeclarationNormalizationCategory::Enum
+                | DeclarationNormalizationCategory::Union
+                | DeclarationNormalizationCategory::TypeAlias
+            )
+        )
+    }
+
+    fn is_trait_def(self) -> bool {
+        matches!(self, ItemKind::Category(DeclarationNormalizationCategory::Trait))
+    }
+}
+
+#[deny(clippy::wildcard_enum_match_arm)]
+fn item_kind(item: &Item) -> ItemKind {
     match item {
-        Item::Macro(m) => m.ident.is_none(),
-        _ => false,
+        Item::Const(_) | Item::Static(_) => ItemKind::Category(DeclarationNormalizationCategory::Const),
+        Item::Enum(_) => ItemKind::Category(DeclarationNormalizationCategory::Enum),
+        Item::ExternCrate(_) | Item::Use(_) => ItemKind::Category(DeclarationNormalizationCategory::Use),
+        Item::Fn(_) => ItemKind::Category(DeclarationNormalizationCategory::Fn),
+        Item::ForeignMod(_) => ItemKind::Category(DeclarationNormalizationCategory::ForeignMod),
+        Item::Impl(_) => ItemKind::Impl,
+        Item::Macro(m) if m.ident.is_none() => ItemKind::Category(DeclarationNormalizationCategory::MacroCall),
+        Item::Macro(_) => ItemKind::Category(DeclarationNormalizationCategory::Macro),
+        Item::Mod(_) => ItemKind::Category(DeclarationNormalizationCategory::Mod),
+        Item::Struct(_) => ItemKind::Category(DeclarationNormalizationCategory::Struct),
+        Item::Trait(_) | Item::TraitAlias(_) => ItemKind::Category(DeclarationNormalizationCategory::Trait),
+        Item::Type(_) => ItemKind::Category(DeclarationNormalizationCategory::TypeAlias),
+        Item::Union(_) => ItemKind::Category(DeclarationNormalizationCategory::Union),
+        Item::Verbatim(_) => ItemKind::Trailing,
+        _ => ItemKind::Trailing,
     }
-}
-
-fn is_trait_def(item: &Item) -> bool {
-    matches!(item, Item::Trait(_) | Item::TraitAlias(_))
-}
-
-fn item_category(item: &Item) -> DeclarationNormalizationCategory {
-    match item {
-        Item::Mod(_) => DeclarationNormalizationCategory::Mod,
-        Item::Use(_) => DeclarationNormalizationCategory::Use,
-        Item::Macro(_) => DeclarationNormalizationCategory::Macro,
-        Item::Const(_) | Item::Static(_) => DeclarationNormalizationCategory::Const,
-        Item::Trait(_) | Item::TraitAlias(_) => DeclarationNormalizationCategory::Trait,
-        Item::Impl(_) => DeclarationNormalizationCategory::Concrete,
-        Item::Fn(_) | Item::Struct(_) | Item::Enum(_) | Item::Union(_) | Item::Type(_) => {
-            DeclarationNormalizationCategory::Concrete
-        },
-        Item::ExternCrate(_) => DeclarationNormalizationCategory::Use,
-        Item::ForeignMod(_) => DeclarationNormalizationCategory::Concrete,
-        Item::Verbatim(_) => DeclarationNormalizationCategory::Concrete,
-        _ => DeclarationNormalizationCategory::Concrete,
-    }
-}
-
-fn item_category_with_macro_call(item: &Item) -> DeclarationNormalizationCategory {
-    if is_macro_call(item) {
-        return DeclarationNormalizationCategory::MacroCall;
-    }
-    item_category(item)
 }
 
 fn item_sort_name(item: &Item) -> String {
@@ -588,20 +570,42 @@ fn item_sort_name(item: &Item) -> String {
     }
 }
 
-fn resolve_category_order(config: &FormatConfig) -> Vec<DeclarationNormalizationCategory> {
-    match &config.declaration_normalization {
-        DeclarationNormalizationMode::Auto => AUTO_CATEGORY_ORDER.to_vec(),
-        DeclarationNormalizationMode::ByCategory(user_order) => {
-            let mut order = user_order.clone();
-            for cat in AUTO_CATEGORY_ORDER {
-                if !order.contains(cat) {
-                    order.push(*cat);
-                }
-            }
-            order
-        },
-        _ => AUTO_CATEGORY_ORDER.to_vec(),
+pub(crate) fn validate_declaration_normalization(config: &FormatConfig) -> Result<(), loga::Error> {
+    let DeclarationNormalizationMode::ByCategory(order) = &config.declaration_normalization else {
+        return Ok(());
+    };
+    let mut seen: std::collections::HashSet<DeclarationNormalizationCategory> =
+        std::collections::HashSet::new();
+    for cat in order {
+        if *cat == DeclarationNormalizationCategory::Concrete {
+            continue;
+        }
+        if !seen.insert(*cat) {
+            return Err(
+                loga::err_with(
+                    "Duplicate leaf category in `declaration_normalization.by_category`",
+                    loga::ea!(category = format!("{:?}", cat)),
+                ),
+            );
+        }
     }
+    Ok(())
+}
+
+fn resolve_category_order(config: &FormatConfig) -> BTreeMap<DeclarationNormalizationCategory, usize> {
+    let user_order: Vec<DeclarationNormalizationCategory> = match &config.declaration_normalization {
+        DeclarationNormalizationMode::ByCategory(order) => order.clone(),
+        _ => AUTO_CATEGORY_ORDER.to_vec(),
+    };
+    let mut ranks: BTreeMap<DeclarationNormalizationCategory, usize> = BTreeMap::new();
+    let mut next_rank: usize = 0;
+    for cat in user_order.iter().chain(AUTO_CATEGORY_ORDER.iter()) {
+        if !ranks.contains_key(cat) {
+            ranks.insert(*cat, next_rank);
+            next_rank += 1;
+        }
+    }
+    ranks
 }
 
 fn sub_item_category_rank(cat: &SubItemCategory) -> usize {

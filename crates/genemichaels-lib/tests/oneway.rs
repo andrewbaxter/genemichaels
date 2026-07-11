@@ -435,6 +435,115 @@ fn my_func() { }
 }
 
 #[test]
+fn ow_declaration_normalization_by_category_granular_fn_before_struct() {
+    // With granular categories, `Fn` before `Struct` puts functions ahead of structs
+    // (unlike the `concrete` group which bundles them alphabetically).
+    owc(r#"struct MyStruct {}
+
+fn my_func() { }
+"#, r#"fn my_func() { }
+
+struct MyStruct {}
+"#, &FormatConfig {
+        declaration_normalization: DeclarationNormalizationMode::ByCategory(
+            vec![DeclarationNormalizationCategory::Fn, DeclarationNormalizationCategory::Struct],
+        ),
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_declaration_normalization_by_category_leaf_before_group() {
+    // `[Fn, Concrete]` should put fns first, then the *other* concrete members after —
+    // Fn contributed by the Concrete group is skipped as a duplicate of the earlier explicit Fn.
+    owc(r#"struct MyStruct {}
+
+fn my_func() { }
+"#, r#"fn my_func() { }
+
+struct MyStruct {}
+"#, &FormatConfig {
+        declaration_normalization: DeclarationNormalizationMode::ByCategory(
+            vec![DeclarationNormalizationCategory::Fn, DeclarationNormalizationCategory::Concrete],
+        ),
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_declaration_normalization_auto_concrete_variants_alphabetical() {
+    // In auto mode, all `Concrete` leaves (struct/enum/union/type_alias/fn/foreign_mod)
+    // share one rank and sort alphabetically together — same as the old single-bucket behavior.
+    owc(r#"struct SThing {}
+
+fn u_func() { }
+
+enum EThing { A }
+
+type TThing = i32;
+
+fn a_func() { }
+
+union UThing { x: i32 }
+"#, r#"fn a_func() { }
+
+enum EThing {
+    A,
+}
+
+struct SThing {}
+
+type TThing = i32;
+
+fn u_func() { }
+
+union UThing {
+    x: i32,
+}
+"#, &FormatConfig {
+        declaration_normalization: DeclarationNormalizationMode::Auto,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_declaration_normalization_by_category_duplicate_leaf_errors() {
+    let res = format_str("fn a() {}\n", &FormatConfig {
+        declaration_normalization: DeclarationNormalizationMode::ByCategory(
+            vec![DeclarationNormalizationCategory::Fn, DeclarationNormalizationCategory::Fn],
+        ),
+        ..Default::default()
+    });
+    assert!(res.is_err(), "expected duplicate-leaf config to error, got: {:?}", res.map(|r| r.rendered));
+}
+
+#[test]
+fn ow_declaration_normalization_by_category_concrete_group_bundles() {
+    // The `concrete` group should still bundle its members so they sort together
+    // (structs and fns interleaved alphabetically), for back-compat.
+    owc(r#"struct BStruct {}
+
+fn a_func() { }
+
+struct AStruct {}
+
+fn b_func() { }
+"#, r#"fn a_func() { }
+
+struct AStruct {}
+
+fn b_func() { }
+
+struct BStruct {}
+"#, &FormatConfig {
+        declaration_normalization: DeclarationNormalizationMode::ByCategory(
+            vec![DeclarationNormalizationCategory::Concrete],
+        ),
+        ..Default::default()
+    });
+}
+
+#[test]
 fn ow_declaration_normalization_by_name() {
     owc(r#"fn b() { }
 

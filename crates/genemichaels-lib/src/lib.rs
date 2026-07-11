@@ -171,17 +171,24 @@ pub enum CommentMode {
     Verbatim,
 }
 
-#[derive(Debug, Copy, Clone, Deserialize, Serialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum DeclarationNormalizationCategory {
     Concrete,
     Const,
+    Enum,
+    Fn,
+    ForeignMod,
     Macro,
     MacroCall,
     Mod,
+    Struct,
     Trait,
+    TypeAlias,
+    Union,
     Use,
 }
+
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
@@ -209,6 +216,7 @@ pub fn format_ast(
     config: &FormatConfig,
     whitespaces: BTreeMap<HashLineColumn, Vec<Whitespace>>,
 ) -> Result<FormatRes, loga::Error> {
+    normalize_declarations::validate_declaration_normalization(config)?;
     let mut whitespaces: BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)> =
         whitespaces.into_iter().map(|(k, v)| (k, (1, v))).collect();
     ast.normalize_imports(config, &mut whitespaces);
