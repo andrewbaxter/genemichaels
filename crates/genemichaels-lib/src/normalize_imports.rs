@@ -75,6 +75,18 @@ fn cmp_key_for_import_node(
     return (key, get_ws(item.use_token.span).to_string(), get_ws(item.semi_token.span).to_string());
 }
 
+fn wrap_self_if_bare(tree: UseTree) -> UseTree {
+    if let UseTree::Name(n) = &tree {
+        if n.ident == "self" {
+            return UseTree::Group(syn::UseGroup {
+                brace_token: Default::default(),
+                items: std::iter::once(tree).collect(),
+            });
+        }
+    }
+    tree
+}
+
 fn cmp_use_tree(a: &syn::UseTree, b: &syn::UseTree) -> std::cmp::Ordering {
     fn get_rank(tree: &syn::UseTree) -> u8 {
         match tree {
@@ -361,7 +373,7 @@ fn process_item_uses(
                     for (mut path_node, group_flats) in Iterator::chain(nested_unmergeable.into_values(), nested.into_values()) {
                         let mut child_trees = group_leaves(group_flats, depth + 1, whitespaces);
                         if child_trees.len() == 1 {
-                            path_node.tree = Box::new(child_trees.pop().unwrap());
+                            path_node.tree = Box::new(wrap_self_if_bare(child_trees.pop().unwrap()));
                             items.push(syn::UseTree::Path(path_node));
                         } else {
                             let group = syn::UseGroup {
@@ -497,6 +509,9 @@ fn process_item_uses(
             // Re-constitute the split items into actual syn ast nodes
             for (f, root_item) in all_leaves {
                 let mut tree = f.leaf;
+                if !f.path.is_empty() {
+                    tree = wrap_self_if_bare(tree);
+                }
                 for ident in f.path.into_iter().rev() {
                     tree = UseTree::Path(UsePath {
                         ident: ident,

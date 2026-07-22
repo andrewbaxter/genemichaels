@@ -1252,6 +1252,22 @@ use a::b::Z;
 }
 
 #[test]
+fn ow_import_normalization_combine_self_wrap() {
+    owc(r#"use spaghettinuum_native::utils::identity_secret::new_card_identity_secret;
+use spaghettinuum_native::utils::pgp::{self};
+"#, r#"use spaghettinuum_native::utils::{
+    identity_secret::new_card_identity_secret,
+    pgp::{
+        self,
+    },
+};
+"#, &FormatConfig {
+        import_normalization: genemichaels_lib::ImportNormalizationMode::Combine,
+        ..Default::default()
+    });
+}
+
+#[test]
 fn ow_import_normalization_combine_vis_diff() {
     owc(r#"pub use a;
 use b;
