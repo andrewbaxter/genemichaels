@@ -189,7 +189,6 @@ pub enum DeclarationNormalizationCategory {
     Use,
 }
 
-
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum DeclarationNormalizationMode {
@@ -406,25 +405,24 @@ pub fn format_ast(
     let mut line_pos = 0usize;
     while let Some(line_i) = cur {
         'continue_lineloop : loop {
-            let segs =
-                lines.owned_lines.get(line_i.0).unwrap().segs.iter().filter_map(|seg_i| {
-                    let res = {
-                        let seg = out.segs.get(seg_i.0).unwrap();
-                        let node = out.nodes.get(seg.node.0).unwrap();
-                        match (&seg.mode, node.split) {
-                            (SegmentMode::All, _) => true,
-                            (SegmentMode::Unsplit, true) => false,
-                            (SegmentMode::Unsplit, false) => true,
-                            (SegmentMode::Split, true) => true,
-                            (SegmentMode::Split, false) => false,
-                        }
-                    };
-                    if res {
-                        Some(*seg_i)
-                    } else {
-                        None
+            let segs = lines.owned_lines.get(line_i.0).unwrap().segs.iter().filter_map(|seg_i| {
+                let res = {
+                    let seg = out.segs.get(seg_i.0).unwrap();
+                    let node = out.nodes.get(seg.node.0).unwrap();
+                    match (&seg.mode, node.split) {
+                        (SegmentMode::All, _) => true,
+                        (SegmentMode::Unsplit, true) => false,
+                        (SegmentMode::Unsplit, false) => true,
+                        (SegmentMode::Split, true) => true,
+                        (SegmentMode::Split, false) => false,
                     }
-                }).collect::<Vec<SegmentIdx>>();
+                };
+                if res {
+                    Some(*seg_i)
+                } else {
+                    None
+                }
+            }).collect::<Vec<SegmentIdx>>();
             if segs.is_empty() {
                 break 'continue_lineloop;
             }
@@ -740,12 +738,7 @@ pub enum IndentUnit {
     Tabs,
 }
 
-pub(crate) fn insert_line_after(
-    out: &mut MakeSegsState,
-    lines: &mut Lines,
-    after: LineIdx,
-    segs: Vec<SegmentIdx>,
-) {
+pub(crate) fn insert_line_after(out: &mut MakeSegsState, lines: &mut Lines, after: LineIdx, segs: Vec<SegmentIdx>) {
     let line_i = LineIdx(lines.owned_lines.len());
     let next = lines.owned_lines.get(after.0).unwrap().next;
     lines.owned_lines.push(Line {
@@ -754,7 +747,7 @@ pub(crate) fn insert_line_after(
     });
     lines.owned_lines.get_mut(after.0).unwrap().next = Some(line_i);
     let line_segs_len = lines.owned_lines.get(line_i.0).unwrap().segs.len();
-    for i in 0..line_segs_len {
+    for i in 0 .. line_segs_len {
         let seg_i = lines.owned_lines.get(line_i.0).unwrap().segs[i];
         let seg = out.segs.get_mut(seg_i.0).unwrap();
         match seg.line.as_mut() {

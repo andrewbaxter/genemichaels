@@ -75,18 +75,6 @@ fn cmp_key_for_import_node(
     return (key, get_ws(item.use_token.span).to_string(), get_ws(item.semi_token.span).to_string());
 }
 
-fn wrap_self_if_bare(tree: UseTree) -> UseTree {
-    if let UseTree::Name(n) = &tree {
-        if n.ident == "self" {
-            return UseTree::Group(syn::UseGroup {
-                brace_token: Default::default(),
-                items: std::iter::once(tree).collect(),
-            });
-        }
-    }
-    tree
-}
-
 fn cmp_use_tree(a: &syn::UseTree, b: &syn::UseTree) -> std::cmp::Ordering {
     fn get_rank(tree: &syn::UseTree) -> u8 {
         match tree {
@@ -542,4 +530,16 @@ fn process_item_uses(
             }
         },
     }
+}
+
+fn wrap_self_if_bare(tree: UseTree) -> UseTree {
+    if let UseTree::Name(n) = &tree {
+        if n.ident == "self" {
+            return UseTree::Group(syn::UseGroup {
+                brace_token: Default::default(),
+                items: std::iter::once(tree).collect(),
+            });
+        }
+    }
+    tree
 }

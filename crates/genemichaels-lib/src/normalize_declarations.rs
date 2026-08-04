@@ -46,7 +46,9 @@ fn category_rank(
     if let Some(rank) = ranks.get(category) {
         return *rank;
     }
-    // `Concrete` is always inserted by `resolve_category_order` — leaves fall through here.
+
+    // `Concrete` is always inserted by `resolve_category_order` — leaves fall through
+    // here.
     ranks[&DeclarationNormalizationCategory::Concrete]
 }
 
@@ -281,7 +283,6 @@ impl<'a> DeclarationNormalizer<'a> {
 
     fn sort_by_category(&mut self, items: &mut Vec<Item>) {
         let category_order = resolve_category_order(self.config);
-
         let mut macro_use_items: Vec<Item> = Vec::new();
         let mut trailing_items: Vec<Item> = Vec::new();
         let mut categorized: BTreeMap<usize, Vec<Item>> = BTreeMap::new();
@@ -300,17 +301,13 @@ impl<'a> DeclarationNormalizer<'a> {
                 },
             }
         }
-
         let (local_type_names, local_trait_names) =
             collect_local_names(categorized.values().flat_map(|g| g.iter()));
-
         for group in categorized.values_mut() {
             group.sort_by(|a, b| item_sort_name(a).cmp(&item_sort_name(b)));
         }
-
         let (mut type_impls, mut trait_impls, leftover_impls) =
             classify_impls(all_impls, &local_type_names, &local_trait_names);
-
         items.extend(macro_use_items);
         for (_, group) in &categorized {
             for item in group {
@@ -324,7 +321,6 @@ impl<'a> DeclarationNormalizer<'a> {
                 }
             }
         }
-
         let mut remaining_impls: Vec<Item> = Vec::new();
         for (_, impls) in type_impls {
             remaining_impls.extend(impls);
@@ -337,7 +333,6 @@ impl<'a> DeclarationNormalizer<'a> {
             remaining_impls.sort_by(|a, b| item_sort_name(a).cmp(&item_sort_name(b)));
             items.extend(remaining_impls);
         }
-
         items.extend(trailing_items);
     }
 
@@ -355,7 +350,6 @@ impl<'a> DeclarationNormalizer<'a> {
             }
         }
         uses.sort_by(|a, b| item_sort_name(a).cmp(&item_sort_name(b)));
-
         let (local_type_names, local_trait_names) = collect_local_names(rest.iter());
         let mut non_impls: Vec<Item> = Vec::new();
         let mut all_impls: Vec<Item> = Vec::new();
@@ -367,10 +361,8 @@ impl<'a> DeclarationNormalizer<'a> {
             }
         }
         non_impls.sort_by(|a, b| item_sort_name(a).cmp(&item_sort_name(b)));
-
         let (mut type_impls, mut trait_impls, leftover_impls) =
             classify_impls(all_impls, &local_type_names, &local_trait_names);
-
         items.extend(macro_use_items);
         items.extend(uses);
         for item in &non_impls {
@@ -491,31 +483,6 @@ fn impl_item_sort_name(item: &ImplItem) -> String {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq)]
-enum ItemKind {
-    Category(DeclarationNormalizationCategory),
-    Impl,
-    Trailing,
-}
-
-impl ItemKind {
-    fn is_data_type(self) -> bool {
-        matches!(
-            self,
-            ItemKind::Category(
-                DeclarationNormalizationCategory::Struct
-                | DeclarationNormalizationCategory::Enum
-                | DeclarationNormalizationCategory::Union
-                | DeclarationNormalizationCategory::TypeAlias
-            )
-        )
-    }
-
-    fn is_trait_def(self) -> bool {
-        matches!(self, ItemKind::Category(DeclarationNormalizationCategory::Trait))
-    }
-}
-
 #[deny(clippy::wildcard_enum_match_arm)]
 fn item_kind(item: &Item) -> ItemKind {
     match item {
@@ -570,26 +537,28 @@ fn item_sort_name(item: &Item) -> String {
     }
 }
 
-pub(crate) fn validate_declaration_normalization(config: &FormatConfig) -> Result<(), loga::Error> {
-    let DeclarationNormalizationMode::ByCategory(order) = &config.declaration_normalization else {
-        return Ok(());
-    };
-    let mut seen: std::collections::HashSet<DeclarationNormalizationCategory> =
-        std::collections::HashSet::new();
-    for cat in order {
-        if *cat == DeclarationNormalizationCategory::Concrete {
-            continue;
-        }
-        if !seen.insert(*cat) {
-            return Err(
-                loga::err_with(
-                    "Duplicate leaf category in `declaration_normalization.by_category`",
-                    loga::ea!(category = format!("{:?}", cat)),
-                ),
-            );
-        }
+#[derive(Copy, Clone, PartialEq, Eq)]
+enum ItemKind {
+    Category(DeclarationNormalizationCategory),
+    Impl,
+    Trailing,
+}
+
+impl ItemKind {
+    fn is_data_type(self) -> bool {
+        matches!(
+            self,
+            ItemKind::Category(
+                DeclarationNormalizationCategory::Struct | DeclarationNormalizationCategory::Enum |
+                    DeclarationNormalizationCategory::Union |
+                    DeclarationNormalizationCategory::TypeAlias
+            )
+        )
     }
-    Ok(())
+
+    fn is_trait_def(self) -> bool {
+        matches!(self, ItemKind::Category(DeclarationNormalizationCategory::Trait))
+    }
 }
 
 fn resolve_category_order(config: &FormatConfig) -> BTreeMap<DeclarationNormalizationCategory, usize> {
@@ -645,6 +614,27 @@ fn trait_item_sort_name(item: &TraitItem) -> String {
         TraitItem::Verbatim(v) => v.to_string().to_lowercase(),
         _ => String::new(),
     }
+}
+
+pub(crate) fn validate_declaration_normalization(config: &FormatConfig) -> Result<(), loga::Error> {
+    let DeclarationNormalizationMode::ByCategory(order) = &config.declaration_normalization else {
+        return Ok(());
+    };
+    let mut seen: std::collections::HashSet<DeclarationNormalizationCategory> = std::collections::HashSet::new();
+    for cat in order {
+        if *cat == DeclarationNormalizationCategory::Concrete {
+            continue;
+        }
+        if !seen.insert(*cat) {
+            return Err(
+                loga::err_with(
+                    "Duplicate leaf category in `declaration_normalization.by_category`",
+                    loga::ea!(category = format!("{:?}", cat)),
+                ),
+            );
+        }
+    }
+    Ok(())
 }
 
 fn variant_sort_name(v: &Variant) -> String {
