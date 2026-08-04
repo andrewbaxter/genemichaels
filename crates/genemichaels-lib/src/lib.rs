@@ -257,35 +257,21 @@ pub fn format_ast(
         sg.build(&mut out);
     }
     let mut lines = Lines {
-        lines: vec![],
+        head: None,
         owned_lines: vec![],
     };
     {
         let line_i = LineIdx(lines.owned_lines.len());
         lines.owned_lines.push(Line {
-            index: 0,
+            next: None,
             segs: out.segs.iter().enumerate().map(|(i, _)| SegmentIdx(i)).collect(),
         });
-        lines.lines.push(line_i);
-        for line_i in &lines.lines {
-            for (j, seg_i) in lines.owned_lines.get(line_i.0).unwrap().segs.iter().enumerate() {
-                out.segs.get_mut(seg_i.0).unwrap().line = Some(SegmentLine {
-                    line: *line_i,
-                    seg_index: j,
-                });
-            }
-        }
-    }
-    for (i, line_i) in lines.lines.iter().enumerate() {
-        let line = lines.owned_lines.get(line_i.0).unwrap();
-        assert_eq!(line.index, i, "line index wrong; initial");
-        for (j, seg_i) in line.segs.iter().enumerate() {
-            assert_eq!(
-                out.segs.get(seg_i.0).unwrap().line.as_ref().unwrap().seg_index,
-                j,
-                "seg index wrong; on line {}, initial",
-                i
-            );
+        lines.head = Some(line_i);
+        for (j, seg_i) in lines.owned_lines.get(line_i.0).unwrap().segs.iter().enumerate() {
+            out.segs.get_mut(seg_i.0).unwrap().line = Some(SegmentLine {
+                line: line_i,
+                seg_index: j,
+            });
         }
     }
 
@@ -298,13 +284,12 @@ pub fn format_ast(
     // * comments segments
     {
         let synth_seg_node = new_sg(&mut out).build(&mut out);
-        let mut i = 0usize;
+        let mut cur = lines.head;
         let mut skip_first = false;
         let mut prev_comment = None;
-        while i < lines.lines.len() {
+        while let Some(line_i) = cur {
             let mut res = None;
             {
-                let line_i = lines.lines.get(i).unwrap();
                 'segs : loop {
                     for (i, seg_i) in lines.owned_lines.get(line_i.0).unwrap().segs.iter().enumerate() {
                         if i == 0 && skip_first {
@@ -322,12 +307,12 @@ pub fn format_ast(
                             (SegmentMode::Split, false) => false,
                         }) {
                             (SegmentContent::Break(_, _), true) => {
-                                res = Some((*line_i, i, None));
+                                res = Some((line_i, i, None));
                                 prev_comment = None;
                                 break 'segs;
                             },
                             (SegmentContent::Whitespace(c), _) => {
-                                res = Some((*line_i, i, None));
+                                res = Some((line_i, i, None));
                                 prev_comment = Some(c.0.clone());
                                 break 'segs;
                             },
@@ -340,7 +325,7 @@ pub fn format_ast(
                                         mode: SegmentMode::All,
                                         content: SegmentContent::Break(a, true),
                                     });
-                                    res = Some((*line_i, i, Some(seg_i)));
+                                    res = Some((line_i, i, Some(seg_i)));
                                     break 'segs;
                                 }
                             },
@@ -354,7 +339,7 @@ pub fn format_ast(
                 split_line_at(&mut out, &mut lines, line_i, at, insert_start);
                 skip_first = true;
             }
-            i += 1;
+            cur = lines.owned_lines.get(line_i.0).unwrap().next;
         }
     }
 
@@ -417,11 +402,12 @@ pub fn format_ast(
     };
     let mut warnings = vec![];
     let lines = lines;
-    let mut line_i = 0usize;
-    while line_i < lines.lines.len() {
+    let mut cur = lines.head;
+    let mut line_pos = 0usize;
+    while let Some(line_i) = cur {
         'continue_lineloop : loop {
             let segs =
-                lines.owned_lines.get(lines.lines.get(line_i).unwrap().0).unwrap().segs.iter().filter_map(|seg_i| {
+                lines.owned_lines.get(line_i.0).unwrap().segs.iter().filter_map(|seg_i| {
                     let res = {
                         let seg = out.segs.get(seg_i.0).unwrap();
                         let node = out.nodes.get(seg.node.0).unwrap();
@@ -446,7 +432,7 @@ pub fn format_ast(
                 let seg = out.segs.get(seg_mem_i.0).unwrap();
                 match &seg.content {
                     SegmentContent::Text(t) => {
-                        let t = if seg_i == 1 && line_i > 0 {
+                        let t = if seg_i == 1 && line_pos > 0 {
                             // Work around comments splitting lines at weird places (seg_i_i 0 == break,
                             // except on first line)
                             t.trim_start()
@@ -474,8 +460,10 @@ pub fn format_ast(
                     SegmentContent::Break(b, activate) => {
                         let next_line_first_seg_comment =
                             lines
-                                .lines
-                                .get(line_i + 1)
+                                .owned_lines
+                                .get(line_i.0)
+                                .unwrap()
+                                .next
                                 .map(|i| lines.owned_lines.get(i.0).unwrap())
                                 .and_then(|l| l.segs.first())
                                 .map(|seg_i| {
@@ -597,7 +585,8 @@ pub fn format_ast(
             rendered.push('\n');
             break;
         }
-        line_i += 1;
+        cur = lines.owned_lines.get(line_i.0).unwrap().next;
+        line_pos += 1;
     }
     let mk_warnings = std::mem::take(&mut out.warnings);
     Ok(FormatRes {
@@ -751,13 +740,22 @@ pub enum IndentUnit {
     Tabs,
 }
 
-pub(crate) fn insert_line(out: &mut MakeSegsState, lines: &mut Lines, at: usize, segs: Vec<SegmentIdx>) {
+pub(crate) fn insert_line_after(
+    out: &mut MakeSegsState,
+    lines: &mut Lines,
+    after: LineIdx,
+    segs: Vec<SegmentIdx>,
+) {
     let line_i = LineIdx(lines.owned_lines.len());
+    let next = lines.owned_lines.get(after.0).unwrap().next;
     lines.owned_lines.push(Line {
-        index: at,
+        next,
         segs,
     });
-    for (i, seg_i) in lines.owned_lines.get(line_i.0).unwrap().segs.iter().enumerate() {
+    lines.owned_lines.get_mut(after.0).unwrap().next = Some(line_i);
+    let line_segs_len = lines.owned_lines.get(line_i.0).unwrap().segs.len();
+    for i in 0..line_segs_len {
+        let seg_i = lines.owned_lines.get(line_i.0).unwrap().segs[i];
         let seg = out.segs.get_mut(seg_i.0).unwrap();
         match seg.line.as_mut() {
             Some(l) => {
@@ -772,27 +770,10 @@ pub(crate) fn insert_line(out: &mut MakeSegsState, lines: &mut Lines, at: usize,
             },
         };
     }
-    lines.lines.insert(at, line_i);
-    for (i, line_i) in lines.lines.iter().enumerate().skip(at + 1) {
-        lines.owned_lines.get_mut(line_i.0).unwrap().index = i;
-    }
-    for (i, line_i) in lines.lines.iter().enumerate() {
-        let line = lines.owned_lines.get(line_i.0).unwrap();
-        assert_eq!(line.index, i, "line index wrong; after insert at line {}", at);
-        for (j, seg_i) in line.segs.iter().enumerate() {
-            assert_eq!(
-                out.segs.get(seg_i.0).unwrap().line.as_ref().unwrap().seg_index,
-                j,
-                "seg index wrong; on line {}, after insert at line {}",
-                i,
-                at
-            );
-        }
-    }
 }
 
 pub(crate) struct Line {
-    index: usize,
+    next: Option<LineIdx>,
     segs: Vec<SegmentIdx>,
 }
 
@@ -846,7 +827,7 @@ pub(crate) fn line_length(out: &MakeSegsState, lines: &Lines, line_i: LineIdx) -
 pub(crate) struct LineIdx(usize);
 
 struct Lines {
-    lines: Vec<LineIdx>,
+    head: Option<LineIdx>,
     owned_lines: Vec<Line>,
 }
 
@@ -1039,8 +1020,7 @@ pub(crate) fn split_line_at(
             _ => { },
         };
     }
-    let insert_at = line.index + 1;
-    insert_line(out, lines, insert_at, new_segs);
+    insert_line_after(out, lines, line_idx, new_segs);
 }
 
 pub struct SplitGroup {
