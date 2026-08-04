@@ -164,12 +164,15 @@ impl<'a> DeclarationNormalizer<'a> {
         }
     }
 
-    fn process_fields(&mut self, fields: &mut syn::Fields) {
+    fn process_fields(&mut self, attrs: &[syn::Attribute], fields: &mut syn::Fields) {
         if let syn::Fields::Named(named) = fields {
             if named.named.is_empty() {
                 return;
             }
             if matches!(self.config.declaration_normalization, DeclarationNormalizationMode::None) {
+                return;
+            }
+            if has_layout_significant_repr(attrs) {
                 return;
             }
             let mut sorted: Vec<Field> = named.named.iter().cloned().collect();
@@ -265,11 +268,18 @@ impl<'a> DeclarationNormalizer<'a> {
         }
     }
 
-    fn process_variants(&mut self, variants: &mut syn::punctuated::Punctuated<Variant, syn::token::Comma>) {
+    fn process_variants(
+        &mut self,
+        attrs: &[syn::Attribute],
+        variants: &mut syn::punctuated::Punctuated<Variant, syn::token::Comma>,
+    ) {
         if variants.is_empty() {
             return;
         }
         if matches!(self.config.declaration_normalization, DeclarationNormalizationMode::None) {
+            return;
+        }
+        if has_layout_significant_repr(attrs) {
             return;
         }
         let mut sorted: Vec<Variant> = variants.iter().cloned().collect();
@@ -397,7 +407,7 @@ impl<'a> VisitMut for DeclarationNormalizer<'a> {
     }
 
     fn visit_item_enum_mut(&mut self, i: &mut ItemEnum) {
-        self.process_variants(&mut i.variants);
+        self.process_variants(&i.attrs, &mut i.variants);
         syn::visit_mut::visit_item_enum_mut(self, i);
     }
 
@@ -414,7 +424,7 @@ impl<'a> VisitMut for DeclarationNormalizer<'a> {
     }
 
     fn visit_item_struct_mut(&mut self, i: &mut ItemStruct) {
-        self.process_fields(&mut i.fields);
+        self.process_fields(&i.attrs, &mut i.fields);
         syn::visit_mut::visit_item_struct_mut(self, i);
     }
 
@@ -449,6 +459,22 @@ fn extract_base_type_name(ty: &syn::Type) -> String {
 
 fn field_sort_name(f: &Field) -> String {
     f.ident.as_ref().map(|i| i.to_string().to_lowercase()).unwrap_or_default()
+}
+
+fn has_layout_significant_repr(attrs: &[syn::Attribute]) -> bool {
+    attrs.iter().any(|attr| {
+        if !attr.path().is_ident("repr") {
+            return false;
+        }
+        let list = match &attr.meta {
+            syn::Meta::List(list) => list,
+            _ => return false,
+        };
+        list.tokens.clone().into_iter().any(|tt| match tt {
+            proc_macro2::TokenTree::Ident(ident) => ident != "align",
+            _ => false,
+        })
+    })
 }
 
 fn has_macro_use(item: &Item) -> bool {

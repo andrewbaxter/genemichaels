@@ -694,6 +694,46 @@ fn ow_declaration_normalization_enum_by_name() {
 }
 
 #[test]
+fn ow_declaration_normalization_enum_repr_c_variants_unchanged() {
+    owc(r#"#[repr(C)]
+enum Foo {
+    Zed,
+    Alpha,
+    Mid,
+}
+"#, r#"#[repr(C)]
+enum Foo {
+    Zed,
+    Alpha,
+    Mid,
+}
+"#, &FormatConfig {
+        declaration_normalization: DeclarationNormalizationMode::ByName,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_declaration_normalization_enum_repr_primitive_variants_unchanged() {
+    owc(r#"#[repr(u8)]
+enum Foo {
+    Zed,
+    Alpha,
+    Mid,
+}
+"#, r#"#[repr(u8)]
+enum Foo {
+    Zed,
+    Alpha,
+    Mid,
+}
+"#, &FormatConfig {
+        declaration_normalization: DeclarationNormalizationMode::ByName,
+        ..Default::default()
+    });
+}
+
+#[test]
 fn ow_declaration_normalization_impl_auto() {
     owc(r#"struct Foo { }
 
@@ -801,6 +841,82 @@ fn ow_declaration_normalization_struct_named_fields_by_name() {
     a: String,
     m: bool,
     z: i32,
+}
+"#, &FormatConfig {
+        declaration_normalization: DeclarationNormalizationMode::ByName,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_declaration_normalization_struct_repr_align_fields_sorted() {
+    owc(r#"#[repr(align(8))]
+struct Foo {
+    z: i32,
+    a: String,
+    m: bool,
+}
+"#, r#"#[repr(align(8))]
+struct Foo {
+    a: String,
+    m: bool,
+    z: i32,
+}
+"#, &FormatConfig {
+        declaration_normalization: DeclarationNormalizationMode::ByName,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_declaration_normalization_struct_repr_c_fields_unchanged() {
+    owc(r#"#[repr(C)]
+struct Foo {
+    z: i32,
+    a: String,
+    m: bool,
+}
+"#, r#"#[repr(C)]
+struct Foo {
+    z: i32,
+    a: String,
+    m: bool,
+}
+"#, &FormatConfig {
+        declaration_normalization: DeclarationNormalizationMode::ByName,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_declaration_normalization_struct_repr_c_packed_fields_unchanged() {
+    owc(r#"#[repr(C, packed)]
+struct Foo {
+    z: i32,
+    a: u8,
+}
+"#, r#"#[repr(C, packed)]
+struct Foo {
+    z: i32,
+    a: u8,
+}
+"#, &FormatConfig {
+        declaration_normalization: DeclarationNormalizationMode::ByName,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_declaration_normalization_struct_repr_packed_fields_unchanged() {
+    owc(r#"#[repr(packed)]
+struct Foo {
+    z: i32,
+    a: u8,
+}
+"#, r#"#[repr(packed)]
+struct Foo {
+    z: i32,
+    a: u8,
 }
 "#, &FormatConfig {
         declaration_normalization: DeclarationNormalizationMode::ByName,
