@@ -2,6 +2,7 @@
 
 use {
     genemichaels_lib::{
+        DeclarationNormalizationMode,
         ExternalFormatterConfig,
         FormatConfig,
         format_str,
@@ -560,6 +561,33 @@ fn rt_self_type() {
 }
 
 #[test]
+fn rt_skip_norm_enum() {
+    rtc(r#"//# genemichaels-norm-skip
+enum Bar {
+    Zed,
+    Alpha,
+    Mid,
+}
+"#, &FormatConfig {
+        declaration_normalization: DeclarationNormalizationMode::ByName,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn rt_skip_norm_struct() {
+    rtc(r#"//# genemichaels-norm-skip
+struct Foo {
+    z: i32,
+    a: u8,
+}
+"#, &FormatConfig {
+        declaration_normalization: DeclarationNormalizationMode::ByName,
+        ..Default::default()
+    });
+}
+
+#[test]
 fn rt_skip_shebang() {
     rt(r#"#!/bin/bash
 fn main() { }
@@ -699,6 +727,12 @@ where
 fn rt_unsafe_extern_c_() {
     rt(r#"unsafe extern "C" { }
 "#);
+}
+
+fn rtc(text: &str, config: &FormatConfig) {
+    let res = format_str(text, config).unwrap();
+    assert!(res.lost_comments.is_empty(), "Comments remain: {:?}", res.lost_comments);
+    pretty_assertions::assert_str_eq!(text, res.rendered);
 }
 
 #[test]

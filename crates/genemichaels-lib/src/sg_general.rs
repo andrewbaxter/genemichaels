@@ -559,22 +559,25 @@ pub(crate) fn has_comments(out: &mut MakeSegsState, t: impl ToTokens) -> bool {
         .unwrap_or(false)
 }
 
-pub(crate) fn has_genem_skip_comment(out: &MakeSegsState, loc: LineColumn) -> bool {
+pub(crate) fn has_directive_comment(
+    whitespaces: &std::collections::BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)>,
+    loc: LineColumn,
+    directive: &str,
+) -> bool {
     let hl = HashLineColumn(loc);
-    if let Some((_, ws_list)) = out.whitespaces.get(&hl) {
-        for ws in ws_list {
-            if let crate::WhitespaceMode::Comment(comment) = &ws.mode {
-                if comment.mode == crate::CommentMode::Directive {
-                    for line in comment.lines.lines() {
-                        if line.trim() == "genemichaels-skip" {
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
-    }
-    return false;
+    let Some((_, ws_list)) = whitespaces.get(&hl) else {
+        return false;
+    };
+    ws_list.iter().any(|ws| {
+        let crate::WhitespaceMode::Comment(comment) = &ws.mode else {
+            return false;
+        };
+        comment.mode == crate::CommentMode::Directive && comment.lines.lines().any(|line| line.trim() == directive)
+    })
+}
+
+pub(crate) fn has_genem_skip_comment(out: &MakeSegsState, loc: LineColumn) -> bool {
+    has_directive_comment(&out.whitespaces, loc, "genemichaels-skip")
 }
 
 fn is_normal_rust_macro(mac: &Macro) -> bool {

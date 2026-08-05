@@ -6,8 +6,10 @@ use {
         FormatConfig,
         Whitespace,
         WhitespaceMode,
+        sg_general::has_directive_comment,
         whitespace::HashLineColumn,
     },
+    proc_macro2::LineColumn,
     quote::ToTokens,
     std::collections::BTreeMap,
     syn::{
@@ -164,7 +166,7 @@ impl<'a> DeclarationNormalizer<'a> {
         }
     }
 
-    fn process_fields(&mut self, attrs: &[syn::Attribute], fields: &mut syn::Fields) {
+    fn process_fields(&mut self, loc: LineColumn, attrs: &[syn::Attribute], fields: &mut syn::Fields) {
         if let syn::Fields::Named(named) = fields {
             if named.named.is_empty() {
                 return;
@@ -172,7 +174,7 @@ impl<'a> DeclarationNormalizer<'a> {
             if matches!(self.config.declaration_normalization, DeclarationNormalizationMode::None) {
                 return;
             }
-            if has_layout_significant_repr(attrs) {
+            if is_decl_layout_significant(self.whitespaces, loc, attrs) {
                 return;
             }
             let mut sorted: Vec<Field> = named.named.iter().cloned().collect();
@@ -270,6 +272,7 @@ impl<'a> DeclarationNormalizer<'a> {
 
     fn process_variants(
         &mut self,
+        loc: LineColumn,
         attrs: &[syn::Attribute],
         variants: &mut syn::punctuated::Punctuated<Variant, syn::token::Comma>,
     ) {
@@ -279,7 +282,7 @@ impl<'a> DeclarationNormalizer<'a> {
         if matches!(self.config.declaration_normalization, DeclarationNormalizationMode::None) {
             return;
         }
-        if has_layout_significant_repr(attrs) {
+        if is_decl_layout_significant(self.whitespaces, loc, attrs) {
             return;
         }
         let mut sorted: Vec<Variant> = variants.iter().cloned().collect();
@@ -407,7 +410,7 @@ impl<'a> VisitMut for DeclarationNormalizer<'a> {
     }
 
     fn visit_item_enum_mut(&mut self, i: &mut ItemEnum) {
-        self.process_variants(&i.attrs, &mut i.variants);
+        self.process_variants(i.span().start(), &i.attrs, &mut i.variants);
         syn::visit_mut::visit_item_enum_mut(self, i);
     }
 
@@ -424,7 +427,7 @@ impl<'a> VisitMut for DeclarationNormalizer<'a> {
     }
 
     fn visit_item_struct_mut(&mut self, i: &mut ItemStruct) {
-        self.process_fields(&i.attrs, &mut i.fields);
+        self.process_fields(i.span().start(), &i.attrs, &mut i.fields);
         syn::visit_mut::visit_item_struct_mut(self, i);
     }
 
@@ -461,22 +464,6 @@ fn field_sort_name(f: &Field) -> String {
     f.ident.as_ref().map(|i| i.to_string().to_lowercase()).unwrap_or_default()
 }
 
-fn has_layout_significant_repr(attrs: &[syn::Attribute]) -> bool {
-    attrs.iter().any(|attr| {
-        if !attr.path().is_ident("repr") {
-            return false;
-        }
-        let list = match &attr.meta {
-            syn::Meta::List(list) => list,
-            _ => return false,
-        };
-        list.tokens.clone().into_iter().any(|tt| match tt {
-            proc_macro2::TokenTree::Ident(ident) => ident != "align",
-            _ => false,
-        })
-    })
-}
-
 fn has_macro_use(item: &Item) -> bool {
     let attrs = match item {
         Item::ExternCrate(i) => &i.attrs,
@@ -507,6 +494,26 @@ fn impl_item_sort_name(item: &ImplItem) -> String {
         ImplItem::Verbatim(v) => v.to_string().to_lowercase(),
         _ => String::new(),
     }
+}
+
+fn is_decl_layout_significant(
+    whitespaces: &BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)>,
+    loc: LineColumn,
+    attrs: &[syn::Attribute],
+) -> bool {
+    has_directive_comment(whitespaces, loc, "genemichaels-norm-skip") || attrs.iter().any(|attr| {
+        if !attr.path().is_ident("repr") {
+            return false;
+        }
+        let list = match &attr.meta {
+            syn::Meta::List(list) => list,
+            _ => return false,
+        };
+        list.tokens.clone().into_iter().any(|tt| match tt {
+            proc_macro2::TokenTree::Ident(ident) => ident != "align",
+            _ => false,
+        })
+    })
 }
 
 #[deny(clippy::wildcard_enum_match_arm)]
