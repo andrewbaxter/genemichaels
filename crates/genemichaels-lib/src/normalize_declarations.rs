@@ -166,7 +166,13 @@ impl<'a> DeclarationNormalizer<'a> {
         }
     }
 
-    fn process_fields(&mut self, loc: LineColumn, attrs: &[syn::Attribute], fields: &mut syn::Fields) {
+    fn process_fields(
+        &mut self,
+        loc: LineColumn,
+        keyword_loc: LineColumn,
+        attrs: &[syn::Attribute],
+        fields: &mut syn::Fields,
+    ) {
         if let syn::Fields::Named(named) = fields {
             if named.named.is_empty() {
                 return;
@@ -174,7 +180,7 @@ impl<'a> DeclarationNormalizer<'a> {
             if matches!(self.config.declaration_normalization, DeclarationNormalizationMode::None) {
                 return;
             }
-            if is_decl_layout_significant(self.whitespaces, loc, attrs) {
+            if is_decl_layout_significant(self.whitespaces, loc, keyword_loc, attrs) {
                 return;
             }
             let mut sorted: Vec<Field> = named.named.iter().cloned().collect();
@@ -273,6 +279,7 @@ impl<'a> DeclarationNormalizer<'a> {
     fn process_variants(
         &mut self,
         loc: LineColumn,
+        keyword_loc: LineColumn,
         attrs: &[syn::Attribute],
         variants: &mut syn::punctuated::Punctuated<Variant, syn::token::Comma>,
     ) {
@@ -282,7 +289,7 @@ impl<'a> DeclarationNormalizer<'a> {
         if matches!(self.config.declaration_normalization, DeclarationNormalizationMode::None) {
             return;
         }
-        if is_decl_layout_significant(self.whitespaces, loc, attrs) {
+        if is_decl_layout_significant(self.whitespaces, loc, keyword_loc, attrs) {
             return;
         }
         let mut sorted: Vec<Variant> = variants.iter().cloned().collect();
@@ -410,7 +417,7 @@ impl<'a> VisitMut for DeclarationNormalizer<'a> {
     }
 
     fn visit_item_enum_mut(&mut self, i: &mut ItemEnum) {
-        self.process_variants(i.span().start(), &i.attrs, &mut i.variants);
+        self.process_variants(i.span().start(), i.enum_token.span.start(), &i.attrs, &mut i.variants);
         syn::visit_mut::visit_item_enum_mut(self, i);
     }
 
@@ -427,7 +434,7 @@ impl<'a> VisitMut for DeclarationNormalizer<'a> {
     }
 
     fn visit_item_struct_mut(&mut self, i: &mut ItemStruct) {
-        self.process_fields(i.span().start(), &i.attrs, &mut i.fields);
+        self.process_fields(i.span().start(), i.struct_token.span.start(), &i.attrs, &mut i.fields);
         syn::visit_mut::visit_item_struct_mut(self, i);
     }
 
@@ -499,21 +506,25 @@ fn impl_item_sort_name(item: &ImplItem) -> String {
 fn is_decl_layout_significant(
     whitespaces: &BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)>,
     loc: LineColumn,
+    keyword_loc: LineColumn,
     attrs: &[syn::Attribute],
 ) -> bool {
-    has_directive_comment(whitespaces, loc, "genemichaels-norm-skip") || attrs.iter().any(|attr| {
-        if !attr.path().is_ident("repr") {
-            return false;
-        }
-        let list = match &attr.meta {
-            syn::Meta::List(list) => list,
-            _ => return false,
-        };
-        list.tokens.clone().into_iter().any(|tt| match tt {
-            proc_macro2::TokenTree::Ident(ident) => ident != "align",
-            _ => false,
+    const DIRECTIVE: &str = "genemichaels-norm-skip";
+    has_directive_comment(whitespaces, loc, DIRECTIVE) ||
+        has_directive_comment(whitespaces, keyword_loc, DIRECTIVE) ||
+        attrs.iter().any(|attr| {
+            if !attr.path().is_ident("repr") {
+                return false;
+            }
+            let list = match &attr.meta {
+                syn::Meta::List(list) => list,
+                _ => return false,
+            };
+            list.tokens.clone().into_iter().any(|tt| match tt {
+                proc_macro2::TokenTree::Ident(ident) => ident != "align",
+                _ => false,
+            })
         })
-    })
 }
 
 #[deny(clippy::wildcard_enum_match_arm)]

@@ -588,6 +588,38 @@ struct Foo {
 }
 
 #[test]
+fn rt_skip_norm_struct2() {
+    rtc(r#"#[derive(Aargvark)]
+//# genemichaels-norm-skip
+struct DerivePgpSignCommand {
+    /// Path of key (in ascii-armor format) to sign with
+    key: AargvarkSpecificPath,
+    /// Data to sign.
+    data: AargvarkFile,
+}
+"#, &FormatConfig {
+        declaration_normalization: DeclarationNormalizationMode::ByName,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn rt_skip_norm_struct3() {
+    rtc(r#"//# genemichaels-norm-skip
+#[derive(Aargvark)]
+struct DerivePgpSignCommand {
+    /// Path of key (in ascii-armor format) to sign with
+    key: AargvarkSpecificPath,
+    /// Data to sign.
+    data: AargvarkFile,
+}
+"#, &FormatConfig {
+        declaration_normalization: DeclarationNormalizationMode::ByName,
+        ..Default::default()
+    });
+}
+
+#[test]
 fn rt_skip_shebang() {
     rt(r#"#!/bin/bash
 fn main() { }
