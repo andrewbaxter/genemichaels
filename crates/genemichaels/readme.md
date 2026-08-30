@@ -172,6 +172,8 @@ Gene Michaels respects `#[rustfmt::skip]` attributes.
 
 You can also use `//# genemichaels-skip` comments to skip formatting of the expression following.
 
+You can use `//# genemichaels-norm-skip` comments (before the struct/enum) to disable declaration normalization for individual structs/enums.
+
 ## Comments
 
 Comments deserve a special mention since they're handled out of band.
