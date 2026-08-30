@@ -49,7 +49,8 @@ pub(crate) fn append_bracketed_list<
     suffix_start: LineColumn,
     suffix: &str,
 ) {
-    if out.whitespaces.contains_key(&HashLineColumn(suffix_start)) {
+    let suffix_whitespace = out.whitespaces.contains_key(&HashLineColumn(suffix_start));
+    if suffix_whitespace {
         sg.initial_split();
     }
     append_whitespace(out, base_indent, sg, prefix_start);
@@ -67,7 +68,7 @@ pub(crate) fn append_bracketed_list<
         }
     }
     append_whitespace(out, &indent, sg, suffix_start);
-    if !empty {
+    if !empty || suffix_whitespace {
         sg.split(out, base_indent.clone(), false);
     }
     sg.seg(out, suffix);

@@ -973,6 +973,117 @@ fn ow_declaration_normalization_trait_by_name() {
 }
 
 #[test]
+fn ow_deprecated_type_where_before_eq() {
+    ow(r#"impl Foo for Bar {
+    type A<'a> where Self: 'a = ();
+}
+"#, r#"impl Foo for Bar {
+    type A<'a> = ()
+    where
+        Self: 'a;
+}
+"#);
+}
+
+#[test]
+fn ow_deprecated_type_where_before_eq_bounds_with_angle_eq() {
+    ow(r#"impl Foo for Bar {
+    type A<'a> where Self: Iterator<Item = u32> = Vec<u8>;
+}
+"#, r#"impl Foo for Bar {
+    type A<'a> = Vec<u8>
+    where
+        Self: Iterator<Item = u32>;
+}
+"#);
+}
+
+#[test]
+fn ow_deprecated_type_where_comment_preserved() {
+    ow(r#"impl Foo for Bar {
+    // keep me
+    type A<'a> where Self: 'a = ();
+}
+"#, r#"impl Foo for Bar {
+    // keep me
+    type A<'a> = ()
+    where
+        Self: 'a;
+}
+"#);
+}
+
+#[test]
+fn ow_deprecated_type_where_impl_return_not_misdetected() {
+    ow(r#"fn f() -> impl Send {
+    type A<T> where T: Copy = T;
+}
+"#, r#"fn f() -> impl Send {
+    type A<T>
+    where
+        T: Copy = T;
+}
+"#);
+}
+
+#[test]
+fn ow_deprecated_type_where_local_alias_untouched() {
+    ow(r#"fn f() {
+    type A<T> where T: Copy = T;
+}
+"#, r#"fn f() {
+    type A<T>
+    where
+        T: Copy = T;
+}
+"#);
+}
+
+#[test]
+fn ow_deprecated_type_where_mixed_free_and_assoc() {
+    ow(r#"type Free<const C: usize> where [u8; C]: Sized = [u8; C];
+impl Foo for Bar {
+    type A<'a> where Self: 'a = ();
+}
+"#, r#"type Free<const C: usize>
+where
+    [u8; C]: Sized = [u8; C];
+
+impl Foo for Bar {
+    type A<'a> = ()
+    where
+        Self: 'a;
+}
+"#);
+}
+
+#[test]
+fn ow_deprecated_type_where_modern_form_unchanged() {
+    ow(r#"impl Foo for Bar {
+    type A<'a> = () where Self: 'a;
+}
+"#, r#"impl Foo for Bar {
+    type A<'a> = ()
+    where
+        Self: 'a;
+}
+"#);
+}
+
+#[test]
+fn ow_deprecated_type_where_trait_context() {
+    ow(r#"trait Foo {
+    type A<'a> where Self: 'a = ();
+}
+"#, r#"trait Foo {
+    type A<'a> = ()
+    where
+        Self: 'a;
+}
+"#);
+}
+
+#[test]
 fn ow_directive_comment_external_formatter() {
     let mut external_formatters = BTreeMap::new();
     external_formatters.insert("sed".to_string(), ExternalFormatterConfig {

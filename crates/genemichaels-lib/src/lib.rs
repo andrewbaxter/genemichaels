@@ -1,3 +1,4 @@
+pub(crate) mod fixup_syntax;
 pub(crate) mod normalize_declarations;
 pub(crate) mod normalize_imports;
 pub(crate) mod sg_expr;
@@ -634,6 +635,7 @@ pub fn format_str(source: &str, config: &FormatConfig) -> Result<FormatRes, loga
             }
         }
     }
+    let tokens = fixup_syntax::fixup_deprecated_syntax(tokens);
     let out =
         format_ast(
             syn::parse2::<File>(
