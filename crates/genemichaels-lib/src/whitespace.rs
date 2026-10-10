@@ -32,7 +32,10 @@ use {
 pub fn extract_whitespaces(
     keep_max_blank_lines: usize,
     source: &str,
-) -> Result<(BTreeMap<HashLineColumn, Vec<Whitespace>>, TokenStream), loga::Error> {
+) -> Result<
+    (BTreeMap<HashLineColumn, Vec<Whitespace>>, BTreeMap<HashLineColumn, Vec<Whitespace>>, TokenStream),
+    loga::Error,
+> {
     let mut line_lookup = vec![];
     {
         let mut offset = 0usize;
@@ -49,6 +52,7 @@ pub fn extract_whitespaces(
 
     struct State<'a> {
         block_event_re: Option<Regex>,
+        block_whitespaces: BTreeMap<HashLineColumn, Vec<Whitespace>>,
         keep_max_blank_lines: usize,
         last_offset: usize,
         // starting offset of each line
@@ -56,6 +60,7 @@ pub fn extract_whitespaces(
         // records the beginning of the last line extracted - this is the destination for
         // transposed comments
         line_start: Option<LineColumn>,
+        scope: LineColumn,
         source: &'a str,
         start_re: Option<Regex>,
         whitespaces: BTreeMap<HashLineColumn, Vec<Whitespace>>,
@@ -230,6 +235,15 @@ pub fn extract_whitespaces(
                 }
             }
             buffer.flush();
+            for ws in buffer.out.extract_if(.., |ws| match &ws.mode {
+                WhitespaceMode::Comment(c) => c.mode == CommentMode::DocInner,
+                WhitespaceMode::BlankLines(_) => false,
+            }) {
+                self.block_whitespaces.entry(HashLineColumn(self.scope)).or_insert(vec![]).push(Whitespace {
+                    loc: self.scope,
+                    mode: ws.mode,
+                });
+            }
             if !buffer.out.is_empty() {
                 let whitespaces = self.whitespaces.entry(HashLineColumn(end)).or_insert(vec![]);
 
@@ -314,6 +328,11 @@ pub fn extract_whitespaces(
         keep_max_blank_lines: keep_max_blank_lines,
         line_lookup: line_lookup,
         whitespaces: BTreeMap::new(),
+        block_whitespaces: BTreeMap::new(),
+        scope: LineColumn {
+            line: 0,
+            column: 0,
+        },
         last_offset: 0usize,
         line_start: None,
         start_re: None,
@@ -328,8 +347,10 @@ pub fn extract_whitespaces(
                 proc_macro2::TokenTree::Group(g) => {
                     state.extract(state.last_offset, g.span_open().start());
                     state.last_offset = state.to_offset(g.span_open().end());
+                    let outer_scope = std::mem::replace(&mut state.scope, g.span_open().start());
                     let subtokens = recurse(state, g.stream());
                     state.extract(state.last_offset, g.span_close().start());
+                    state.scope = outer_scope;
                     state.last_offset = state.to_offset(g.span_close().end());
                     let mut new_g = Group::new(g.delimiter(), subtokens);
                     new_g.set_span(g.span());
@@ -390,7 +411,7 @@ pub fn extract_whitespaces(
         line: 0,
         column: 1,
     }, state.last_offset, &source[state.last_offset..]);
-    Ok((state.whitespaces, tokens))
+    Ok((state.whitespaces, state.block_whitespaces, tokens))
 }
 
 pub fn format_md(

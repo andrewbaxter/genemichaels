@@ -1,11 +1,9 @@
 use {
     crate::{
-        CommentMode,
         DeclarationNormalizationCategory,
         DeclarationNormalizationMode,
         FormatConfig,
         Whitespace,
-        WhitespaceMode,
         sg_general::has_directive_comment,
         whitespace::HashLineColumn,
     },
@@ -218,24 +216,6 @@ impl<'a> DeclarationNormalizer<'a> {
         if items.is_empty() {
             return;
         }
-
-        // Remove //! inner doc comments from the first item's whitespace before sorting
-        let first_key = HashLineColumn(items[0].span().start());
-        let mut inner_docs = Vec::new();
-        if let Some((_, ws_list)) = self.whitespaces.get_mut(&first_key) {
-            let mut rest = Vec::new();
-            for ws in ws_list.drain(..) {
-                match &ws.mode {
-                    WhitespaceMode::Comment(c) if c.mode == CommentMode::DocInner => {
-                        inner_docs.push(ws);
-                    },
-                    _ => {
-                        rest.push(ws);
-                    },
-                }
-            }
-            *ws_list = rest;
-        }
         match &self.config.declaration_normalization {
             DeclarationNormalizationMode::None => { },
             DeclarationNormalizationMode::ByName => {
@@ -244,14 +224,6 @@ impl<'a> DeclarationNormalizer<'a> {
             DeclarationNormalizationMode::Auto | DeclarationNormalizationMode::ByCategory(_) => {
                 self.sort_by_category(items);
             },
-        }
-
-        // Re-add //! inner doc comments to the (possibly new) first item
-        if !inner_docs.is_empty() {
-            let new_first_key = HashLineColumn(items[0].span().start());
-            let entry = self.whitespaces.entry(new_first_key).or_insert_with(|| (1, Vec::new()));
-            inner_docs.extend(entry.1.drain(..));
-            entry.1 = inner_docs;
         }
     }
 
