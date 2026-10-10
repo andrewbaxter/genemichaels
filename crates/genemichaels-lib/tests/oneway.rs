@@ -1604,6 +1604,23 @@ use b;
 }
 
 #[test]
+fn ow_import_normalization_split_mismatched_cmp() {
+    owc(r#"// Comment B
+use b;
+// Comment A
+use a;
+"#, r#"// Comment A
+use a;
+
+// Comment B
+use b;
+"#, &FormatConfig {
+        import_normalization: genemichaels_lib::ImportNormalizationMode::Split,
+        ..Default::default()
+    });
+}
+
+#[test]
 fn ow_inner_doc_before_inner_attrs() {
     owc(r#"#![allow(x)]
 //! Doc
@@ -1636,23 +1653,6 @@ fn ow_inner_doc_line_end() {
     let x = 1;
 }
 "#, &FormatConfig::default());
-}
-
-#[test]
-fn ow_import_normalization_split_mismatched_cmp() {
-    owc(r#"// Comment B
-use b;
-// Comment A
-use a;
-"#, r#"// Comment A
-use a;
-
-// Comment B
-use b;
-"#, &FormatConfig {
-        import_normalization: genemichaels_lib::ImportNormalizationMode::Split,
-        ..Default::default()
-    });
 }
 
 #[test]

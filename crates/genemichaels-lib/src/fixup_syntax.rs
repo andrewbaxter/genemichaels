@@ -71,8 +71,8 @@ fn fixup(ts: TokenStream, in_assoc_body: bool) -> TokenStream {
                     at_prefix = true;
                     item_is_impl_or_trait = false;
                 } else if at_prefix && prev_hash && g.delimiter() == Delimiter::Bracket {
-                } else if at_prefix && prev_pub && g.delimiter() == Delimiter::Parenthesis {
-                } else {
+
+                } else if at_prefix && prev_pub && g.delimiter() == Delimiter::Parenthesis { } else {
                     at_prefix = false;
                 }
             },

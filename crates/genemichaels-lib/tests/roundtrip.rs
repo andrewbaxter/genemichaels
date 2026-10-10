@@ -390,6 +390,12 @@ use std::collections::HashMap;
 }
 
 #[test]
+fn rt_inner_doc_only() {
+    rt(r#"//! Only a doc
+"#);
+}
+
+#[test]
 fn rt_inner_doc_scopes() {
     rt(r#"//! File doc
 #![allow(x)]
@@ -430,12 +436,6 @@ m!(
     //! Macro paren doc
     a
 );
-"#);
-}
-
-#[test]
-fn rt_inner_doc_only() {
-    rt(r#"//! Only a doc
 "#);
 }
 

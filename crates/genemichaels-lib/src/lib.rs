@@ -836,6 +836,7 @@ struct Lines {
 }
 
 pub struct MakeSegsState {
+    block_whitespaces: BTreeMap<HashLineColumn, Vec<Whitespace>>,
     config: FormatConfig,
     // MakeSegsState should be cloned at each call level with flags overwritable, but
     // it's a huge amount of work and only applies to this field for now. So instead
@@ -846,7 +847,6 @@ pub struct MakeSegsState {
     segs: Vec<Segment>,
     pub(crate) warnings: Vec<Error>,
     whitespaces: BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)>,
-    block_whitespaces: BTreeMap<HashLineColumn, Vec<Whitespace>>,
 }
 
 #[derive(PartialEq, Debug)]
