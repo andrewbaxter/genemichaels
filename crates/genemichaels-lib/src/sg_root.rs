@@ -11,6 +11,7 @@ use {
             new_sg_outer_attrs,
         },
     },
+    proc_macro2::LineColumn,
     quote::ToTokens,
     syn::{
         AttrStyle,
@@ -33,7 +34,10 @@ impl Formattable for File {
                 ast.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
-                    append_statement_list_raw(out, base_indent, &mut sg, Some(&ast.attrs), &ast.items);
+                    append_statement_list_raw(out, base_indent, &mut sg, Some(LineColumn {
+                        line: 0,
+                        column: 0,
+                    }), Some(&ast.attrs), &ast.items);
                     sg.build(out)
                 },
             )
@@ -61,6 +65,7 @@ impl Formattable for File {
             break 'res_rustfmt_skip None;
         } {
             out.whitespaces.clear();
+            out.block_whitespaces.clear();
             let mut sg = new_sg(out);
             sg.seg(out, text);
             sg.build(out)

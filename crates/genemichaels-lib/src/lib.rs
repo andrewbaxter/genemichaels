@@ -215,6 +215,7 @@ pub fn format_ast(
     mut ast: impl Formattable,
     config: &FormatConfig,
     whitespaces: BTreeMap<HashLineColumn, Vec<Whitespace>>,
+    block_whitespaces: BTreeMap<HashLineColumn, Vec<Whitespace>>,
 ) -> Result<FormatRes, loga::Error> {
     normalize_declarations::validate_declaration_normalization(config)?;
     let mut whitespaces: BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)> =
@@ -236,6 +237,7 @@ pub fn format_ast(
         nodes: vec![],
         segs: vec![],
         whitespaces,
+        block_whitespaces: block_whitespaces,
         config: config.clone(),
         macro_depth: Default::default(),
         warnings: vec![],
@@ -590,7 +592,12 @@ pub fn format_ast(
     let mk_warnings = std::mem::take(&mut out.warnings);
     Ok(FormatRes {
         rendered: rendered.text,
-        lost_comments: out.whitespaces.into_iter().map(|(k, (_, v))| (k, v)).collect(),
+        lost_comments: out
+            .whitespaces
+            .into_iter()
+            .map(|(k, (_, v))| (k, v))
+            .chain(out.block_whitespaces)
+            .collect(),
         warnings: {
             let mut all_warnings = mk_warnings;
             all_warnings.extend(warnings);
@@ -617,7 +624,8 @@ pub fn format_str(source: &str, config: &FormatConfig) -> Result<FormatRes, loga
         shebang_line_off = 0;
     }
     let stripped_source = source1;
-    let (whitespaces, tokens) = extract_whitespaces(config.keep_max_blank_lines, stripped_source)?;
+    let (whitespaces, block_whitespaces, tokens) =
+        extract_whitespaces(config.keep_max_blank_lines, stripped_source)?;
     for ws_list in whitespaces.values() {
         for ws in ws_list {
             if let WhitespaceMode::Comment(comment) = &ws.mode {
@@ -648,6 +656,7 @@ pub fn format_str(source: &str, config: &FormatConfig) -> Result<FormatRes, loga
             )?,
             config,
             whitespaces,
+            block_whitespaces,
         )?;
     if let Some(shebang) = shebang {
         return Ok(FormatRes {
@@ -827,6 +836,7 @@ struct Lines {
 }
 
 pub struct MakeSegsState {
+    block_whitespaces: BTreeMap<HashLineColumn, Vec<Whitespace>>,
     config: FormatConfig,
     // MakeSegsState should be cloned at each call level with flags overwritable, but
     // it's a huge amount of work and only applies to this field for now. So instead

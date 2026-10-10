@@ -1576,6 +1576,34 @@ use std::
 }
 
 #[test]
+fn ow_import_normalization_split_doc_comment() {
+    owc(r#"//! This is a module doc comment
+
+use std::collections::{HashMap, BTreeSet};
+"#, r#"//! This is a module doc comment
+use std::collections::BTreeSet;
+use std::collections::HashMap;
+"#, &FormatConfig {
+        import_normalization: genemichaels_lib::ImportNormalizationMode::Split,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_import_normalization_split_doc_comment_reorder() {
+    owc(r#"//! Doc
+use b;
+use a;
+"#, r#"//! Doc
+use a;
+use b;
+"#, &FormatConfig {
+        import_normalization: genemichaels_lib::ImportNormalizationMode::Split,
+        ..Default::default()
+    });
+}
+
+#[test]
 fn ow_import_normalization_split_mismatched_cmp() {
     owc(r#"// Comment B
 use b;
@@ -1590,6 +1618,41 @@ use b;
         import_normalization: genemichaels_lib::ImportNormalizationMode::Split,
         ..Default::default()
     });
+}
+
+#[test]
+fn ow_inner_doc_before_inner_attrs() {
+    owc(r#"#![allow(x)]
+//! Doc
+#![allow(y)]
+mod m {
+    #![allow(x)]
+    //! Doc
+    use a;
+}
+"#, r#"//! Doc
+#![allow(x)]
+#![allow(y)]
+
+mod m {
+    //! Doc
+    #![allow(x)]
+
+    use a;
+}
+"#, &FormatConfig::default());
+}
+
+#[test]
+fn ow_inner_doc_line_end() {
+    owc(r#"fn f() { //! Doc
+    let x = 1;
+}
+"#, r#"fn f() {
+    //! Doc
+    let x = 1;
+}
+"#, &FormatConfig::default());
 }
 
 #[test]

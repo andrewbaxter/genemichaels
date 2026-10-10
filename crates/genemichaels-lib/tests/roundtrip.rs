@@ -374,6 +374,72 @@ fn main() { }
 }
 
 #[test]
+fn rt_import_normalization_split_doc_comment() {
+    let text = r#"//! This is a module doc comment
+use std::collections::BTreeSet;
+use std::collections::HashMap;
+"#;
+    let res = format_str(text, &FormatConfig {
+        max_width: 120,
+        keep_max_blank_lines: 0,
+        import_normalization: genemichaels_lib::ImportNormalizationMode::Split,
+        ..Default::default()
+    }).unwrap();
+    assert!(res.lost_comments.is_empty(), "Comments remain: {:?}", res.lost_comments);
+    pretty_assertions::assert_str_eq!(text, res.rendered);
+}
+
+#[test]
+fn rt_inner_doc_only() {
+    rt(r#"//! Only a doc
+"#);
+}
+
+#[test]
+fn rt_inner_doc_scopes() {
+    rt(r#"//! File doc
+#![allow(x)]
+
+mod m {
+    //! Mod doc
+    use z;
+}
+
+mod empty {
+    //! Only a doc
+}
+
+fn f() {
+    //! Fn doc
+    let x = 1;
+}
+
+impl X {
+    //! Impl doc
+    fn h() { }
+}
+
+trait T {
+    //! Trait doc
+}
+
+extern "C" {
+    //! Extern doc
+}
+
+m!{
+    //! Macro doc
+    struct Q;
+}
+
+m!(
+    //! Macro paren doc
+    a
+);
+"#);
+}
+
+#[test]
 fn rt_labeled_block() {
     rt(r#"fn main() {
     'label: { }

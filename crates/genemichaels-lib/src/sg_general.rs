@@ -133,7 +133,7 @@ pub(crate) fn append_bracketed_statement_list(
     sg.seg(out, prefix);
     let indent = base_indent.indent();
     sg.split(out, indent.clone(), true);
-    append_statement_list_raw(out, &indent, sg, attrs, stmts);
+    append_statement_list_raw(out, &indent, sg, Some(prefix_start), attrs, stmts);
     append_whitespace(out, &indent, sg, suffix_start);
     sg.split(out, base_indent.clone(), false);
     sg.seg(out, "}");
@@ -174,7 +174,7 @@ pub(crate) fn append_macro_body(
             ) {
             // not really parsed, continue
         } else {
-            append_statement_list_raw(out, base_indent, sg, None, &block.stmts);
+            append_statement_list_raw(out, base_indent, sg, None, None, &block.stmts);
             return;
         }
     }
@@ -257,7 +257,7 @@ pub(crate) fn append_macro_body(
                     ) {
                     // not really parsed, continue
                 } else {
-                    append_statement_list_raw(out, base_indent, sg, None, &block.stmts);
+                    append_statement_list_raw(out, base_indent, sg, None, None, &block.stmts);
                     break 'nextsub;
                 }
             }
@@ -386,39 +386,28 @@ pub(crate) fn append_macro_body_bracketed(
     tokens: TokenStream,
 ) {
     let indent = base_indent.indent();
-    match delim {
-        syn::MacroDelimiter::Paren(x) => {
-            sg.seg(out, "(");
-            if !tokens.is_empty() || out.whitespaces.contains_key(&HashLineColumn(x.span.close().start())) {
-                sg.split(out, indent.clone(), true);
-                append_macro_body(out, &indent, sg, tokens);
-                append_whitespace(out, base_indent, sg, x.span.close().start());
-            }
-            sg.split(out, base_indent.clone(), false);
-            sg.seg(out, ")");
-        },
+    let (open, close, span) = match delim {
+        syn::MacroDelimiter::Paren(x) => ("(", ")", x.span),
         syn::MacroDelimiter::Brace(x) => {
-            sg.seg(out, "{");
             sg.initial_split();
-            if !tokens.is_empty() || out.whitespaces.contains_key(&HashLineColumn(x.span.close().start())) {
-                sg.split(out, indent.clone(), true);
-                append_macro_body(out, &indent, sg, tokens);
-                append_whitespace(out, base_indent, sg, x.span.close().start());
-            }
-            sg.split(out, base_indent.clone(), false);
-            sg.seg(out, "}");
+            ("{", "}", x.span)
         },
-        syn::MacroDelimiter::Bracket(x) => {
-            sg.seg(out, "[");
-            if !tokens.is_empty() || out.whitespaces.contains_key(&HashLineColumn(x.span.close().start())) {
-                sg.split(out, indent.clone(), true);
-                append_macro_body(out, &indent, sg, tokens);
-                append_whitespace(out, base_indent, sg, x.span.close().start());
-            }
-            sg.split(out, base_indent.clone(), false);
-            sg.seg(out, "]");
-        },
+        syn::MacroDelimiter::Bracket(x) => ("[", "]", x.span),
+    };
+    sg.seg(out, open);
+    let block_whitespaces = out.block_whitespaces.remove(&HashLineColumn(span.open().start()));
+    if block_whitespaces.is_some() || !tokens.is_empty() ||
+        out.whitespaces.contains_key(&HashLineColumn(span.close().start())) {
+        sg.split(out, indent.clone(), true);
+        if let Some(block_whitespaces) = block_whitespaces {
+            sg.initial_split();
+            append_whitespace_list(out, &indent, sg, block_whitespaces);
+        }
+        append_macro_body(out, &indent, sg, tokens);
+        append_whitespace(out, base_indent, sg, span.close().start());
     }
+    sg.split(out, base_indent.clone(), false);
+    sg.seg(out, close);
 }
 
 pub(crate) fn append_macro_bracketed(
@@ -443,14 +432,19 @@ pub(crate) fn append_statement_list_raw(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
     sg: &mut SplitGroupBuilder,
+    block_whitespaces_key: Option<LineColumn>,
     attrs: Option<&Vec<Attribute>>,
     block: &Vec<impl FormattableStmt>,
 ) {
-    if check_split_brace_threshold(out, block.len()) ||
+    let block_whitespaces = block_whitespaces_key.and_then(|k| out.block_whitespaces.remove(&HashLineColumn(k)));
+    if block_whitespaces.is_some() || check_split_brace_threshold(out, block.len()) ||
         block.iter().any(|s| has_comments(out, s) || (s.has_attrs() && out.config.split_attributes)) {
         sg.initial_split();
     }
     sg.seg_unsplit(out, " ");
+    if let Some(block_whitespaces) = block_whitespaces {
+        append_whitespace_list(out, base_indent, sg, block_whitespaces);
+    }
     let mut previous_margin_group = crate::MarginGroup::None;
     let mut i = 0;
     for attr in attrs.unwrap_or(&vec![]) {
@@ -505,6 +499,15 @@ pub(crate) fn append_whitespace(
             return;
         },
     };
+    append_whitespace_list(out, base_indent, sg, whitespace);
+}
+
+fn append_whitespace_list(
+    out: &mut MakeSegsState,
+    base_indent: &Alignment,
+    sg: &mut SplitGroupBuilder,
+    whitespace: Vec<Whitespace>,
+) {
     let whitespace: Vec<Whitespace> = whitespace.into_iter().filter_map(|w| {
         match w.mode {
             WhitespaceMode::BlankLines(l) => {
@@ -689,6 +692,15 @@ pub(crate) fn new_sg_outer_attrs(
             sg.seg(out, &text[after_attr_byte_offset - span_including_attrs.span().byte_range().start..]);
 
             // Remove comments used within subtree from global block
+            let remove_block_whitespaces_keys =
+                out
+                    .block_whitespaces
+                    .range((after_attr_line_col, Bound::Included(HashLineColumn(span_including_attrs.end()))))
+                    .map(|x| *x.0)
+                    .collect::<Vec<_>>();
+            for k in remove_block_whitespaces_keys {
+                out.block_whitespaces.remove(&k);
+            }
             let remove_whitespaces_keys =
                 out
                     .whitespaces

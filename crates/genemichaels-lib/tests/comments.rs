@@ -80,13 +80,13 @@ fn extract_blank_before_text() {
 
 #[test]
 fn extract_end() {
-    let (comments, _) = extract_whitespaces(0, "const THING: i32 = 7;\n// The end.").unwrap();
+    let (comments, _, _) = extract_whitespaces(0, "const THING: i32 = 7;\n// The end.").unwrap();
     assert!(!comments.is_empty());
 }
 
 #[test]
 fn extract_end2() {
-    let (comments, _) = extract_whitespaces(0, "const THING: i32 = 7;\n// The end.\n").unwrap();
+    let (comments, _, _) = extract_whitespaces(0, "const THING: i32 = 7;\n// The end.\n").unwrap();
     assert!(!comments.is_empty());
 }
 
@@ -96,7 +96,7 @@ fn extract_quad_slash() {
 }
 
 fn extract_whitespaces_first(keep_max_blank_lines: usize, text: &str) -> Vec<Whitespace> {
-    let (mut whitespaces, tokens) = extract_whitespaces(keep_max_blank_lines, text).unwrap();
+    let (mut whitespaces, _, tokens) = extract_whitespaces(keep_max_blank_lines, text).unwrap();
     return whitespaces.remove(&HashLineColumn(tokens.into_iter().next().unwrap().span().start())).unwrap();
 }
 
@@ -194,7 +194,7 @@ fn t(keep_max_blank_lines: usize, text: &str, expect: Vec<Whitespace>) {
 }
 
 fn t_end(keep_max_blank_lines: usize, text: &str, expect: Vec<Whitespace>) {
-    let (mut comments, _) = extract_whitespaces(keep_max_blank_lines, text).unwrap();
+    let (mut comments, _, _) = extract_whitespaces(keep_max_blank_lines, text).unwrap();
     let got = comments.remove(&HashLineColumn(LineColumn {
         line: 0,
         column: 1,
