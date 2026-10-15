@@ -20,6 +20,7 @@ use {
         new_sg,
         sg_general::{
             append_whitespace,
+            append_whitespace_list,
             has_comments,
         },
         whitespace::HashLineColumn,
@@ -29,6 +30,7 @@ use {
     syn::{
         Expr,
         punctuated::Punctuated,
+        spanned::Spanned,
     },
 };
 
@@ -57,6 +59,18 @@ pub(crate) fn append_bracketed_list<
     sg.seg(out, prefix);
     let indent = base_indent.indent();
     let empty = exprs.is_empty() && !matches!(&list_suffix, InlineListSuffix::Extra(_));
+    let trailing_whitespace = if out.macro_depth.get() == 0 && matches!(&list_suffix, InlineListSuffix::Punct) {
+        exprs.pairs().last().and_then(|p| p.punct().map(|p| p.span_start())).and_then(|loc| {
+            let key = HashLineColumn(loc);
+            out.whitespace_anchors.insert(key);
+            return out.whitespaces.remove(&key);
+        })
+    } else {
+        None
+    };
+    if trailing_whitespace.is_some() {
+        sg.initial_split();
+    }
     if !empty {
         if bracket_space {
             sg.seg_unsplit(out, " ");
@@ -66,6 +80,9 @@ pub(crate) fn append_bracketed_list<
         if bracket_space {
             sg.seg_unsplit(out, " ");
         }
+    }
+    if let Some((_, ws)) = trailing_whitespace {
+        append_whitespace_list(out, &indent, sg, ws);
     }
     append_whitespace(out, &indent, sg, suffix_start);
     if !empty || suffix_whitespace {
@@ -159,22 +176,41 @@ pub(crate) fn append_inline_list_raw<
 ) {
     if exprs
         .pairs()
-        .any(|s| has_comments(out, s.value()) || (s.value().has_attrs() && out.config.split_attributes)) {
+        .any(
+            |s| has_comments(out, s.value()) || (s.value().has_attrs() && out.config.split_attributes) ||
+                s.punct().is_some_and(|p| out.whitespaces.contains_key(&HashLineColumn(p.span_start()))),
+        ) {
         sg.initial_split();
     }
     let mut next_punct: Option<&T> = None;
     for (i, pair) in exprs.pairs().enumerate() {
         if i > 0 {
+            let mut punct_comments_after = None;
             if let Some(p) = next_punct.take() {
-                append_whitespace(out, base_indent, sg, p.span_start());
-                sg.seg(out, punct);
+                if out.macro_depth.get() > 0 {
+                    append_whitespace(out, base_indent, sg, p.span_start());
+                    sg.seg(out, punct);
+                } else {
+                    sg.seg(out, punct);
+                    punct_comments_after = Some(p.span_start());
+                }
             }
             sg.split(out, base_indent.clone(), true);
             sg.seg_unsplit(out, " ");
+            if let Some(loc) = punct_comments_after {
+                append_whitespace(out, base_indent, sg, loc);
+            }
         }
+        let span = pair.value().span();
+        out.record_element(span);
+        append_whitespace(out, base_indent, sg, span.start());
         sg.child(pair.value().make_segs(out, base_indent));
         next_punct = pair.punct().copied();
     }
+    let suffix = match suffix {
+        InlineListSuffix::None if out.macro_depth.get() > 0 => InlineListSuffix::VerbatimPunct,
+        s => s,
+    };
     match suffix {
         InlineListSuffix::None => {
             if let Some(p) = next_punct {
@@ -183,16 +219,16 @@ pub(crate) fn append_inline_list_raw<
         },
         InlineListSuffix::UnitPunct if exprs.len() == 1 => {
             if let Some(p) = next_punct {
-                append_whitespace(out, base_indent, sg, p.span_start());
                 sg.seg(out, punct);
+                append_whitespace(out, base_indent, sg, p.span_start());
             } else if !exprs.is_empty() {
                 sg.seg(out, punct);
             }
         },
         InlineListSuffix::Punct | InlineListSuffix::UnitPunct => {
             if let Some(p) = next_punct {
-                append_whitespace(out, base_indent, sg, p.span_start());
                 sg.seg_split(out, punct);
+                append_whitespace(out, base_indent, sg, p.span_start());
             } else if !exprs.is_empty() {
                 sg.seg_split(out, punct);
             }
@@ -205,8 +241,8 @@ pub(crate) fn append_inline_list_raw<
         },
         InlineListSuffix::Extra(e) => {
             if let Some(p) = next_punct {
-                append_whitespace(out, base_indent, sg, p.span_start());
                 sg.seg(out, punct);
+                append_whitespace(out, base_indent, sg, p.span_start());
             } else if !exprs.is_empty() {
                 sg.seg(out, punct);
             }
@@ -214,7 +250,16 @@ pub(crate) fn append_inline_list_raw<
                 sg.split(out, base_indent.clone(), true);
                 sg.seg_unsplit(out, " ");
             }
-            e.make_segs(out, base_indent);
+            let first_seg = out.segs.len();
+            sg.child(e.make_segs(out, base_indent));
+            if out.segs[first_seg..].iter().any(|s| match &s.content {
+                crate::SegmentContent::Whitespace((_, ws)) => ws
+                    .iter()
+                    .any(|w| matches!(w.mode, crate::WhitespaceMode::Comment(_))),
+                _ => false,
+            }) {
+                sg.initial_split();
+            }
         },
     }
 }

@@ -72,7 +72,12 @@ fn cmp_key_for_import_node(
         key.push_str(&attr.to_token_stream().to_string());
         key.push_str(&get_ts_ws(attr.to_token_stream(), whitespaces, &get_ws));
     }
-    return (key, get_ws(item.use_token.span).to_string(), get_ws(item.semi_token.span).to_string());
+    let mut start_ws = String::new();
+    if let Some(t) = item.vis.to_token_stream().into_iter().next() {
+        start_ws.push_str(&get_ws(t.span()));
+    }
+    start_ws.push_str(&get_ws(item.use_token.span));
+    return (key, start_ws, get_ws(item.semi_token.span).to_string());
 }
 
 fn cmp_use_tree(a: &syn::UseTree, b: &syn::UseTree) -> std::cmp::Ordering {
@@ -244,7 +249,21 @@ fn process_item_uses(
             }
 
             // Create a `use` tree per group
-            for mut subgroup in groups {
+            for subgroup in groups {
+                fn has_leaves(tree: &UseTree) -> bool {
+                    return match tree {
+                        UseTree::Path(p) => has_leaves(&p.tree),
+                        UseTree::Group(g) => g.items.iter().any(has_leaves),
+                        UseTree::Name(_) | UseTree::Rename(_) | UseTree::Glob(_) => true,
+                    };
+                }
+
+                let (empty, mut subgroup): (Vec<_>, Vec<_>) =
+                    subgroup.into_iter().partition(|item| !has_leaves(&item.tree));
+                new_items.extend(empty);
+                if subgroup.is_empty() {
+                    continue;
+                }
                 if subgroup.len() == 1 && !matches!(subgroup[0].tree, UseTree::Group(_)) {
                     new_items.push(subgroup.pop().unwrap());
                     continue;
@@ -268,6 +287,30 @@ fn process_item_uses(
                         if let Some(ws) = whitespaces.remove(&hl) {
                             whitespaces.entry(tree_start).or_insert((0, Vec::new())).1.extend(ws.1);
                         }
+                    }
+                }
+
+                fn remove_ts_ws(
+                    ts: proc_macro2::TokenStream,
+                    whitespaces: &mut BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)>,
+                ) {
+                    for tt in ts {
+                        match tt {
+                            proc_macro2::TokenTree::Group(g) => {
+                                whitespaces.remove(&HashLineColumn(g.span_open().start()));
+                                remove_ts_ws(g.stream(), whitespaces);
+                                whitespaces.remove(&HashLineColumn(g.span_close().start()));
+                            },
+                            tt => {
+                                whitespaces.remove(&HashLineColumn(tt.span().start()));
+                            },
+                        }
+                    }
+                }
+
+                for item in subgroup.iter().skip(1) {
+                    for attr in &item.attrs {
+                        remove_ts_ws(attr.to_token_stream(), whitespaces);
                     }
                 }
                 let template = subgroup[0].clone();
@@ -333,6 +376,9 @@ fn process_item_uses(
                                 span: proc_macro2::Span,
                                 whitespaces: &BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)>,
                             ) -> bool {
+                                if span.byte_range().is_empty() {
+                                    return false;
+                                }
                                 if let Some((_, ws)) = whitespaces.get(&HashLineColumn(span.start())) {
                                     return !ws.is_empty();
                                 }
@@ -463,6 +509,10 @@ fn process_item_uses(
             for item in imports.drain(..) {
                 let mut leaves = Vec::new();
                 collect_leaves(item.tree.clone(), &mut Vec::new(), &mut leaves);
+                if leaves.is_empty() {
+                    new_items.push(item);
+                    continue;
+                }
                 for l in leaves {
                     all_leaves.push((l, item.clone()));
                 }
@@ -476,6 +526,12 @@ fn process_item_uses(
                     whitespaces: &mut BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)>,
                 ) {
                     for token in ts {
+                        if token.span().byte_range().is_empty() {
+                            if let proc_macro2::TokenTree::Group(g) = token {
+                                decrement_tree_ws(g.stream(), whitespaces);
+                            }
+                            continue;
+                        }
                         let hl = HashLineColumn(token.span().start());
                         if let Some(ws) = whitespaces.get_mut(&hl) {
                             if ws.0 > 0 {
@@ -517,8 +573,10 @@ fn process_item_uses(
                     whitespaces: &mut BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)>,
                 ) {
                     for token in ts {
-                        let hl = HashLineColumn(token.span().start());
-                        whitespaces.entry(hl).and_modify(|e| e.0 += 1);
+                        if !token.span().byte_range().is_empty() {
+                            let hl = HashLineColumn(token.span().start());
+                            whitespaces.entry(hl).and_modify(|e| e.0 += 1);
+                        }
                         if let proc_macro2::TokenTree::Group(g) = token {
                             increment_tree_ws(g.stream(), whitespaces);
                         }
@@ -533,13 +591,16 @@ fn process_item_uses(
 }
 
 fn wrap_self_if_bare(tree: UseTree) -> UseTree {
-    if let UseTree::Name(n) = &tree {
-        if n.ident == "self" {
-            return UseTree::Group(syn::UseGroup {
-                brace_token: Default::default(),
-                items: std::iter::once(tree).collect(),
-            });
-        }
+    let is_self = match &tree {
+        UseTree::Name(n) => n.ident == "self",
+        UseTree::Rename(r) => r.ident == "self",
+        _ => false,
+    };
+    if is_self {
+        return UseTree::Group(syn::UseGroup {
+            brace_token: Default::default(),
+            items: std::iter::once(tree).collect(),
+        });
     }
     tree
 }

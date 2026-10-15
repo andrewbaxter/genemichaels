@@ -10,7 +10,10 @@ use {
         ResultContext,
         ea,
     },
-    markdown::mdast::Node,
+    markdown::mdast::{
+        Node,
+        ReferenceKind,
+    },
     proc_macro2::{
         Group,
         LineColumn,
@@ -57,6 +60,7 @@ pub fn extract_whitespaces(
         last_offset: usize,
         // starting offset of each line
         line_lookup: Vec<usize>,
+        last_offset_lookup: std::cell::Cell<(usize, usize, usize)>,
         // records the beginning of the last line extracted - this is the destination for
         // transposed comments
         line_start: Option<LineColumn>,
@@ -95,15 +99,18 @@ pub fn extract_whitespaces(
                     self.orig_start_offset.get_or_insert(orig_start_offset);
                 }
 
-                fn add_blank_lines(&mut self, text: &str) {
-                    let blank_lines = text.as_bytes().iter().filter(|x| **x == b'\n').count();
-                    if blank_lines > 1 && self.keep_max_blank_lines > 0 {
+                fn add_blank_lines(&mut self, text: &str, at_line_start: bool) {
+                    let newlines = text.as_bytes().iter().filter(|x| **x == b'\n').count();
+                    let blank_lines = if at_line_start {
+                        newlines
+                    } else {
+                        newlines.saturating_sub(1)
+                    };
+                    if blank_lines > 0 && self.keep_max_blank_lines > 0 {
                         self.flush();
                         self.out.push(Whitespace {
                             loc: self.loc,
-                            mode: crate::WhitespaceMode::BlankLines(
-                                (blank_lines - 1).min(self.keep_max_blank_lines),
-                            ),
+                            mode: crate::WhitespaceMode::BlankLines(blank_lines.min(self.keep_max_blank_lines)),
                         });
                     }
                 }
@@ -135,6 +142,7 @@ pub fn extract_whitespaces(
                 orig_start_offset: None,
             };
             let mut text = (abs_start, between_ast_nodes);
+            let mut at_line_start = abs_start == 0;
             'comment_loop : loop {
                 match start_re.captures(text.1) {
                     Some(found_start) => {
@@ -145,9 +153,8 @@ pub fn extract_whitespaces(
                                 .or_else(|| found_start.get(3))
                                 .or_else(|| found_start.get(4))
                                 .unwrap();
-                        if buffer.out.is_empty() && buffer.lines.is_empty() {
-                            buffer.add_blank_lines(&text.1[..start_prefix_match.start()]);
-                        }
+                        buffer.add_blank_lines(&text.1[..start_prefix_match.start()], at_line_start);
+                        at_line_start = start_prefix_match.as_str() == "//";
                         match start_prefix_match.as_str() {
                             "//" => {
                                 let mode = {
@@ -185,7 +192,7 @@ pub fn extract_whitespaces(
                             "/*" => {
                                 let mode = {
                                     let start_suffix_match = found_start.get(5);
-                                    let (mode, match_end) = match start_suffix_match {
+                                    let (mut mode, mut match_end) = match start_suffix_match {
                                         Some(start_suffix_match) => (match start_suffix_match.as_str() {
                                             "*" => CommentMode::DocOuter,
                                             "!" => CommentMode::DocInner,
@@ -193,6 +200,15 @@ pub fn extract_whitespaces(
                                         }, start_suffix_match.end()),
                                         None => (CommentMode::Normal, start_prefix_match.end()),
                                     };
+                                    if mode == CommentMode::DocOuter && text.1[match_end..].starts_with("*") {
+                                        mode = CommentMode::Normal;
+                                        let rest = &text.1[start_prefix_match.end()..];
+                                        let mut stars = rest.len() - rest.trim_start_matches('*').len();
+                                        if rest[stars..].starts_with('/') {
+                                            stars -= 1;
+                                        }
+                                        match_end = start_prefix_match.end() + stars;
+                                    }
                                     text = (text.0 + match_end, &text.1[match_end..]);
                                     mode
                                 };
@@ -227,9 +243,7 @@ pub fn extract_whitespaces(
                         }
                     },
                     None => {
-                        if buffer.out.is_empty() && buffer.lines.is_empty() {
-                            buffer.add_blank_lines(text.1);
-                        }
+                        buffer.add_blank_lines(text.1, at_line_start);
                         break 'comment_loop;
                     },
                 }
@@ -239,40 +253,35 @@ pub fn extract_whitespaces(
                 WhitespaceMode::Comment(c) => c.mode == CommentMode::DocInner,
                 WhitespaceMode::BlankLines(_) => false,
             }) {
-                self.block_whitespaces.entry(HashLineColumn(self.scope)).or_insert(vec![]).push(Whitespace {
+                let block_whitespaces = self.block_whitespaces.entry(HashLineColumn(self.scope)).or_insert(vec![]);
+                if let (Some(WhitespaceMode::Comment(previous)), WhitespaceMode::Comment(comment)) =
+                    (block_whitespaces.last_mut().map(|w| &mut w.mode), &ws.mode) {
+                    if previous.mode == comment.mode {
+                        previous.lines.push_str("\n");
+                        previous.lines.push_str(&comment.lines);
+                        continue;
+                    }
+                }
+                block_whitespaces.push(Whitespace {
                     loc: self.scope,
                     mode: ws.mode,
                 });
             }
+            let mut merged_out: Vec<Whitespace> = vec![];
+            for ws in buffer.out.drain(..) {
+                if let (Some(WhitespaceMode::Comment(previous)), WhitespaceMode::Comment(comment)) =
+                    (merged_out.last_mut().map(|w| &mut w.mode), &ws.mode) {
+                    if previous.mode == comment.mode {
+                        previous.lines.push_str("\n");
+                        previous.lines.push_str(&comment.lines);
+                        continue;
+                    }
+                }
+                merged_out.push(ws);
+            }
+            buffer.out = merged_out;
             if !buffer.out.is_empty() {
                 let whitespaces = self.whitespaces.entry(HashLineColumn(end)).or_insert(vec![]);
-
-                // Merge with existing comments (basically only if comments come before and after
-                // at the end of the line)
-                'merge : loop {
-                    let Some(previous_whitespace) = whitespaces.last_mut() else {
-                        break;
-                    };
-                    let WhitespaceMode::Comment(previous_comment) = &mut previous_whitespace.mode else {
-                        break;
-                    };
-                    let start = buffer.out.remove(0);
-                    loop {
-                        let WhitespaceMode::Comment(start_comment) = &start.mode else {
-                            break;
-                        };
-                        if previous_comment.mode != start_comment.mode {
-                            break;
-                        }
-                        previous_comment.lines.push_str("\n");
-                        previous_comment.lines.push_str(&start_comment.lines);
-                        break 'merge;
-                    }
-                    buffer.out.insert(0, start);
-                    break;
-                }
-
-                // Add rest without merging
                 whitespaces.extend(buffer.out);
             }
         }
@@ -289,13 +298,53 @@ pub fn extract_whitespaces(
                     // Not at end of line yet, or at bad element (moved backwards); don't do anything
                     break false;
                 }
-                let eol = match self.source[start..].find('\n') {
-                    Some(n) => start + n,
-                    None => self.source.len(),
-                };
-                let text = &self.source[start .. eol];
-                if text.trim_start().starts_with("//") {
-                    self.add_comments(*previous_start, start, text);
+                let mut eol = start;
+                let mut pending_eol = start;
+                loop {
+                    let rest = &self.source[pending_eol..];
+                    let trimmed = rest.trim_start_matches([' ', '\t', '\r']);
+                    let comment_start = pending_eol + rest.len() - trimmed.len();
+                    let is_doc =
+                        trimmed.starts_with("//!") || trimmed.starts_with("/*!") ||
+                            (trimmed.starts_with("///") && !trimmed.starts_with("////")) ||
+                            (trimmed.starts_with("/**") && !trimmed.starts_with("/**/") &&
+                                !trimmed.starts_with("/***"));
+                    if is_doc {
+                        break;
+                    } else if trimmed.starts_with("//") {
+                        eol = comment_start + trimmed.find('\n').unwrap_or(trimmed.len());
+                        break;
+                    } else if trimmed.starts_with("/*") {
+                        let bytes = trimmed.as_bytes();
+                        let mut nesting = 0usize;
+                        let mut i = 0usize;
+                        while i < bytes.len() {
+                            if bytes[i..].starts_with(b"/*") {
+                                nesting += 1;
+                                i += 2;
+                            } else if bytes[i..].starts_with(b"*/") {
+                                nesting -= 1;
+                                i += 2;
+                                if nesting == 0 {
+                                    break;
+                                }
+                            } else {
+                                i += 1;
+                            }
+                        }
+                        pending_eol = comment_start + i;
+                        let after = self.source[pending_eol..].trim_start_matches([' ', '\t', '\r']);
+                        if after.is_empty() || after.starts_with('\n') {
+                            eol = pending_eol;
+                        } else if !after.starts_with("//") && !after.starts_with("/*") {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+                if eol > start {
+                    self.add_comments(*previous_start, start, &self.source[start .. eol]);
                 }
                 start = eol;
                 break true;
@@ -316,9 +365,19 @@ pub fn extract_whitespaces(
             if loc.line == 0 {
                 return 0usize;
             }
-            let line_start_offset = *self.line_lookup.get(loc.line - 1).unwrap();
-            line_start_offset +
-                self.source[line_start_offset..].chars().take(loc.column).map(char::len_utf8).sum::<usize>()
+            let (mut column, mut offset) = match self.last_offset_lookup.get() {
+                (line, column, offset) if line == loc.line && column <= loc.column => (column, offset),
+                _ => (0, *self.line_lookup.get(loc.line - 1).unwrap()),
+            };
+            for c in self.source[offset..].chars() {
+                if column == loc.column {
+                    break;
+                }
+                offset += c.len_utf8();
+                column += 1;
+            }
+            self.last_offset_lookup.set((loc.line, column, offset));
+            offset
         }
     }
 
@@ -327,6 +386,7 @@ pub fn extract_whitespaces(
         source: source,
         keep_max_blank_lines: keep_max_blank_lines,
         line_lookup: line_lookup,
+        last_offset_lookup: std::cell::Cell::new((0, 0, 0)),
         whitespaces: BTreeMap::new(),
         block_whitespaces: BTreeMap::new(),
         scope: LineColumn {
@@ -414,6 +474,10 @@ pub fn extract_whitespaces(
     Ok((state.whitespaces, state.block_whitespaces, tokens))
 }
 
+fn join_label(label: &str) -> String {
+    return label.split_whitespace().collect::<Vec<_>>().join(" ");
+}
+
 pub fn format_md(
     true_out: &mut String,
     config: &FormatConfig,
@@ -430,10 +494,14 @@ pub fn format_md(
             need_nl: false,
             config: config.clone(),
         };
-        let ast = markdown::to_mdast(source, &markdown::ParseOptions {
-            constructs: markdown::Constructs { ..Default::default() },
-            ..Default::default()
-        }).map_err(loga::err).context("Error parsing markdown")?;
+        let ast =
+            std::panic::catch_unwind(|| markdown::to_mdast(source, &markdown::ParseOptions {
+                constructs: markdown::Constructs { ..Default::default() },
+                ..Default::default()
+            }))
+                .map_err(|_| loga::err("Markdown parser panicked"))?
+                .map_err(loga::err)
+                .context("Error parsing markdown")?;
         recurse_write(
             &mut state,
             &mut out,
@@ -872,9 +940,12 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
                     }
                 }
             }
-            line.write_unbreakable(state, out, &format!("```{}", match &x.lang {
+            line.write_unbreakable(state, out, &format!("```{}{}", match &x.lang {
                 None => "",
                 Some(x) => x,
+            }, match &x.meta {
+                None => "".to_string(),
+                Some(m) => format!(" {}", m),
             }));
             line.flush_always(state, out);
             let content = content.unwrap_or_else(|| x.value.clone());
@@ -893,7 +964,11 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
             line.flush_always(state, out);
         },
         Node::FootnoteDefinition(x) => {
-            let line = line.clone_indent(Some(format!("[^{}]: ", x.identifier)), "   ".into());
+            let line =
+                line.clone_indent(
+                    Some(format!("[^{}]: ", join_label(x.label.as_ref().unwrap_or(&x.identifier)))),
+                    "   ".into(),
+                );
             for child in &x.children {
                 recurse_write(state, out, line.clone_inline(), child, true);
             }
@@ -904,10 +979,14 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
             line.flush_always(state, out);
         },
         Node::Definition(x) => {
-            line.write_unbreakable(state, out, &format!("[{}]: {}", x.identifier.trim(), x.url));
+            line.write_unbreakable(
+                state,
+                out,
+                &format!("[{}]: {}", join_label(x.label.as_ref().unwrap_or(&x.identifier)), x.url),
+            );
             if let Some(title) = &x.title {
                 line.write_unbreakable(state, out, " \"");
-                line.write_breakable(state, out, title);
+                line.write_breakable(state, out, &join_label(title));
                 line.write_unbreakable(state, out, "\"");
             }
             line.flush_always(state, out);
@@ -951,7 +1030,11 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
             line.write_unbreakable(state, out, "_");
         },
         Node::FootnoteReference(x) => {
-            line.write_unbreakable(state, out, &format!("[^{}]", x.identifier));
+            line.write_unbreakable(
+                state,
+                out,
+                &format!("[^{}]", join_label(x.label.as_ref().unwrap_or(&x.identifier))),
+            );
         },
         Node::Html(x) => {
             line.write_unbreakable(state, out, &format!("`{}`", join_lines(&x.value)));
@@ -984,9 +1067,19 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
             }
         },
         Node::ImageReference(x) => {
-            line.write_unbreakable(state, out, &format!("![][{}]", x.identifier));
+            line.write_unbreakable(
+                state,
+                out,
+                &format!("![][{}]", join_label(x.label.as_ref().unwrap_or(&x.identifier))),
+            );
         },
         Node::Link(x) => {
+            if let ([Node::Text(t)], None) = (x.children.as_slice(), &x.title) {
+                if x.url == t.value || x.url == format!("mailto:{}", t.value) {
+                    line.write_unbreakable(state, out, &format!("<{}>", t.value));
+                    return;
+                }
+            }
             let simple_text = if x.children.len() != 1 {
                 None
             } else {
@@ -1044,40 +1137,22 @@ fn recurse_write(state: &mut State, out: &mut String, line: LineState, node: &No
             }
         },
         Node::LinkReference(x) => {
-            let simple_text = if x.children.len() != 1 {
-                None
-            } else {
-                x.children.get(0)
-            }.and_then(|c| match c {
-                Node::Text(t) => if get_splits(&t.value).first().is_some() {
-                    None
-                } else {
-                    Some(t.value.clone())
-                },
-                Node::InlineCode(t) => if get_splits(&t.value).first().is_some() {
-                    None
-                } else {
-                    Some(format!("`{}`", t.value))
-                },
-                _ => {
-                    None
-                },
-            });
-            match simple_text {
-                Some(t) if t == x.identifier => {
-                    line.write_unbreakable(state, out, &format!("[{}]", t));
-                },
-                _ => {
-                    line.write_unbreakable(state, out, "[");
-                    for child in &x.children {
-                        recurse_write(state, out, line.clone_inline(), child, true);
-                    }
-                    line.write_unbreakable(state, out, &format!("][{}]", x.identifier));
-                },
+            line.write_unbreakable(state, out, "[");
+            for child in &x.children {
+                recurse_write(state, out, line.clone_inline(), child, true);
+            }
+            match x.reference_kind {
+                ReferenceKind::Shortcut => line.write_unbreakable(state, out, "]"),
+                ReferenceKind::Collapsed => line.write_unbreakable(state, out, "][]"),
+                ReferenceKind::Full => line.write_unbreakable(
+                    state,
+                    out,
+                    &format!("][{}]", join_label(x.label.as_ref().unwrap_or(&x.identifier))),
+                ),
             }
         },
         Node::Break(_) => {
-            // normalized out
+            line.write_breakable(state, out, " ");
         },
         Node::Math(_) => unreachable!(),
         Node::Table(_) => unreachable!(),

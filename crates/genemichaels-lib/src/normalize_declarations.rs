@@ -39,6 +39,42 @@ const AUTO_CATEGORY_ORDER: &[DeclarationNormalizationCategory] =
     ];
 const WRAPPER_TYPES: &[&str] = &["Arc", "Box", "Rc"];
 
+fn sort_text(tokens: impl ToTokens) -> String {
+    fn flatten(ts: proc_macro2::TokenStream, out: &mut Vec<String>) {
+        let tokens = ts.into_iter().collect::<Vec<_>>();
+        for (i, t) in tokens.iter().enumerate() {
+            match t {
+                proc_macro2::TokenTree::Group(g) => {
+                    let (open, close) = match g.delimiter() {
+                        proc_macro2::Delimiter::Parenthesis => ("(", ")"),
+                        proc_macro2::Delimiter::Brace => ("{", "}"),
+                        proc_macro2::Delimiter::Bracket => ("[", "]"),
+                        proc_macro2::Delimiter::None => ("", ""),
+                    };
+                    out.push(open.to_string());
+                    flatten(g.stream(), out);
+                    out.push(close.to_string());
+                },
+                proc_macro2::TokenTree::Ident(i) if i == "dyn" => { },
+                proc_macro2::TokenTree::Punct(p) if
+                    p.as_char() == ',' &&
+                        tokens
+                            .get(i + 1)
+                            .is_none_or(
+                                |n| matches!(n, proc_macro2:: TokenTree:: Punct(n) if n.as_char() == '>'),
+                            ) => {
+
+                },
+                t => out.push(t.to_string()),
+            }
+        }
+    }
+
+    let mut out = vec![];
+    flatten(tokens.to_token_stream(), &mut out);
+    return out.join(" ").to_lowercase();
+}
+
 fn category_rank(
     category: &DeclarationNormalizationCategory,
     ranks: &BTreeMap<DeclarationNormalizationCategory, usize>,
@@ -99,7 +135,7 @@ fn classify_impls(
         if impl_item.generics.params.is_empty() {
             return (0, item_sort_name(&Item::Impl(impl_item.clone())));
         }
-        (1, impl_item.generics.params.to_token_stream().to_string().to_lowercase())
+        (1, sort_text(&impl_item.generics.params))
     };
     for impls in type_impls.values_mut() {
         impls.sort_by(|a, b| {
@@ -432,10 +468,10 @@ fn extract_base_type_name(ty: &syn::Type) -> String {
                 }
                 ident_str.to_lowercase()
             } else {
-                ty.to_token_stream().to_string().to_lowercase()
+                sort_text(ty)
             }
         },
-        _ => ty.to_token_stream().to_string().to_lowercase(),
+        _ => sort_text(ty),
     }
 }
 
@@ -523,7 +559,7 @@ fn item_kind(item: &Item) -> ItemKind {
 fn item_sort_name(item: &Item) -> String {
     match item {
         Item::Mod(m) => m.ident.to_string().to_lowercase(),
-        Item::Use(u) => u.tree.to_token_stream().to_string().to_lowercase(),
+        Item::Use(u) => sort_text(&u.tree),
         Item::Macro(m) => {
             m.ident.as_ref().map(|i| i.to_string().to_lowercase()).unwrap_or_else(|| {
                 m.mac.path.to_token_stream().to_string().to_lowercase()
@@ -539,9 +575,9 @@ fn item_sort_name(item: &Item) -> String {
         Item::Union(u) => u.ident.to_string().to_lowercase(),
         Item::Type(t) => t.ident.to_string().to_lowercase(),
         Item::Impl(i) => {
-            let type_name = i.self_ty.to_token_stream().to_string().to_lowercase();
+            let type_name = sort_text(&i.self_ty);
             if let Some((_, path, _)) = &i.trait_ {
-                format!("{} {}", type_name, path.to_token_stream().to_string().to_lowercase())
+                format!("{} {}", type_name, sort_text(path))
             } else {
                 type_name
             }

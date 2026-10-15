@@ -4,6 +4,7 @@ use {
         DeclarationNormalizationMode,
         ExternalFormatterConfig,
         FormatConfig,
+        ImportNormalizationMode,
         format_str,
     },
     std::collections::BTreeMap,
@@ -1091,12 +1092,12 @@ fn ow_directive_comment_external_formatter() {
         adjust_indent: false,
     });
     owc(r##"fn main() {
-    let x = 
+    let x =
         //# genemichaels-external: sed
         "hello";
 }
 "##, r##"fn main() {
-    let x = 
+    let x =
         //# genemichaels-external: sed
         "HELLO";
 }
@@ -1110,8 +1111,7 @@ fn ow_directive_comment_external_formatter() {
 fn ow_dont_format_when_explicit_normal() {
     // Before/after newlines inconsequential
     owc(r#" 
-//  remove extra spaces"#, r#" 
-//  remove extra spaces
+//  remove extra spaces"#, r#"//  remove extra spaces
 "#, &FormatConfig {
         max_width: 120,
         explicit_markdown_comments: true,
@@ -1127,7 +1127,7 @@ fn ow_external_formatter_adjust_indent_off() {
         adjust_indent: false,
     });
     owc(r##"fn main() {
-    let x = 
+    let x =
         //# genemichaels-external: cat
         r#"
         line1
@@ -1135,7 +1135,7 @@ fn ow_external_formatter_adjust_indent_off() {
     "#;
 }
 "##, r##"fn main() {
-    let x = 
+    let x =
         //# genemichaels-external: cat
         r#"
         line1
@@ -1156,7 +1156,7 @@ fn ow_external_formatter_adjust_indent_on() {
         adjust_indent: true,
     });
     owc(r##"fn main() {
-    let x = 
+    let x =
         //# genemichaels-external: sed
         r#"
         line1
@@ -1164,7 +1164,7 @@ fn ow_external_formatter_adjust_indent_on() {
     "#;
 }
 "##, r##"fn main() {
-    let x = 
+    let x =
         //# genemichaels-external: sed
         r#"
            line1
@@ -1185,7 +1185,7 @@ fn ow_external_formatter_left_strip() {
         adjust_indent: true,
     });
     owc(r##"fn main() {
-    let x = 
+    let x =
         //# genemichaels-external: cat
         r#"
           line1
@@ -1193,7 +1193,7 @@ fn ow_external_formatter_left_strip() {
     "#;
 }
 "##, r##"fn main() {
-    let x = 
+    let x =
         //# genemichaels-external: cat
         r#"
              line1
@@ -1214,13 +1214,13 @@ fn ow_external_formatter_to_raw() {
         adjust_indent: true,
     });
     owc(r#"fn main() {
-    let x = 
+    let x =
         //# genemichaels-external: cat
         "line1
 line2";
 }
 "#, r##"fn main() {
-    let x = 
+    let x =
         //# genemichaels-external: cat
         r#"line1
            line2"#;
@@ -1235,8 +1235,7 @@ line2";
 fn ow_format_explicit_normal() {
     // Before/after newlines inconsequential
     ow(r#" 
-//?  remove extra spaces"#, r#" 
-//? remove extra spaces
+//?  remove extra spaces"#, r#"//? remove extra spaces
 "#);
 }
 
@@ -1711,11 +1710,10 @@ fn ow_rustfmt_skip_end_line_end_comment_keep() {
        } // End line end comment
 }
 "#, r#"fn main() {
+    // End line end comment
     #[rustfmt::skip]
     struct SomeStrangeIndentation {
        }
-    // End line end comment
-
 }
 "#, &FormatConfig {
         max_width: 120,
@@ -1733,8 +1731,50 @@ fn ow_rustfmt_skip_start_comment_duplication() {
 "#, r#"fn main() {
     // early comment
     #[rustfmt::skip]
-    // early comment
     struct SomeStrangeIndentation { }
+}
+"#, &FormatConfig {
+        max_width: 120,
+        explicit_markdown_comments: true,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_rustfmt_skip_inner_line_end_comment() {
+    owc(r#"fn main() {
+    #[rustfmt::skip]
+    // before
+    fn f()   // inner
+    {}
+}
+"#, r#"fn main() {
+    #[rustfmt::skip]
+    // before
+    fn f()   // inner
+    {}
+}
+"#, &FormatConfig {
+        max_width: 120,
+        explicit_markdown_comments: true,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_rustfmt_skip_inner_and_after_comment() {
+    owc(r#"fn main() {
+    #[rustfmt::skip]
+    let
+    // inner
+    (); // after
+}
+"#, r#"fn main() {
+    // after
+    #[rustfmt::skip]
+    let
+    // inner
+    ();
 }
 "#, &FormatConfig {
         max_width: 120,
@@ -1797,7 +1837,7 @@ fn owc(before: &str, want_after: &str, config: &FormatConfig) {
 #[test]
 fn rt_external_formatter_raw_string() {
     let res = format_str(r##"fn f() -> &'static str {
-    let x = 
+    let x =
         //# genemichaels-external: fake
         r#"
        aaaaa
@@ -1811,11 +1851,318 @@ fn rt_external_formatter_raw_string() {
         ..Default::default()
     }).unwrap();
     pretty_assertions::assert_str_eq!(r##"fn f() -> &'static str {
-    let x = 
+    let x =
         //# genemichaels-external: fake
         r#"
        bbbbb
     "#;
 }
 "##, res.rendered);
+}
+
+#[test]
+fn ow_block_comment_line_end_multiline1() {
+    ow(r#"fn foo() {/* a
+*/}
+"#, r#"fn foo() {
+    // a
+}
+"#);
+}
+
+#[test]
+fn ow_block_comment_line_end_after_semi1() {
+    ow(r#"fn foo() {
+    ;/* a */
+}
+"#, r#"fn foo() {
+    // a
+    ;
+}
+"#);
+}
+
+#[test]
+fn ow_block_comment_line_end_then_line_comment1() {
+    ow(r#"fn foo() {
+    x; /* a */ // b
+    y;
+}
+"#, r#"fn foo() {
+    // a b
+    x;
+    y;
+}
+"#);
+}
+
+#[test]
+fn ow_macro_tuple_keep_no_trailing_comma1() {
+    ow(r#"fn main() {
+    assert_eq!(((1, 2,
+// c
+ 3)));
+}
+"#, r#"fn main() {
+    assert_eq!(((
+        1,
+        2,
+        // c
+        3
+    )));
+}
+"#);
+}
+
+#[test]
+fn ow_macro_match_keep_arm_commas1() {
+    ow(r#"fn main() {
+    println!("{:?}", match {} { x => {} y => 1 });
+}
+"#, r#"fn main() {
+    println!("{:?}", match { } {
+        x => { }
+        y => 1
+    });
+}
+"#);
+}
+
+fn ow_no_lost(before: &str, want_after: &str) {
+    let res = format_str(before, &FormatConfig::default()).unwrap();
+    assert!(res.lost_comments.is_empty(), "Comments lost: {:?}", res.lost_comments);
+    pretty_assertions::assert_str_eq!(want_after, res.rendered);
+}
+
+#[test]
+fn ow_relocate_comment_item_keyword1() {
+    ow_no_lost(r#"struct /* c */Url;
+"#, r#"// c
+struct Url;
+"#);
+}
+
+#[test]
+fn ow_relocate_comment_statement1() {
+    ow_no_lost(r#"fn main() {
+    let mut /* c */a = 1;
+    const FOO: usize /* d */= 0;
+}
+"#, r#"fn main() {
+    // c
+    let mut a = 1;
+    const FOO: usize
+    // d
+    = 0;
+}
+"#);
+}
+
+#[test]
+fn ow_relocate_comment_merge1() {
+    ow_no_lost(r#"// a
+type T/* b */ = f32;
+"#, r#"// a b
+type T = f32;
+"#);
+}
+
+#[test]
+fn ow_import_combine_duplicate_attr_comment_dropped1() {
+    let res = format_str(r#"// Comment A
+#[cfg(feature = "x")]
+use a;
+// Comment A
+#[cfg(feature = "x")]
+use b;
+"#, &FormatConfig {
+        import_normalization: genemichaels_lib::ImportNormalizationMode::Combine,
+        ..Default::default()
+    }).unwrap();
+    assert!(res.lost_comments.is_empty(), "Comments lost: {:?}", res.lost_comments);
+}
+
+#[test]
+fn ow_match_arm_comma_comment1() {
+    ow(r#"fn main() {
+    match i {
+        .. => {}
+// a
+,
+        _ => ()
+// b
+,
+    }
+}
+"#, r#"fn main() {
+    match i {
+        .. => { },
+        // a
+        _ => (),
+        // b
+    }
+}
+"#);
+}
+
+#[test]
+fn ow_block_comment_chain_before_code1() {
+    ow(r#"fn f() {/* a
+*/ /*b*/  }
+"#, r#"fn f() {
+    // a b
+}
+"#);
+}
+
+#[test]
+fn ow_ptr_type_comment1() {
+    ow(r#"fn main() {
+    let x = y as *
+// a
+const u8;
+}
+"#, r#"fn main() {
+    let x = y as *
+        // a
+        const u8;
+}
+"#);
+}
+
+#[test]
+fn ow_comment_empty_line_no_trailing_space1() {
+    ow("//\n// See x.\n//\n// y\nfn main() {}\n", "// See x.\n//\n// y\nfn main() { }\n");
+}
+
+fn owc_stable(before: &str, want_after: &str, config: &FormatConfig) {
+    owc(before, want_after, config);
+    let res = format_str(want_after, config).unwrap();
+    assert!(res.lost_comments.is_empty(), "Comments remain: {:?}", res.lost_comments);
+    pretty_assertions::assert_str_eq!(want_after, res.rendered);
+}
+
+#[test]
+fn ow_combine_empty_use_keeps_comment1() {
+    owc_stable(r#"// a
+use {};
+use x::{};
+"#, r#"// a
+use {};
+use x::{};
+"#, &FormatConfig {
+        import_normalization: ImportNormalizationMode::Combine,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_combine_self_rename1() {
+    owc_stable(r#"use std::error::{self as foo};
+use std::io::Error;
+"#, r#"use std::{
+    error::{
+        self as foo,
+    },
+    io::Error,
+};
+"#, &FormatConfig {
+        import_normalization: ImportNormalizationMode::Combine,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_combine_after_sort1() {
+    owc_stable(r#"pub use a::*;
+mod b { }
+pub use c::*;
+"#, r#"mod b { }
+
+pub use {
+    a::*,
+    c::*,
+};
+"#, &FormatConfig {
+        import_normalization: ImportNormalizationMode::Combine,
+        declaration_normalization: DeclarationNormalizationMode::Auto,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_combine_pub_use_comment1() {
+    owc_stable(r#"pub use a as b;
+/// x
+pub use c as d;
+"#, r#"pub use a as b;
+
+/// x
+pub use c as d;
+"#, &FormatConfig {
+        import_normalization: ImportNormalizationMode::Combine,
+        declaration_normalization: DeclarationNormalizationMode::Auto,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_sort_impls_trailing_comma1() {
+    owc_stable(r#"struct W;
+impl<
+// c
+T: Send> Clone for W { }
+impl<T: Send> Copy for W { }
+"#, r#"struct W;
+
+impl<
+    // c
+    T: Send,
+> Clone for W { }
+
+impl<T: Send> Copy for W { }
+"#, &FormatConfig {
+        declaration_normalization: DeclarationNormalizationMode::Auto,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_split_use_first_line_comment1() {
+    owc_stable(r#"use std::intrinsics; // e
+fn main() {}
+"#, r#"// e
+use std::intrinsics;
+
+fn main() { }
+"#, &FormatConfig {
+        import_normalization: ImportNormalizationMode::Split,
+        ..Default::default()
+    });
+}
+
+#[test]
+fn ow_dyn_long_no_blank_line1() {
+    ow(r#"fn id() -> dyn Fn(
+    &dyn Fn(
+        &dyn Fn(
+            &dyn Fn(&dyn Fn(&dyn Fn(&dyn Fn(&dyn Fn(&dyn Fn(&dyn Fn(&dyn Fn(&dyn Fn()))))))))
+        )
+    )
+) {}
+"#, r#"fn id() -> dyn
+    Fn(
+        &dyn Fn(&dyn Fn(&dyn Fn(&dyn Fn(&dyn Fn(&dyn Fn(&dyn Fn(&dyn Fn(&dyn Fn(&dyn Fn(&dyn Fn())))))))))),
+    ) {
+}
+"#);
+}
+
+#[test]
+fn ow_verbatim_comment_trailing_blank_lines1() {
+    owc_stable(
+        "/*! # A\nplus one[^1] and  x\n\n\n*/\n",
+        "//! # A\n//!\n//! plus one[^1] and  x\n",
+        &FormatConfig::default(),
+    );
 }

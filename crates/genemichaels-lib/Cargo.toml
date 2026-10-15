@@ -8,7 +8,7 @@ repository = "https://github.com/andrewbaxter/genemichaels"
 readme = "./readme.md"
 
 [dependencies]
-markdown = { version = "=1.0.0-alpha.21" }
+markdown = { version = "=1.0.0" }
 proc-macro2 = { version = "1", features = ["span-locations"] }
 quote = "1"
 syn = { version = "2", features = ["full", "visit-mut", "clone-impls", "fold", "extra-traits"] }

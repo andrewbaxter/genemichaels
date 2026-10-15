@@ -398,6 +398,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "genemichaels-fuzz"
+version = "0.0.0"
+dependencies = [
+ "aargvark",
+ "genemichaels-lib",
+ "proc-macro2",
+ "serde",
+ "serde_json",
+ "syn",
+ "walkdir",
+]
+
+[[package]]
 name = "genemichaels-lib"
 version = "0.12.0"
 dependencies = [
@@ -746,9 +759,9 @@ dependencies = [
 
 [[package]]
 name = "markdown"
-version = "1.0.0-alpha.21"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a6491e6c702bf7e3b24e769d800746d5f2c06a6c6a2db7992612e0f429029e81"
+checksum = "a5cab8f2cadc416a82d2e783a1946388b31654d391d1c7d92cc1f03e295b1deb"
 dependencies = [
  "unicode-id",
 ]
@@ -847,9 +860,9 @@ dependencies = [
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.89"
+version = "1.0.107"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f139b0662de085916d1fb67d2b4169d1addddda1919e696f3252b740b629986e"
+checksum = "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9"
 dependencies = [
  "unicode-ident",
 ]
@@ -1093,9 +1106,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "2.0.87"
+version = "2.0.119"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25aa4ce346d03a6dcd68dd8b4010bcb74e54e62c90c573f394c46eae99aba32d"
+checksum = "872831b642d1a07999a962a351ed35b955ea2cfc8f3862091e2a240a84f17297"
 dependencies = [
  "proc-macro2",
  "quote",

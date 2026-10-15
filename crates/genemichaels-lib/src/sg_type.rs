@@ -6,10 +6,12 @@ use {
         SplitGroupBuilder,
         SplitGroupIdx,
         new_sg,
+        whitespace::HashLineColumn,
         new_sg_lit,
         sg_general::{
             append_binary,
             append_whitespace,
+            append_whitespace_list,
             new_sg_binary,
             new_sg_macro,
             new_sg_outer_attrs,
@@ -18,6 +20,7 @@ use {
             InlineListSuffix,
             append_bracketed_list_common,
             append_inline_list,
+            append_inline_list_raw,
             new_sg_bracketed_list,
             new_sg_bracketed_list_common,
         },
@@ -27,9 +30,9 @@ use {
         Span,
     },
     quote::ToTokens,
-    std::fmt::Write,
     syn::{
         AngleBracketedGenericArguments,
+        token::Bracket,
         BareFnArg,
         Expr,
         FnArg,
@@ -37,6 +40,7 @@ use {
         GenericParam,
         Generics,
         LifetimeParam,
+        Pat,
         Path,
         QSelf,
         ReturnType,
@@ -90,6 +94,9 @@ pub(crate) fn append_generics_part_a(
     generics: &Generics,
 ) {
     if generics.params.is_empty() {
+        if out.macro_depth.get() > 0 && generics.lt_token.is_some() {
+            sg.seg(out, "<>");
+        }
         return;
     }
     sg.child(new_sg_bracketed_list_common(
@@ -136,6 +143,9 @@ pub(crate) fn append_path<
         match &seg.value().arguments {
             syn::PathArguments::None => { },
             syn::PathArguments::AngleBracketed(a) => {
+                if let Some(colon2) = &a.colon2_token {
+                    append_whitespace(out, base_indent, node, colon2.spans[0].start());
+                }
                 node.child(
                     new_sg_bracketed_list_common(
                         out,
@@ -165,7 +175,8 @@ pub(crate) fn append_path<
                 );
                 match &a.output {
                     ReturnType::Default => { },
-                    ReturnType::Type(_, ty) => {
+                    ReturnType::Type(arrow, ty) => {
+                        append_whitespace(out, base_indent, node, arrow.spans[0].start());
                         node.seg(out, " -> ");
                         node.child(ty.make_segs(out, &indent));
                     },
@@ -182,16 +193,19 @@ pub(crate) fn append_path<
 pub(crate) fn build_array_type(
     out: &mut MakeSegsState,
     base_indent: &Alignment,
-    start: LineColumn,
+    brackets: &Bracket,
     expr: impl Formattable,
+    semi: &Token![;],
     len: &Expr,
 ) -> SplitGroupIdx {
     let mut sg = new_sg(out);
-    append_whitespace(out, base_indent, &mut sg, start);
+    append_whitespace(out, base_indent, &mut sg, brackets.span.open().start());
     sg.seg(out, "[");
     sg.child(expr.make_segs(out, base_indent));
+    append_whitespace(out, base_indent, &mut sg, semi.span.start());
     sg.seg(out, "; ");
     sg.child(len.make_segs(out, base_indent));
+    append_whitespace(out, base_indent, &mut sg, brackets.span.close().start());
     sg.seg(out, "]");
     sg.build(out)
 }
@@ -214,6 +228,9 @@ pub(crate) fn build_extended_path(
                 },
                 n => {
                     node.child(qself.ty.make_segs(out, base_indent));
+                    if let Some(as_token) = &qself.as_token {
+                        append_whitespace(out, base_indent, &mut node, as_token.span.start());
+                    }
                     node.seg(out, " as ");
                     append_path(
                         out,
@@ -227,7 +244,11 @@ pub(crate) fn build_extended_path(
             };
             append_whitespace(out, base_indent, &mut node, qself.gt_token.span.start());
             node.seg(out, ">");
-            append_path(out, &mut node, base_indent, Some(None), p.segments.pairs().skip(taken));
+            let colon = match taken {
+                0 => p.leading_colon.map(|c| c.spans[0].start()),
+                n => p.segments.pairs().nth(n - 1).and_then(|pair| pair.punct().map(|c| c.spans[0].start())),
+            };
+            append_path(out, &mut node, base_indent, Some(colon), p.segments.pairs().skip(taken));
         },
         None => {
             append_path(
@@ -256,10 +277,15 @@ pub(crate) fn build_generics_part_b(
     sg.split(out, base_indent.clone(), true);
     sg.seg(out, "where");
     sg.seg_unsplit(out, " ");
-
-    // No final comma because can be followed by a ;, and ,; looks pretty odd (and is
-    // rejected by the compiler)
+    let trailing_whitespace = wh.predicates.pairs().last().and_then(|p| p.punct().copied()).and_then(|p| {
+        let key = HashLineColumn(p.span.start());
+        out.whitespace_anchors.insert(key);
+        return out.whitespaces.remove(&key);
+    });
     append_inline_list(out, base_indent, &mut sg, ",", &wh.predicates, InlineListSuffix::<Expr>::None);
+    if let Some((_, ws)) = trailing_whitespace {
+        append_whitespace_list(out, base_indent, &mut sg, ws);
+    }
     sg.build(out)
 }
 
@@ -331,8 +357,9 @@ impl Formattable for &Type {
             Type::Array(x) => build_array_type(
                 out,
                 base_indent,
-                x.bracket_token.span.open().start(),
+                &x.bracket_token,
                 x.elem.as_ref(),
+                &x.semi_token,
                 &x.len,
             ),
             Type::BareFn(x) => {
@@ -375,8 +402,24 @@ impl Formattable for &Type {
                         ",",
                         &x.inputs,
                         match &x.variadic {
-                            Some(v) => InlineListSuffix::Extra(|out: &mut MakeSegsState, _base_indent: &Alignment| {
-                                new_sg_lit(out, Some((base_indent, vec![v.dots.spans[0].start()])), "...")
+                            Some(v) => InlineListSuffix::Extra(|out: &mut MakeSegsState, base_indent: &Alignment| {
+                                return new_sg_outer_attrs(
+                                    out,
+                                    base_indent,
+                                    &v.attrs,
+                                    || v.span(),
+                                    |out: &mut MakeSegsState, base_indent: &Alignment| {
+                                        let mut sg = new_sg(out);
+                                        if let Some((name, colon)) = &v.name {
+                                            sg.child(name.make_segs(out, base_indent));
+                                            append_whitespace(out, base_indent, &mut sg, colon.span.start());
+                                            sg.seg(out, ": ");
+                                        }
+                                        append_whitespace(out, base_indent, &mut sg, v.dots.spans[0].start());
+                                        sg.seg(out, "...");
+                                        return sg.build(out);
+                                    },
+                                );
                             }),
                             None => if out.macro_depth.get() == 0 {
                                 InlineListSuffix::Punct
@@ -401,6 +444,7 @@ impl Formattable for &Type {
             Type::Group(x) => x.elem.make_segs(out, base_indent),
             Type::ImplTrait(x) => {
                 let mut node = new_sg(out);
+                append_whitespace(out, base_indent, &mut node, x.impl_token.span.start());
                 append_binary(out, base_indent, &mut node, "impl", |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut node = new_sg(out);
                     append_inline_list(out, base_indent, &mut node, " +", &x.bounds, InlineListSuffix::<Expr>::None);
@@ -421,15 +465,16 @@ impl Formattable for &Type {
             Type::Path(x) => build_extended_path(out, base_indent, &x.qself, &x.path),
             Type::Ptr(x) => {
                 let mut node = new_sg(out);
-                let mut prefix = String::new();
-                prefix.write_str("*").unwrap();
-                if x.const_token.is_some() {
-                    prefix.write_str("const ").unwrap();
+                append_whitespace(out, base_indent, &mut node, x.star_token.span.start());
+                node.seg(out, "*");
+                if let Some(t) = &x.const_token {
+                    append_whitespace(out, base_indent, &mut node, t.span.start());
+                    node.seg(out, "const ");
                 }
-                if x.mutability.is_some() {
-                    prefix.write_str("mut ").unwrap();
+                if let Some(t) = &x.mutability {
+                    append_whitespace(out, base_indent, &mut node, t.span.start());
+                    node.seg(out, "mut ");
                 }
-                node.seg(out, prefix);
                 node.child(x.elem.make_segs(out, base_indent));
                 node.build(out)
             },
@@ -457,11 +502,40 @@ impl Formattable for &Type {
             },
             Type::TraitObject(x) => {
                 let mut node = new_sg(out);
-                append_binary(out, base_indent, &mut node, "dyn", |out: &mut MakeSegsState, base_indent: &Alignment| {
-                    let mut node = new_sg(out);
-                    append_inline_list(out, base_indent, &mut node, " +", &x.bounds, InlineListSuffix::<Expr>::None);
-                    node.build(out)
-                });
+                match (&x.dyn_token, x.bounds.first()) {
+                    (Some(d), _) => append_whitespace(out, base_indent, &mut node, d.span.start()),
+                    (None, Some(b)) => append_whitespace(out, base_indent, &mut node, b.span().start()),
+                    (None, None) => { },
+                }
+                if x.dyn_token.is_none() && out.macro_depth.get() > 0 {
+                    append_inline_list_raw(
+                        out,
+                        base_indent,
+                        &mut node,
+                        " +",
+                        &x.bounds,
+                        InlineListSuffix::<Expr>::None,
+                    );
+                } else {
+                    append_binary(
+                        out,
+                        base_indent,
+                        &mut node,
+                        "dyn",
+                        |out: &mut MakeSegsState, base_indent: &Alignment| {
+                            let mut node = new_sg(out);
+                            append_inline_list_raw(
+                                out,
+                                base_indent,
+                                &mut node,
+                                " +",
+                                &x.bounds,
+                                InlineListSuffix::<Expr>::None,
+                            );
+                            return node.build(out);
+                        },
+                    );
+                }
                 node.build(out)
             },
             Type::Tuple(x) => new_sg_bracketed_list(
@@ -472,7 +546,11 @@ impl Formattable for &Type {
                 false,
                 ",",
                 &x.elems,
-                InlineListSuffix::UnitPunct::<Expr>,
+                if out.macro_depth.get() == 0 {
+                    InlineListSuffix::UnitPunct::<Expr>
+                } else {
+                    InlineListSuffix::VerbatimPunct
+                },
                 x.paren_token.span.close().start(),
                 ")",
             ),
@@ -492,7 +570,7 @@ impl Formattable for BareFnArg {
             out,
             base_indent,
             &self.attrs,
-            self.span(),
+            || self.span(),
             |out: &mut MakeSegsState, base_indent: &Alignment| {
                 if let Some(name) = &self.name {
                     let mut node = new_sg(out);
@@ -521,7 +599,7 @@ impl Formattable for FnArg {
                 out,
                 base_indent,
                 &x.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let build_self = |out: &mut MakeSegsState, base_indent: &Alignment| {
                         let mut sg = new_sg(out);
@@ -563,8 +641,13 @@ impl Formattable for FnArg {
                 out,
                 base_indent,
                 &x.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
+                    if let Pat::Wild(w) = x.pat.as_ref() {
+                        if w.underscore_token.span.start() == x.colon_token.span.start() {
+                            return x.ty.make_segs(out, base_indent);
+                        }
+                    }
                     new_sg_binary(out, base_indent, x.pat.as_ref(), x.colon_token.span.start(), ":", x.ty.as_ref())
                 },
             ),
@@ -615,7 +698,11 @@ impl Formattable for GenericArgument {
             ),
             GenericArgument::Constraint(c) => {
                 let mut node = new_sg(out);
-                node.seg(out, &c.ident);
+                node.child(c.ident.make_segs(out, base_indent));
+                if let Some(g) = &c.generics {
+                    append_angle_bracketed_generics(out, base_indent, &mut node, g);
+                }
+                append_whitespace(out, base_indent, &mut node, c.colon_token.span.start());
                 append_binary(out, base_indent, &mut node, ":", |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut node = new_sg(out);
                     append_inline_list(out, base_indent, &mut node, " +", &c.bounds, InlineListSuffix::<Expr>::None);
@@ -639,7 +726,7 @@ impl Formattable for GenericParam {
                 out,
                 base_indent,
                 &t.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let build_base = |out: &mut MakeSegsState, base_indent: &Alignment| {
                         let mut sg = new_sg(out);
@@ -670,7 +757,7 @@ impl Formattable for GenericParam {
                 out,
                 base_indent,
                 &c.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let build_base = |out: &mut MakeSegsState, base_indent: &Alignment| {
                         let mut sg = new_sg(out);
@@ -703,9 +790,10 @@ impl Formattable for LifetimeParam {
             out,
             base_indent,
             &self.attrs,
-            self.span(),
+            || self.span(),
             |out: &mut MakeSegsState, base_indent: &Alignment| {
                 let mut node = new_sg(out);
+                append_whitespace(out, base_indent, &mut node, self.lifetime.apostrophe.start());
                 node.seg(out, &self.lifetime);
                 if self.colon_token.is_some() {
                     append_binary(
@@ -818,6 +906,7 @@ impl Formattable for TypeParamBound {
                 }
             },
             syn::TypeParamBound::Lifetime(l) => {
+                append_whitespace(out, base_indent, &mut sg, l.apostrophe.start());
                 sg.seg(out, l.to_string());
             },
             TypeParamBound::PreciseCapture(p) => {
@@ -875,6 +964,7 @@ impl Formattable for WherePredicate {
             },
             WherePredicate::Lifetime(l) => {
                 let mut sg = new_sg(out);
+                append_whitespace(out, base_indent, &mut sg, l.lifetime.apostrophe.start());
                 sg.seg(out, &l.lifetime);
                 sg.seg(out, ":");
                 sg.seg_unsplit(out, " ");

@@ -43,7 +43,7 @@ fn comments_line_end1() {
     t(
         0,
         "// comment 1\nconst THING: i32 = 7; // the thing\n",
-        vec![comment(CommentMode::Normal, " comment 1\n the thing")],
+        vec![comment(CommentMode::Normal, " comment 1"), comment(CommentMode::Normal, " the thing")],
     );
 }
 
@@ -70,12 +70,12 @@ fn eq_whitespaces(got: Vec<Whitespace>, expect: Vec<Whitespace>) {
 
 #[test]
 fn extract_blank_before_end() {
-    t_end(5, "\n\n//x", vec![blanks(1), comment(CommentMode::Normal, "x")]);
+    t_end(5, "\n\n//x", vec![blanks(2), comment(CommentMode::Normal, "x")]);
 }
 
 #[test]
 fn extract_blank_before_text() {
-    t(5, "\n\n//x", vec![blanks(1), comment(CommentMode::Normal, "x")]);
+    t(5, "\n\n//x", vec![blanks(2), comment(CommentMode::Normal, "x")]);
 }
 
 #[test]

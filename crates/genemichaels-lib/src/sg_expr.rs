@@ -14,7 +14,9 @@ use {
         sg_general::{
             append_binary,
             append_bracketed_statement_list,
+            index_text,
             append_macro_body,
+            append_attr,
             append_whitespace,
             build_rev_pair,
             has_comments,
@@ -34,7 +36,6 @@ use {
             BuildRefMutability,
             build_array_type,
             build_extended_path,
-            build_path,
             build_ref,
         },
     },
@@ -46,9 +47,11 @@ use {
         ExprAwait,
         ExprClosure,
         ExprField,
+        ExprLit,
         ExprMethodCall,
         ExprTry,
         FieldValue,
+        Lit,
         spanned::Spanned,
     },
 };
@@ -67,12 +70,12 @@ enum DottedRes<'a> {
     Leaf(&'a Expr),
 }
 
-fn gather_dotted<'a, 'b: 'a>(out: &'a mut Vec<Dotted<'b>>, root: Dotted<'b>) -> &'b dyn Formattable {
+fn gather_dotted<'a, 'b: 'a>(out: &'a mut Vec<Dotted<'b>>, root: Dotted<'b>) -> &'b Expr {
     out.push(root.clone());
-    match get_dotted2(&root) {
+    return match get_dotted2(&root) {
         DottedRes::Dotted(d) => gather_dotted(out, d),
         DottedRes::Leaf(l) => l,
-    }
+    };
 }
 
 #[allow(clippy::needless_lifetimes)]
@@ -157,7 +160,7 @@ fn new_sg_dotted(out: &mut MakeSegsState, base_indent: &Alignment, root: Dotted)
                 Some((base_indent, vec![e.dot_token.span.start(), e.member.span().start()])),
                 format!(".{}", match &e.member {
                     syn::Member::Named(n) => n.to_string(),
-                    syn::Member::Unnamed(u) => u.index.to_string(),
+                    syn::Member::Unnamed(u) => index_text(u),
                 }),
             ),
             Dotted::Method(e) => {
@@ -174,22 +177,20 @@ fn new_sg_dotted(out: &mut MakeSegsState, base_indent: &Alignment, root: Dotted)
                         let mut sg = new_sg(out);
                         sg.child(build_base(out, base_indent));
                         let prefix;
-                        let prefix_start;
                         if let Some(colon2) = tf.colon2_token {
                             prefix = "::<";
-                            prefix_start = colon2.spans[0].start();
+                            append_whitespace(out, base_indent, &mut sg, colon2.spans[0].start());
                         } else {
                             prefix = "<";
-                            prefix_start = tf.lt_token.span.start();
                         }
                         append_bracketed_list_common(
                             out,
                             base_indent,
                             &mut sg,
-                            prefix_start,
+                            tf.lt_token.span.start(),
                             prefix,
                             &tf.args,
-                            tf.lt_token.span.start(),
+                            tf.gt_token.span.start(),
                             ">",
                         );
                         sg.build(out)
@@ -221,6 +222,11 @@ fn new_sg_dotted(out: &mut MakeSegsState, base_indent: &Alignment, root: Dotted)
 
     let mut sg = new_sg(out);
     sg.child(leaf.make_segs(out, base_indent));
+    if leaf.to_token_stream().to_string().ends_with('.') ||
+        (matches!(leaf, Expr::Lit(ExprLit { lit: Lit::Int(_), .. })) &&
+            matches!(children.first(), Some(Dotted::Field(ExprField { member: syn::Member::Unnamed(_), .. })))) {
+        sg.seg(out, " ");
+    }
     if children.len() > 1 {
         let indent = base_indent.indent();
         for child in children {
@@ -288,7 +294,7 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     new_sg_bracketed_list_common(
                         out,
@@ -305,7 +311,7 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     new_sg_binary(out, base_indent, e.left.as_ref(), e.eq_token.span.start(), " =", e.right.as_ref())
                 },
@@ -314,7 +320,7 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     append_whitespace(out, base_indent, &mut sg, e.async_token.span.start());
@@ -340,7 +346,7 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     new_sg_dotted(out, base_indent, Dotted::Await(e))
                 },
@@ -349,7 +355,7 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     new_sg_binary(
                         out,
@@ -365,7 +371,7 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     if let Some(l) = &e.label {
@@ -390,7 +396,7 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     append_whitespace(out, base_indent, &mut sg, e.break_token.span.start());
@@ -409,7 +415,7 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     sg.child(e.func.make_segs(out, base_indent));
@@ -430,7 +436,7 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     new_sg_binary(out, base_indent, e.expr.as_ref(), e.as_token.span.start(), " as", e.ty.as_ref())
                 },
@@ -439,7 +445,7 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     fn build_base(
                         out: &mut MakeSegsState,
@@ -448,7 +454,29 @@ impl Formattable for &Expr {
                     ) -> SplitGroupIdx {
                         let mut sg = new_sg(out);
                         let mut need_space = false;
+                        if let Some(hot) = &e.lifetimes {
+                            append_whitespace(out, base_indent, &mut sg, hot.for_token.span.start());
+                            sg.seg(out, "for");
+                            append_bracketed_list_common(
+                                out,
+                                base_indent,
+                                &mut sg,
+                                hot.lt_token.span.start(),
+                                "<",
+                                &hot.lifetimes,
+                                hot.gt_token.span.start(),
+                                "> ",
+                            );
+                        }
+                        if let Some(x) = &e.constness {
+                            append_whitespace(out, base_indent, &mut sg, x.span.start());
+                            sg.seg(out, "const");
+                            need_space = true;
+                        }
                         if let Some(x) = &e.movability {
+                            if need_space {
+                                sg.seg(out, " ");
+                            }
                             append_whitespace(out, base_indent, &mut sg, x.span.start());
                             sg.seg(out, "static");
                             need_space = true;
@@ -511,7 +539,7 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, _base_indent: &Alignment| {
                     let mut prefix = "continue".to_string();
                     if let Some(label) = &e.label {
@@ -528,7 +556,7 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, _base_indent: &Alignment| {
                     new_sg_dotted(out, base_indent, Dotted::Field(e))
                 },
@@ -537,7 +565,7 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     sg.child({
@@ -574,7 +602,7 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     e.expr.make_segs(out, base_indent)
                 },
@@ -583,7 +611,7 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     sg.child({
@@ -619,12 +647,14 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     sg.child(e.expr.make_segs(out, base_indent));
+                    append_whitespace(out, base_indent, &mut sg, e.bracket_token.span.open().start());
                     sg.seg(out, "[");
                     sg.child(e.index.make_segs(out, base_indent));
+                    append_whitespace(out, base_indent, &mut sg, e.bracket_token.span.close().start());
                     sg.seg(out, "]");
                     sg.build(out)
                 },
@@ -633,12 +663,13 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     append_whitespace(out, base_indent, &mut sg, e.let_token.span.start());
                     sg.seg(out, "let ");
                     sg.child(e.pat.make_segs(out, base_indent));
+                    append_whitespace(out, base_indent, &mut sg, e.eq_token.span.start());
                     append_binary(out, base_indent, &mut sg, " =", e.expr.as_ref());
                     sg.build(out)
                 },
@@ -792,7 +823,7 @@ impl Formattable for &Expr {
                     out,
                     base_indent,
                     &e.attrs,
-                    self.span(),
+                    || self.span(),
                     |out: &mut MakeSegsState, _base_indent: &Alignment| {
                         let mut node = new_sg(out);
                         append_whitespace(out, base_indent, &mut node, e.lit.span().start());
@@ -820,7 +851,7 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     if let Some(l) = &e.label {
@@ -828,12 +859,13 @@ impl Formattable for &Expr {
                         sg.seg(out, format!("{} ", l.to_token_stream()));
                     }
                     append_whitespace(out, base_indent, &mut sg, e.loop_token.span.start());
+                    sg.seg(out, "loop");
                     append_bracketed_statement_list(
                         out,
                         base_indent,
                         &mut sg,
                         e.body.brace_token.span.open().start(),
-                        "loop {",
+                        " {",
                         Some(&e.attrs),
                         &e.body.stmts,
                         e.body.brace_token.span.close().start(),
@@ -845,7 +877,7 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     new_sg_macro(out, base_indent, &e.mac, false)
                 },
@@ -854,68 +886,98 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     if check_split_brace_threshold(out, e.arms.len()) ||
                         e
                             .arms
                             .iter()
-                            .any(|s| has_comments(out, s) || (s.pat.has_attrs() && out.config.split_attributes)) {
+                            .any(
+                                |s| has_comments(out, s) || (s.pat.has_attrs() && out.config.split_attributes) ||
+                                    s
+                                        .comma
+                                        .is_some_and(
+                                            |c| out
+                                                .whitespaces
+                                                .contains_key(&crate::whitespace::HashLineColumn(c.span.start())),
+                                        ),
+                            ) ||
+                        e.attrs.iter().any(|a| matches!(a.style, syn::AttrStyle::Inner(_))) ||
+                        out
+                            .whitespaces
+                            .contains_key(&crate::whitespace::HashLineColumn(e.brace_token.span.close().start())) {
                         sg.initial_split();
                     }
                     append_whitespace(out, base_indent, &mut sg, e.match_token.span.start());
                     sg.seg(out, "match ");
                     sg.child(e.expr.make_segs(out, base_indent));
+                    append_whitespace(out, base_indent, &mut sg, e.brace_token.span.open().start());
                     sg.seg(out, " {");
                     sg.seg_unsplit(out, " ");
                     let indent = base_indent.indent();
+                    for attr in &e.attrs {
+                        if !matches!(attr.style, syn::AttrStyle::Inner(_)) {
+                            continue;
+                        }
+                        sg.split(out, indent.clone(), true);
+                        append_attr(out, &indent, &mut sg, attr);
+                    }
+                    let mut comma_whitespace = None;
                     for (i, arm) in e.arms.iter().enumerate() {
                         sg.split(out, indent.clone(), true);
-                        sg.child(
-                            new_sg_outer_attrs(
-                                out,
-                                &indent,
-                                &arm.attrs,
-                                arm.span(),
-                                |out: &mut MakeSegsState, base_indent: &Alignment| {
-                                    let mut sg = new_sg(out);
-                                    sg.child({
-                                        if let Some(guard) = &arm.guard {
-                                            new_sg_binary(
-                                                out,
-                                                base_indent,
-                                                &arm.pat,
-                                                guard.0.span.start(),
-                                                " if",
-                                                guard.1.as_ref(),
-                                            )
-                                        } else {
-                                            arm.pat.make_segs(out, base_indent)
-                                        }
-                                    });
-                                    append_whitespace(
+                        if let Some(loc) = comma_whitespace.take() {
+                            append_whitespace(out, &indent, &mut sg, loc);
+                        }
+                        if arm.attrs.is_empty() {
+                            if let Some(t) = arm.pat.to_token_stream().into_iter().next() {
+                                append_whitespace(out, &indent, &mut sg, t.span().start());
+                            }
+                        }
+                        comma_whitespace = arm.comma.map(|c| c.span.start());
+                        out.record_element(arm.span());
+                        sg.child(new_sg_outer_attrs(out, &indent, &arm.attrs, || {
+                            let mut arm = arm.clone();
+                            arm.comma = None;
+                            return arm.span();
+                        }, |out: &mut MakeSegsState, base_indent: &Alignment| {
+                            let mut sg = new_sg(out);
+                            sg.child({
+                                if let Some(guard) = &arm.guard {
+                                    new_sg_binary(
                                         out,
                                         base_indent,
-                                        &mut sg,
-                                        arm.fat_arrow_token.spans[0].start(),
-                                    );
-                                    sg.seg(out, " => ");
-                                    sg.child(arm.body.make_segs(out, base_indent));
-                                    sg.reverse_children();
-                                    sg.build(out)
-                                },
-                            ),
-                        );
-                        if i == e.arms.len() - 1 {
+                                        &arm.pat,
+                                        guard.0.span.start(),
+                                        " if",
+                                        guard.1.as_ref(),
+                                    )
+                                } else {
+                                    arm.pat.make_segs(out, base_indent)
+                                }
+                            });
+                            append_whitespace(out, base_indent, &mut sg, arm.fat_arrow_token.spans[0].start());
+                            sg.seg(out, " => ");
+                            sg.child(arm.body.make_segs(out, base_indent));
+                            sg.reverse_children();
+                            return sg.build(out);
+                        }));
+                        if out.macro_depth.get() > 0 {
+                            if arm.comma.is_some() {
+                                sg.seg(out, ",");
+                            }
+                        } else if i == e.arms.len() - 1 {
                             sg.seg_split(out, ",");
                         } else {
                             sg.seg(out, ",");
                         }
                         sg.seg_unsplit(out, " ");
                     }
+                    if let Some(loc) = comma_whitespace.take() {
+                        append_whitespace(out, &indent, &mut sg, loc);
+                    }
+                    append_whitespace(out, &indent, &mut sg, e.brace_token.span.close().start());
                     sg.split(out, base_indent.clone(), false);
-                    append_whitespace(out, base_indent, &mut sg, e.brace_token.span.close().start());
                     sg.seg(out, "}");
                     sg.build(out)
                 },
@@ -924,7 +986,7 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     new_sg_dotted(out, base_indent, Dotted::Method(e))
                 },
@@ -933,7 +995,7 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     append_whitespace(out, base_indent, &mut sg, e.paren_token.span.open().start());
@@ -948,7 +1010,7 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     build_extended_path(out, base_indent, &e.qself, &e.path)
                 },
@@ -957,7 +1019,7 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let (tok, tok_loc) = match e.limits {
                         syn::RangeLimits::HalfOpen(x) => ("..", x.spans[0].start()),
@@ -969,13 +1031,19 @@ impl Formattable for &Expr {
                             let mut sg = new_sg(out);
                             append_whitespace(out, base_indent, &mut sg, tok_loc);
                             sg.seg(out, tok);
+                            if r.to_token_stream().to_string().starts_with('.') {
+                                sg.seg(out, " ");
+                            }
                             sg.child(r.as_ref().make_segs(out, base_indent));
                             sg.build(out)
                         },
                         (Some(l), None) => {
                             let mut sg = new_sg(out);
-                            append_whitespace(out, base_indent, &mut sg, tok_loc);
                             sg.child(l.as_ref().make_segs(out, base_indent));
+                            append_whitespace(out, base_indent, &mut sg, tok_loc);
+                            if l.to_token_stream().to_string().ends_with('.') {
+                                sg.seg(out, " ");
+                            }
                             sg.seg(out, tok);
                             sg.build(out)
                         },
@@ -994,7 +1062,7 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     build_ref(
                         out,
@@ -1010,13 +1078,14 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     build_array_type(
                         out,
                         base_indent,
-                        e.bracket_token.span.open().start(),
+                        &e.bracket_token,
                         e.expr.as_ref(),
+                        &e.semi_token,
                         e.len.as_ref(),
                     )
                 },
@@ -1025,7 +1094,7 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     append_whitespace(out, base_indent, &mut sg, e.return_token.span.start());
@@ -1041,17 +1110,25 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     if out
                         .config
                         .split_brace_threshold
                         .map(|t| e.fields.len() + e.rest.iter().count() > t)
-                        .unwrap_or(false) {
+                        .unwrap_or(false) ||
+                        e
+                            .dot2_token
+                            .as_ref()
+                            .is_some_and(
+                                |d| out
+                                    .whitespaces
+                                    .contains_key(&crate::whitespace::HashLineColumn(d.spans[0].start())),
+                            ) {
                         sg.initial_split();
                     }
-                    sg.child(build_path(out, base_indent, &e.path));
+                    sg.child(build_extended_path(out, base_indent, &e.qself, &e.path));
                     append_bracketed_list_curly(
                         out,
                         base_indent,
@@ -1076,7 +1153,7 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| match get_dotted(self) {
                     DottedRes::Dotted(d) => new_sg_dotted(out, base_indent, d),
                     DottedRes::Leaf(_) => {
@@ -1092,7 +1169,7 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     append_whitespace(out, base_indent, &mut sg, e.try_token.span.start());
@@ -1114,7 +1191,7 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     new_sg_bracketed_list(
                         out,
@@ -1124,7 +1201,11 @@ impl Formattable for &Expr {
                         false,
                         ",",
                         &e.elems,
-                        InlineListSuffix::UnitPunct::<Expr>,
+                        if out.macro_depth.get() == 0 {
+                            InlineListSuffix::UnitPunct::<Expr>
+                        } else {
+                            InlineListSuffix::VerbatimPunct
+                        },
                         e.paren_token.span.close().start(),
                         ")",
                     )
@@ -1134,7 +1215,7 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     append_whitespace(
@@ -1152,16 +1233,17 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     append_whitespace(out, base_indent, &mut sg, e.unsafe_token.span.start());
+                    sg.seg(out, "unsafe");
                     append_bracketed_statement_list(
                         out,
                         base_indent,
                         &mut sg,
                         e.block.brace_token.span.open().start(),
-                        "unsafe {",
+                        " {",
                         Some(&e.attrs),
                         &e.block.stmts,
                         e.block.brace_token.span.close().start(),
@@ -1179,7 +1261,7 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     if let Some(l) = &e.label {
@@ -1206,7 +1288,7 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     append_whitespace(out, base_indent, &mut sg, e.yield_token.span.start());
@@ -1222,7 +1304,7 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     append_whitespace(out, base_indent, &mut sg, e.const_token.span.start());
@@ -1244,7 +1326,7 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, _base_indent: &Alignment| {
                     let mut node = new_sg(out);
                     append_whitespace(out, base_indent, &mut node, e.underscore_token.span.start());
@@ -1256,7 +1338,7 @@ impl Formattable for &Expr {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     build_ref(out, base_indent, e.and_token.span.start(), true, Some(match &e.mutability {
                         syn::PointerMutability::Const(m) => (&m.span, BuildRefMutability::Const),
@@ -1289,7 +1371,7 @@ impl Formattable for FieldValue {
             out,
             base_indent,
             &self.attrs,
-            self.span(),
+            || self.span(),
             |out: &mut MakeSegsState, base_indent: &Alignment| {
                 let mut sg = new_sg(out);
                 if let Some(col) = &self.colon_token {
@@ -1300,7 +1382,7 @@ impl Formattable for FieldValue {
                         },
                         syn::Member::Unnamed(i) => {
                             append_whitespace(out, base_indent, &mut sg, i.span.start());
-                            sg.seg(out, i.index);
+                            sg.seg(out, index_text(i));
                         },
                     };
                     append_whitespace(out, base_indent, &mut sg, col.span.start());

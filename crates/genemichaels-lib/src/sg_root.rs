@@ -31,9 +31,10 @@ impl Formattable for File {
                 out,
                 base_indent,
                 &ast.attrs,
-                ast.span(),
+                || ast.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
+                    sg.initial_split();
                     append_statement_list_raw(out, base_indent, &mut sg, Some(LineColumn {
                         line: 0,
                         column: 0,

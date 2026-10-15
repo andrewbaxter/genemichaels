@@ -36,7 +36,10 @@ use {
             Cell,
             RefCell,
         },
-        collections::BTreeMap,
+        collections::{
+            BTreeMap,
+            BTreeSet,
+        },
         fs,
         io::Write,
         process::{
@@ -222,6 +225,12 @@ pub fn format_ast(
         whitespaces.into_iter().map(|(k, v)| (k, (1, v))).collect();
     ast.normalize_imports(config, &mut whitespaces);
     ast.normalize_declarations(config, &mut whitespaces);
+    if config.declaration_normalization != DeclarationNormalizationMode::None {
+        for _ in 0 .. 3 {
+            ast.normalize_imports(config, &mut whitespaces);
+            ast.normalize_declarations(config, &mut whitespaces);
+        }
+    }
 
     // Ensure any orphaned whitespace from import normalization (e.g. removed commas)
     // is preserved in order to alert for formatting bugs (i.e. import normalization
@@ -231,51 +240,83 @@ pub fn format_ast(
             *count = 1;
         }
     }
-
-    // Build text
-    let mut out = MakeSegsState {
-        nodes: vec![],
-        segs: vec![],
-        whitespaces,
-        block_whitespaces: block_whitespaces,
-        config: config.clone(),
-        macro_depth: Default::default(),
-        warnings: vec![],
-    };
-    let base_indent = Alignment(Rc::new(RefCell::new(Alignment_ {
-        parent: None,
-        active: false,
-    })));
-    let root = ast.make_segs(&mut out, &base_indent);
-    if out.whitespaces.contains_key(&HashLineColumn(LineColumn {
-        line: 0,
-        column: 1,
-    })) {
-        let mut sg = new_sg(&mut out);
-        append_whitespace(&mut out, &base_indent, &mut sg, LineColumn {
+    let mut retried = false;
+    let (mut out, root) = loop {
+        let mut out = MakeSegsState {
+            nodes: vec![],
+            segs: vec![],
+            whitespaces: whitespaces.clone(),
+            whitespace_anchors: BTreeSet::new(),
+            has_genem_skip_comments: whitespaces
+                .keys()
+                .any(|k| sg_general::has_directive_comment(&whitespaces, k.0, "genemichaels-skip")),
+            element_spans: vec![],
+            block_whitespaces: block_whitespaces.clone(),
+            config: config.clone(),
+            macro_depth: Default::default(),
+            warnings: vec![],
+        };
+        let base_indent = Alignment(Rc::new(RefCell::new(Alignment_ {
+            parent: None,
+            active: false,
+        })));
+        let root = ast.make_segs(&mut out, &base_indent);
+        if out.whitespaces.contains_key(&HashLineColumn(LineColumn {
             line: 0,
             column: 1,
-        });
-        sg.build(&mut out);
-    }
+        })) {
+            let mut sg = new_sg(&mut out);
+            append_whitespace(&mut out, &base_indent, &mut sg, LineColumn {
+                line: 0,
+                column: 1,
+            });
+            sg.build(&mut out);
+        }
+        if retried {
+            break (out, root);
+        }
+        retried = true;
+        let mut moved = false;
+        for lost in out.whitespaces.keys() {
+            if out.whitespace_anchors.contains(lost) {
+                continue;
+            }
+            let enclosing = out.element_spans.iter().filter(|(start, end)| {
+                let start = HashLineColumn(*start);
+                return start < *lost && *lost < HashLineColumn(*end) && out.whitespace_anchors.contains(&start);
+            }).map(|(start, _)| HashLineColumn(*start)).max();
+            let Some(anchor) =
+                enclosing.or_else(
+                    || out.whitespace_anchors.range(..*lost).rev().find(|a| a.0.line > 0).copied(),
+                ) else {
+                    continue;
+                };
+            if whitespaces.remove(lost).is_none() {
+                continue;
+            }
+            let lost_whitespace = &out.whitespaces.get(lost).unwrap().1;
+            let anchor_whitespace = &mut whitespaces.entry(anchor).or_insert((1, vec![])).1;
+            for ws in lost_whitespace.iter().cloned() {
+                if let (Some(WhitespaceMode::Comment(previous)), WhitespaceMode::Comment(comment)) =
+                    (anchor_whitespace.last_mut().map(|w| &mut w.mode), &ws.mode) {
+                    if previous.mode == comment.mode {
+                        previous.lines.push_str("\n");
+                        previous.lines.push_str(&comment.lines);
+                        continue;
+                    }
+                }
+                anchor_whitespace.push(ws);
+            }
+            moved = true;
+        }
+        if !moved {
+            break (out, root);
+        }
+    };
     let mut lines = Lines {
         head: None,
         owned_lines: vec![],
     };
-    {
-        let line_i = LineIdx(lines.owned_lines.len());
-        lines.owned_lines.push(Line {
-            next: None,
-            segs: out.segs.iter().enumerate().map(|(i, _)| SegmentIdx(i)).collect(),
-        });
-        lines.head = Some(line_i);
-        for (j, seg_i) in lines.owned_lines.get(line_i.0).unwrap().segs.iter().enumerate() {
-            out.segs.get_mut(seg_i.0).unwrap().line = Some(SegmentLine {
-                line: line_i,
-                seg_index: j,
-            });
-        }
-    }
 
     // Do initial splits
     //
@@ -286,63 +327,65 @@ pub fn format_ast(
     // * comments segments
     {
         let synth_seg_node = new_sg(&mut out).build(&mut out);
-        let mut cur = lines.head;
-        let mut skip_first = false;
+        let mut line_segs: Vec<Vec<SegmentIdx>> = vec![vec![]];
         let mut prev_comment = None;
-        while let Some(line_i) = cur {
-            let mut res = None;
-            {
-                'segs : loop {
-                    for (i, seg_i) in lines.owned_lines.get(line_i.0).unwrap().segs.iter().enumerate() {
-                        if i == 0 && skip_first {
-                            skip_first = false;
-                            continue;
-                        }
-                        let seg = out.segs.get(seg_i.0).unwrap();
-                        let node = out.nodes.get(seg.node.0).unwrap();
-                        match (&seg.content, match (&seg.mode, node.split) {
-                            (SegmentMode::All, true) => true,
-                            (SegmentMode::All, false) => true,
-                            (SegmentMode::Unsplit, true) => false,
-                            (SegmentMode::Unsplit, false) => true,
-                            (SegmentMode::Split, true) => true,
-                            (SegmentMode::Split, false) => false,
-                        }) {
-                            (SegmentContent::Break(_, _), true) => {
-                                res = Some((line_i, i, None));
-                                prev_comment = None;
-                                break 'segs;
-                            },
-                            (SegmentContent::Whitespace(c), _) => {
-                                res = Some((line_i, i, None));
-                                prev_comment = Some(c.0.clone());
-                                break 'segs;
-                            },
-                            (_, _) => {
-                                if let Some(a) = prev_comment.take() {
-                                    let seg_i = SegmentIdx(out.segs.len());
-                                    out.segs.push(Segment {
-                                        node: synth_seg_node,
-                                        line: None,
-                                        mode: SegmentMode::All,
-                                        content: SegmentContent::Break(a, true),
-                                    });
-                                    res = Some((line_i, i, Some(seg_i)));
-                                    break 'segs;
-                                }
-                            },
-                        };
+        for seg_i in (0 .. out.segs.len()).map(SegmentIdx) {
+            let seg = out.segs.get(seg_i.0).unwrap();
+            let node = out.nodes.get(seg.node.0).unwrap();
+            match (&seg.content, match (&seg.mode, node.split) {
+                (SegmentMode::All, true) => true,
+                (SegmentMode::All, false) => true,
+                (SegmentMode::Unsplit, true) => false,
+                (SegmentMode::Unsplit, false) => true,
+                (SegmentMode::Split, true) => true,
+                (SegmentMode::Split, false) => false,
+            }) {
+                (SegmentContent::Break(a, activate), true) => {
+                    if *activate {
+                        a.activate();
                     }
+                    line_segs.push(vec![seg_i]);
                     prev_comment = None;
-                    break;
-                }
-            }
-            if let Some((line_i, at, insert_start)) = res {
-                split_line_at(&mut out, &mut lines, line_i, at, insert_start);
-                skip_first = true;
-            }
-            cur = lines.owned_lines.get(line_i.0).unwrap().next;
+                },
+                (SegmentContent::Whitespace(c), _) => {
+                    c.0.activate();
+                    prev_comment = Some(c.0.clone());
+                    line_segs.push(vec![seg_i]);
+                },
+                (_, _) => {
+                    if let Some(a) = prev_comment.take() {
+                        a.activate();
+                        let synth_seg_i = SegmentIdx(out.segs.len());
+                        out.segs.push(Segment {
+                            node: synth_seg_node,
+                            line: None,
+                            mode: SegmentMode::All,
+                            content: SegmentContent::Break(a, true),
+                        });
+                        line_segs.push(vec![synth_seg_i]);
+                    }
+                    line_segs.last_mut().unwrap().push(seg_i);
+                },
+            };
         }
+        let line_count = line_segs.len();
+        for (line_i, segs) in line_segs.into_iter().enumerate() {
+            for (j, seg_i) in segs.iter().enumerate() {
+                out.segs.get_mut(seg_i.0).unwrap().line = Some(SegmentLine {
+                    line: LineIdx(line_i),
+                    seg_index: j,
+                });
+            }
+            lines.owned_lines.push(Line {
+                next: if line_i + 1 < line_count {
+                    Some(LineIdx(line_i + 1))
+                } else {
+                    None
+                },
+                segs: segs,
+            });
+        }
+        lines.head = Some(LineIdx(0));
     }
 
     // Do width based splitting, other splitting
@@ -394,6 +437,12 @@ pub fn format_ast(
             } else {
                 self.col += s.chars().count();
             }
+        }
+
+        fn trim_line_end(&mut self) {
+            let len = self.text.trim_end_matches([' ', '\t']).len();
+            self.col -= self.text[len..].chars().count();
+            self.text.truncate(len);
         }
     }
 
@@ -487,18 +536,28 @@ pub fn format_ast(
                         }
                     },
                     SegmentContent::Whitespace((b, whitespaces)) => {
-                        for (comment_i, whitespace) in whitespaces.iter().enumerate() {
+                        rendered.trim_line_end();
+                        for whitespace in whitespaces.iter() {
                             match &whitespace.mode {
                                 WhitespaceMode::BlankLines(count) => {
-                                    if *count > 0 {
+                                    if rendered.text.is_empty() {
                                         for _ in 0 .. *count {
                                             rendered.push('\n');
                                         }
-                                        continue;
+                                    } else {
+                                        if rendered.col > 0 {
+                                            rendered.push('\n');
+                                        }
+                                        while (rendered.text.len() -
+                                            rendered.text.trim_end_matches('\n').len()).saturating_sub(1) <
+                                            *count {
+                                            rendered.push('\n');
+                                        }
                                     }
+                                    continue;
                                 },
                                 WhitespaceMode::Comment(comment) => {
-                                    if comment_i > 0 {
+                                    if rendered.col > 0 {
                                         rendered.push('\n');
                                     }
                                     let prefix = format!(
@@ -514,6 +573,10 @@ pub fn format_ast(
                                             CommentMode::Directive => "#",
                                         }
                                     );
+                                    if comment.lines.trim().is_empty() {
+                                        rendered.push_str(prefix.trim_end());
+                                        continue;
+                                    }
                                     let verbatim;
                                     match comment.mode {
                                         CommentMode::Directive => {
@@ -526,7 +589,9 @@ pub fn format_ast(
                                                         &format!("{}{}: {}", prefix, k.trim(), v.trim()),
                                                     );
                                                 } else {
-                                                    rendered.push_str(&format!("{}{}", prefix, line.trim()));
+                                                    rendered.push_str(
+                                                        format!("{}{}", prefix, line.trim()).trim_end(),
+                                                    );
                                                 }
                                             }
                                             continue;
@@ -538,7 +603,8 @@ pub fn format_ast(
                                             verbatim = true;
                                         },
                                         _ => {
-                                            match format_md(&mut rendered.text, config, &prefix, &comment.lines) {
+                                            let mut md = String::new();
+                                            match format_md(&mut md, config, &prefix, &comment.lines) {
                                                 Err(e) => {
                                                     let err =
                                                         loga::err_with(
@@ -557,32 +623,118 @@ pub fn format_ast(
                                                     verbatim = true;
                                                 },
                                                 Ok(_) => {
-                                                    let text = &rendered.text;
-                                                    rendered.col = if let Some(nl_pos) = text.rfind('\n') {
-                                                        text[nl_pos + 1..].chars().count()
-                                                    } else {
-                                                        text.chars().count()
+                                                    let line_prefix = prefix.trim_end();
+                                                    let relex =
+                                                        |text: &str| text
+                                                            .lines()
+                                                            .map(|l| l.strip_prefix(line_prefix).unwrap_or(l))
+                                                            .collect::<Vec<_>>()
+                                                            .join("\n");
+                                                    let is_stable = |md: &str| {
+                                                        let mut md2 = String::new();
+                                                        return format_md(
+                                                            &mut md2,
+                                                            config,
+                                                            &prefix,
+                                                            &relex(md),
+                                                        ).is_ok() &&
+                                                            md2 == md;
                                                     };
-                                                    verbatim = false;
+                                                    let same_content = |md: &str| {
+                                                        let words = |text: &str| {
+                                                            let mut words =
+                                                                text
+                                                                    .split(|c: char| !c.is_alphanumeric())
+                                                                    .filter(|w| !w.is_empty())
+                                                                    .map(|w| w.to_string())
+                                                                    .collect::<Vec<_>>();
+                                                            words.sort();
+                                                            return words;
+                                                        };
+                                                        let md_text = relex(md);
+                                                        return words(&md_text) == words(&comment.lines) &&
+                                                            (md_text.trim().is_empty() ==
+                                                                comment.lines.trim().is_empty());
+                                                    };
+                                                    let mut use_md = None;
+                                                    if !same_content(&md) { } else if is_stable(&md) {
+                                                        use_md = Some(md);
+                                                    } else {
+                                                        let mut verbatim_text = String::new();
+                                                        for line in comment.lines.lines() {
+                                                            let line = line.strip_prefix(' ').unwrap_or(line);
+                                                            verbatim_text.push_str(
+                                                                &format!("{}{}\n", prefix, line.trim_end()),
+                                                            );
+                                                        }
+                                                        let mut md_after = String::new();
+                                                        if format_md(
+                                                            &mut md_after,
+                                                            config,
+                                                            &prefix,
+                                                            &relex(&verbatim_text),
+                                                        ).is_ok() &&
+                                                            same_content(&md_after) &&
+                                                            is_stable(&md_after) {
+                                                            use_md = Some(md_after);
+                                                        }
+                                                    }
+                                                    if let Some(md) = use_md {
+                                                        let md =
+                                                            md
+                                                                .split('\n')
+                                                                .map(|l| l.trim_end_matches([' ', '\t']))
+                                                                .collect::<Vec<_>>()
+                                                                .join("\n");
+                                                        rendered.text.push_str(&md);
+                                                        let text = &rendered.text;
+                                                        rendered.col = if let Some(nl_pos) = text.rfind('\n') {
+                                                            text[nl_pos + 1..].chars().count()
+                                                        } else {
+                                                            text.chars().count()
+                                                        };
+                                                        verbatim = false;
+                                                    } else {
+                                                        verbatim = true;
+                                                    }
                                                 },
                                             }
                                         },
                                     };
                                     if verbatim {
-                                        for (i, line) in comment.lines.lines().enumerate() {
+                                        let lines = comment.lines.lines().collect::<Vec<_>>();
+                                        let first = lines.iter().position(|l| !l.trim().is_empty()).unwrap_or(0);
+                                        let last =
+                                            lines
+                                                .iter()
+                                                .rposition(|l| !l.trim().is_empty())
+                                                .map(|i| i + 1)
+                                                .unwrap_or(0);
+                                        for (i, line) in lines[first .. last.max(first)].iter().enumerate() {
                                             if i > 0 {
                                                 rendered.push('\n');
                                             }
                                             let line = line.strip_prefix(' ').unwrap_or(line);
-                                            rendered.push_str(&format!("{}{}", prefix, line.trim_end()));
+                                            rendered.push_str(format!("{}{}", prefix, line).trim_end());
                                         }
                                     }
                                 },
                             }
                         }
+                        if rendered.text.is_empty() {
+                            break 'continue_lineloop;
+                        }
+                        if rendered.col == 0 && rendered.text.ends_with('\n') {
+                            rendered.text.pop();
+                            rendered.col =
+                                rendered.text[rendered.text.rfind('\n').map(|i| i + 1).unwrap_or(0)..]
+                                    .chars()
+                                    .count();
+                        }
                     },
                 }
             }
+            rendered.trim_line_end();
             rendered.push('\n');
             break;
         }
@@ -610,7 +762,37 @@ pub fn format_str(source: &str, config: &FormatConfig) -> Result<FormatRes, loga
     let shebang;
     let shebang_line_off;
     let source1;
-    if source.starts_with("#!/") {
+    let is_shebang = source.starts_with("#!") && {
+        let mut rest = &source[2..];
+        loop {
+            rest = rest.trim_start();
+            if rest.starts_with("//") {
+                rest = &rest[rest.find('\n').unwrap_or(rest.len())..];
+            } else if rest.starts_with("/*") {
+                let mut nesting = 0usize;
+                let mut i = 0usize;
+                while i < rest.len() {
+                    if rest[i..].starts_with("/*") {
+                        nesting += 1;
+                        i += 2;
+                    } else if rest[i..].starts_with("*/") {
+                        nesting -= 1;
+                        i += 2;
+                        if nesting == 0 {
+                            break;
+                        }
+                    } else {
+                        i += rest[i..].chars().next().unwrap().len_utf8();
+                    }
+                }
+                rest = &rest[i..];
+            } else {
+                break;
+            }
+        }
+        !rest.starts_with('[')
+    };
+    if is_shebang {
         let shebang_end = match source.find("\n") {
             Some(o) => o + 1,
             None => source.len(),
@@ -644,20 +826,29 @@ pub fn format_str(source: &str, config: &FormatConfig) -> Result<FormatRes, loga
         }
     }
     let tokens = fixup_syntax::fixup_deprecated_syntax(tokens);
-    let out =
-        format_ast(
-            syn::parse2::<File>(
-                tokens,
-            ).map_err(
-                |e| loga::err_with(
-                    "Syn error parsing Rust code",
-                    ea!(line = e.span().start().line + shebang_line_off, column = e.span().start().column, err = e),
-                ),
-            )?,
-            config,
-            whitespaces,
-            block_whitespaces,
+    let ast =
+        syn::parse2::<File>(
+            tokens,
+        ).map_err(
+            |e| loga::err_with(
+                "Syn error parsing Rust code",
+                ea!(line = e.span().start().line + shebang_line_off, column = e.span().start().column, err = e),
+            ),
         )?;
+    if ast
+        .attrs
+        .iter()
+        .any(
+            |a| matches!(a.style, syn::AttrStyle::Inner(_)) &&
+                a.meta.to_token_stream().to_string().contains("rustfmt :: skip"),
+        ) {
+        return Ok(FormatRes {
+            rendered: source.to_string(),
+            lost_comments: BTreeMap::new(),
+            warnings: vec![],
+        });
+    }
+    let out = format_ast(ast, config, whitespaces, block_whitespaces)?;
     if let Some(shebang) = shebang {
         return Ok(FormatRes {
             rendered: format!("{}{}", shebang, out.rendered),
@@ -847,6 +1038,15 @@ pub struct MakeSegsState {
     segs: Vec<Segment>,
     pub(crate) warnings: Vec<Error>,
     whitespaces: BTreeMap<HashLineColumn, (usize, Vec<Whitespace>)>,
+    whitespace_anchors: BTreeSet<HashLineColumn>,
+    has_genem_skip_comments: bool,
+    element_spans: Vec<(LineColumn, LineColumn)>,
+}
+
+impl MakeSegsState {
+    pub(crate) fn record_element(&mut self, span: proc_macro2::Span) {
+        self.element_spans.push((span.start(), span.end()));
+    }
 }
 
 #[derive(PartialEq, Debug)]
@@ -980,20 +1180,17 @@ pub(crate) enum SegmentMode {
 pub(crate) fn split_group(out: &mut MakeSegsState, lines: &mut Lines, sg_i: SplitGroupIdx) {
     let sg = out.nodes.get_mut(sg_i.0).unwrap();
     sg.split = true;
-    for seg_i in &sg.segments.clone() {
-        let res = {
-            let seg = out.segs.get(seg_i.0).unwrap();
-            match (&seg.mode, &seg.content) {
-                (SegmentMode::Split, SegmentContent::Break(_, _)) => {
-                    let seg_line = seg.line.as_ref().unwrap();
-                    Some((seg_line.line, seg_line.seg_index))
-                },
-                _ => None,
-            }
-        };
-        if let Some((line_i, off)) = res {
-            split_line_at(out, lines, line_i, off, None);
-        };
+    let mut breaks = vec![];
+    for seg_i in &sg.segments {
+        let seg = out.segs.get(seg_i.0).unwrap();
+        if let (SegmentMode::Split, SegmentContent::Break(_, _)) = (&seg.mode, &seg.content) {
+            let seg_line = seg.line.as_ref().unwrap();
+            breaks.push((seg_line.line.0, seg_line.seg_index));
+        }
+    }
+    breaks.sort_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(&a.1)));
+    for (line_i, off) in breaks {
+        split_line_at(out, lines, LineIdx(line_i), off, None);
     }
 }
 

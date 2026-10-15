@@ -10,6 +10,7 @@ use {
         sg_general::{
             append_bracketed_statement_list,
             append_whitespace,
+            index_text,
             new_sg_binary,
             new_sg_macro,
             new_sg_outer_attrs,
@@ -24,7 +25,6 @@ use {
         },
         sg_type::{
             BuildRefMutability,
-            append_path,
             build_extended_path,
             build_ref,
         },
@@ -71,7 +71,7 @@ impl Formattable for &Pat {
                 out,
                 base_indent,
                 &x.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut prefix = String::new();
                     let mut start = None;
@@ -160,7 +160,7 @@ impl Formattable for &Pat {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, _base_indent: &Alignment| {
                     let mut node = new_sg(out);
                     append_whitespace(out, base_indent, &mut node, e.lit.span().start());
@@ -172,7 +172,7 @@ impl Formattable for &Pat {
                 out,
                 base_indent,
                 &x.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     new_sg_macro(out, base_indent, &x.mac, false)
                 },
@@ -181,7 +181,7 @@ impl Formattable for &Pat {
                 out,
                 base_indent,
                 &x.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     if let Some(t) = &x.leading_vert {
@@ -203,7 +203,7 @@ impl Formattable for &Pat {
                 out,
                 base_indent,
                 &x.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     build_extended_path(out, base_indent, &x.qself, &x.path)
                 },
@@ -212,7 +212,7 @@ impl Formattable for &Pat {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let (tok, tok_loc) = match e.limits {
                         syn::RangeLimits::HalfOpen(x) => ("..", x.spans[0].start()),
@@ -224,13 +224,19 @@ impl Formattable for &Pat {
                             let mut sg = new_sg(out);
                             append_whitespace(out, base_indent, &mut sg, tok_loc);
                             sg.seg(out, tok);
+                            if r.to_token_stream().to_string().starts_with('.') {
+                                sg.seg(out, " ");
+                            }
                             sg.child(r.as_ref().make_segs(out, base_indent));
                             sg.build(out)
                         },
                         (Some(l), None) => {
                             let mut sg = new_sg(out);
-                            append_whitespace(out, base_indent, &mut sg, tok_loc);
                             sg.child(l.as_ref().make_segs(out, base_indent));
+                            append_whitespace(out, base_indent, &mut sg, tok_loc);
+                            if l.to_token_stream().to_string().ends_with('.') {
+                                sg.seg(out, " ");
+                            }
                             sg.seg(out, tok);
                             sg.build(out)
                         },
@@ -249,7 +255,7 @@ impl Formattable for &Pat {
                 out,
                 base_indent,
                 &x.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     build_ref(
                         out,
@@ -265,7 +271,7 @@ impl Formattable for &Pat {
                 out,
                 base_indent,
                 &x.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     new_sg_lit(out, Some((base_indent, vec![x.dot2_token.spans[0].start()])), "..")
                 },
@@ -274,7 +280,7 @@ impl Formattable for &Pat {
                 out,
                 base_indent,
                 &x.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     new_sg_bracketed_list_common(
                         out,
@@ -291,16 +297,16 @@ impl Formattable for &Pat {
                 out,
                 base_indent,
                 &x.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
-                    append_path(
-                        out,
-                        &mut sg,
-                        base_indent,
-                        x.path.leading_colon.map(|t| Some(t.spans[0].start())),
-                        x.path.segments.pairs(),
-                    );
+                    if x.rest.as_ref().is_some_and(|r| {
+                        return (out.config.split_attributes && !r.attrs.is_empty()) ||
+                            out.whitespaces.contains_key(&HashLineColumn(r.dot2_token.spans[0].start()));
+                    }) {
+                        sg.initial_split();
+                    }
+                    sg.child(build_extended_path(out, base_indent, &x.qself, &x.path));
                     append_bracketed_list_curly(
                         out,
                         base_indent,
@@ -309,7 +315,19 @@ impl Formattable for &Pat {
                         &x.fields,
                         x.rest.as_ref().map(|d| {
                             |out: &mut MakeSegsState, base_indent: &Alignment| {
-                                new_sg_lit(out, Some((base_indent, vec![d.dot2_token.spans[0].start()])), "..")
+                                new_sg_outer_attrs(
+                                    out,
+                                    base_indent,
+                                    &d.attrs,
+                                    || d.span(),
+                                    |out: &mut MakeSegsState, base_indent: &Alignment| {
+                                        return new_sg_lit(
+                                            out,
+                                            Some((base_indent, vec![d.dot2_token.spans[0].start()])),
+                                            "..",
+                                        );
+                                    },
+                                )
                             }
                         }),
                         x.brace_token.span.close().start(),
@@ -321,7 +339,7 @@ impl Formattable for &Pat {
                 out,
                 base_indent,
                 &x.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     new_sg_bracketed_list(
                         out,
@@ -331,7 +349,11 @@ impl Formattable for &Pat {
                         false,
                         ",",
                         &x.elems,
-                        InlineListSuffix::UnitPunct::<Expr>,
+                        if out.macro_depth.get() == 0 {
+                            InlineListSuffix::UnitPunct::<Expr>
+                        } else {
+                            InlineListSuffix::VerbatimPunct
+                        },
                         x.paren_token.span.close().start(),
                         ")",
                     )
@@ -341,10 +363,10 @@ impl Formattable for &Pat {
                 out,
                 base_indent,
                 &x.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
-                    sg.child((&x.path).make_segs(out, base_indent));
+                    sg.child(build_extended_path(out, base_indent, &x.qself, &x.path));
                     append_bracketed_list_common(
                         out,
                         base_indent,
@@ -362,7 +384,7 @@ impl Formattable for &Pat {
                 out,
                 base_indent,
                 &x.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     new_sg_binary(out, base_indent, x.pat.as_ref(), x.colon_token.span.start(), ":", x.ty.as_ref())
                 },
@@ -372,7 +394,7 @@ impl Formattable for &Pat {
                 out,
                 base_indent,
                 &x.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, _base_indent: &Alignment| {
                     new_sg_lit(out, Some((base_indent, vec![x.underscore_token.span.start()])), "_")
                 },
@@ -381,7 +403,7 @@ impl Formattable for &Pat {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     append_whitespace(out, base_indent, &mut sg, e.const_token.span.start());
@@ -403,7 +425,7 @@ impl Formattable for &Pat {
                 out,
                 base_indent,
                 &e.attrs,
-                self.span(),
+                || self.span(),
                 |out: &mut MakeSegsState, base_indent: &Alignment| {
                     let mut sg = new_sg(out);
                     append_whitespace(out, base_indent, &mut sg, e.paren_token.span.open().start());
@@ -429,13 +451,19 @@ impl Formattable for FieldPat {
             out,
             base_indent,
             &self.attrs,
-            self.span(),
+            || self.span(),
             |out: &mut MakeSegsState, base_indent: &Alignment| {
                 let mut sg = new_sg(out);
                 if let Some(col) = &self.colon_token {
                     match &self.member {
-                        syn::Member::Named(x) => sg.seg(out, x),
-                        syn::Member::Unnamed(x) => sg.seg(out, x.index),
+                        syn::Member::Named(x) => {
+                            append_whitespace(out, base_indent, &mut sg, x.span().start());
+                            sg.seg(out, x);
+                        },
+                        syn::Member::Unnamed(x) => {
+                            append_whitespace(out, base_indent, &mut sg, x.span.start());
+                            sg.seg(out, index_text(x));
+                        },
                     };
                     append_whitespace(out, base_indent, &mut sg, col.span.start());
                     sg.seg(out, ": ");
